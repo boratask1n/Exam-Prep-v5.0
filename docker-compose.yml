@@ -1,0 +1,22 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: exam-prep-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: exam_prep
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - exam_prep_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d exam_prep"]
+      interval: 3s
+      timeout: 5s
+      retries: 15
+      start_period: 15s
+
+volumes:
+  exam_prep_pg_data:

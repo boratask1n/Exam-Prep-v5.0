@@ -1,0 +1,205 @@
+import { Router, type IRouter } from "express";
+import { db } from "@workspace/db";
+import { questionsTable, drawingsTable } from "@workspace/db";
+import { eq, and, ilike, sql } from "drizzle-orm";
+import {
+  CreateQuestionBody,
+  UpdateQuestionBody,
+  ListQuestionsQueryParams,
+  UploadQuestionImageBody,
+  SaveDrawingBody,
+} from "@workspace/api-zod";
+import path from "path";
+import fs from "fs";
+
+const router: IRouter = Router();
+
+const uploadsDir = process.env.UPLOADS_DIR || path.join(process.cwd(), "uploads");
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+}
+
+function serializeQuestion(q: typeof questionsTable.$inferSelect) {
+  return {
+    ...q,
+    createdAt: q.createdAt.toISOString(),
+    updatedAt: q.updatedAt.toISOString(),
+  };
+}
+
+router.get("/questions", async (req, res) => {
+  const query = ListQuestionsQueryParams.parse(req.query);
+  const conditions = [];
+
+  if (query.category) conditions.push(eq(questionsTable.category, query.category));
+  if (query.source) conditions.push(eq(questionsTable.source, query.source));
+  if (query.lesson) conditions.push(ilike(questionsTable.lesson, `%${query.lesson}%`));
+  if (query.publisher) conditions.push(ilike(questionsTable.publisher!, `%${query.publisher}%`));
+  if (query.status) conditions.push(eq(questionsTable.status, query.status));
+  if (query.topic) conditions.push(ilike(questionsTable.topic!, `%${query.topic}%`));
+
+  const questions = await db
+    .select()
+    .from(questionsTable)
+    .where(conditions.length > 0 ? and(...conditions) : undefined)
+    .orderBy(questionsTable.createdAt);
+
+  res.json(questions.map(serializeQuestion));
+});
+
+router.post("/questions/image", async (req, res) => {
+  const body = UploadQuestionImageBody.parse(req.body);
+  const ext = body.mimeType.split("/")[1] || "jpg";
+  const filename = `img_${Date.now()}.${ext}`;
+  const filepath = path.join(uploadsDir, filename);
+  const base64Data = body.imageData.replace(/^data:image\/\w+;base64,/, "");
+  fs.writeFileSync(filepath, Buffer.from(base64Data, "base64"));
+  res.json({ url: `/api/uploads/${filename}` });
+});
+
+router.get("/uploads/:filename", (req, res) => {
+  const filepath = path.join(uploadsDir, req.params.filename);
+  if (!fs.existsSync(filepath)) {
+    res.status(404).json({ error: "Not found" });
+    return;
+  }
+  res.sendFile(filepath);
+});
+
+router.post("/questions", async (req, res) => {
+  const body = CreateQuestionBody.parse(req.body);
+  const [question] = await db
+    .insert(questionsTable)
+    .values({
+      imageUrl: body.imageUrl ?? null,
+      description: body.description ?? null,
+      lesson: body.lesson,
+      topic: body.topic ?? null,
+      publisher: body.publisher ?? null,
+      testName: body.testName ?? null,
+      testNo: body.testNo ?? null,
+      choice: body.choice ?? null,
+      solutionUrl: body.solutionUrl ?? null,
+      category: body.category ?? "TYT",
+      source: body.source ?? "Banka",
+      status: body.status ?? "Cozulmedi",
+      hasDrawing: false,
+    })
+    .returning();
+
+  res.status(201).json(serializeQuestion(question));
+});
+
+router.get("/questions/:id", async (req, res) => {
+  const id = parseInt(req.params.id);
+  const [question] = await db.select().from(questionsTable).where(eq(questionsTable.id, id));
+  if (!question) { res.status(404).json({ error: "Not found" }); return; }
+  res.json(serializeQuestion(question));
+});
+
+router.patch("/questions/:id", async (req, res) => {
+  const id = parseInt(req.params.id);
+  const body = UpdateQuestionBody.parse(req.body);
+
+  const updateData: Record<string, unknown> = { updatedAt: new Date() };
+  if (body.imageUrl !== undefined) updateData.imageUrl = body.imageUrl;
+  if (body.description !== undefined) updateData.description = body.description;
+  if (body.lesson !== undefined) updateData.lesson = body.lesson;
+  if (body.topic !== undefined) updateData.topic = body.topic;
+  if (body.publisher !== undefined) updateData.publisher = body.publisher;
+  if (body.testName !== undefined) updateData.testName = body.testName;
+  if (body.testNo !== undefined) updateData.testNo = body.testNo;
+  if (body.choice !== undefined) updateData.choice = body.choice;
+  if (body.category !== undefined) updateData.category = body.category;
+  if (body.source !== undefined) updateData.source = body.source;
+  if (body.status !== undefined) updateData.status = body.status;
+  if (body.solutionUrl !== undefined) updateData.solutionUrl = body.solutionUrl;
+
+  const [question] = await db
+    .update(questionsTable)
+    .set(updateData)
+    .where(eq(questionsTable.id, id))
+    .returning();
+
+  if (!question) { res.status(404).json({ error: "Not found" }); return; }
+  res.json(serializeQuestion(question));
+});
+
+router.delete("/questions/:id", async (req, res) => {
+  const id = parseInt(req.params.id);
+  await db.delete(questionsTable).where(eq(questionsTable.id, id));
+  res.status(204).send();
+});
+
+router.get("/questions/:id/drawing", async (req, res) => {
+  const id = parseInt(req.params.id);
+  const [drawing] = await db.select().from(drawingsTable).where(eq(drawingsTable.questionId, id));
+  if (!drawing) {
+    res.json({ id: 0, questionId: id, canvasData: "[]", updatedAt: new Date().toISOString() });
+    return;
+  }
+  res.json({ ...drawing, updatedAt: drawing.updatedAt.toISOString() });
+});
+
+router.put("/questions/:id/drawing", async (req, res) => {
+  const id = parseInt(req.params.id);
+  const body = SaveDrawingBody.parse(req.body);
+
+  const [existing] = await db.select().from(drawingsTable).where(eq(drawingsTable.questionId, id));
+
+  let drawing;
+  if (existing) {
+    [drawing] = await db
+      .update(drawingsTable)
+      .set({ canvasData: body.canvasData, updatedAt: new Date() })
+      .where(eq(drawingsTable.questionId, id))
+      .returning();
+  } else {
+    [drawing] = await db
+      .insert(drawingsTable)
+      .values({ questionId: id, canvasData: body.canvasData })
+      .returning();
+  }
+
+  let hasDrawing = false;
+  try {
+    const parsed = JSON.parse(body.canvasData);
+    if (Array.isArray(parsed)) {
+      hasDrawing = parsed.length > 0;
+    } else if (parsed && typeof parsed === "object") {
+      hasDrawing =
+        (Array.isArray(parsed.overlay) && parsed.overlay.length > 0) ||
+        (Array.isArray(parsed.board) && parsed.board.length > 0);
+    }
+  } catch { hasDrawing = false; }
+
+  await db.update(questionsTable).set({ hasDrawing, updatedAt: new Date() }).where(eq(questionsTable.id, id));
+  res.json({ ...drawing, updatedAt: drawing.updatedAt.toISOString() });
+});
+
+router.get("/filters/options", async (req, res) => {
+  const lessonsResult = await db
+    .selectDistinct({ lesson: questionsTable.lesson })
+    .from(questionsTable)
+    .orderBy(questionsTable.lesson);
+
+  const topicsResult = await db
+    .selectDistinct({ topic: questionsTable.topic })
+    .from(questionsTable)
+    .where(sql`${questionsTable.topic} IS NOT NULL`)
+    .orderBy(questionsTable.topic);
+
+  const publishersResult = await db
+    .selectDistinct({ publisher: questionsTable.publisher })
+    .from(questionsTable)
+    .where(sql`${questionsTable.publisher} IS NOT NULL`)
+    .orderBy(questionsTable.publisher);
+
+  res.json({
+    lessons: lessonsResult.map((r) => r.lesson),
+    topics: topicsResult.map((r) => r.topic).filter(Boolean),
+    publishers: publishersResult.map((r) => r.publisher).filter(Boolean),
+  });
+});
+
+export default router;

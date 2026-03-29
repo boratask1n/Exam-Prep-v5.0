@@ -1,0 +1,649 @@
+openapi: 3.1.0
+info:
+  title: Api
+  version: 0.1.0
+  description: YKS Soru Takibi API
+servers:
+  - url: /api
+    description: Base API path
+tags:
+  - name: health
+    description: Health operations
+  - name: questions
+    description: Question management
+  - name: tests
+    description: Test management
+  - name: drawings
+    description: Drawing management
+paths:
+  /healthz:
+    get:
+      operationId: healthCheck
+      tags: [health]
+      summary: Health check
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+
+  /questions:
+    get:
+      operationId: listQuestions
+      tags: [questions]
+      summary: List all questions with optional filters
+      parameters:
+        - name: category
+          in: query
+          schema:
+            type: string
+            enum: [TYT, AYT]
+        - name: source
+          in: query
+          schema:
+            type: string
+            enum: [Deneme, Banka]
+        - name: lesson
+          in: query
+          schema:
+            type: string
+        - name: publisher
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [Cozulmedi, DogruCozuldu, YanlisHocayaSor]
+        - name: topic
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of questions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Question"
+    post:
+      operationId: createQuestion
+      tags: [questions]
+      summary: Create a new question
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateQuestionInput"
+      responses:
+        "201":
+          description: Created question
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Question"
+
+  /questions/{id}:
+    get:
+      operationId: getQuestion
+      tags: [questions]
+      summary: Get a question by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Question
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Question"
+        "404":
+          description: Not found
+    patch:
+      operationId: updateQuestion
+      tags: [questions]
+      summary: Update a question
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateQuestionInput"
+      responses:
+        "200":
+          description: Updated question
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Question"
+    delete:
+      operationId: deleteQuestion
+      tags: [questions]
+      summary: Delete a question
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+
+  /questions/image:
+    post:
+      operationId: uploadQuestionImage
+      tags: [questions]
+      summary: Upload a question image (base64)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                imageData:
+                  type: string
+                mimeType:
+                  type: string
+              required:
+                - imageData
+                - mimeType
+      responses:
+        "200":
+          description: Image URL
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  url:
+                    type: string
+                required:
+                  - url
+
+  /questions/{id}/drawing:
+    get:
+      operationId: getDrawing
+      tags: [drawings]
+      summary: Get drawing data for a question
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Drawing data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Drawing"
+    put:
+      operationId: saveDrawing
+      tags: [drawings]
+      summary: Save drawing data for a question
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SaveDrawingInput"
+      responses:
+        "200":
+          description: Saved drawing
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Drawing"
+
+  /tests:
+    get:
+      operationId: listTests
+      tags: [tests]
+      summary: List all test sessions
+      responses:
+        "200":
+          description: List of tests
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TestSession"
+    post:
+      operationId: createTest
+      tags: [tests]
+      summary: Create a test session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateTestInput"
+      responses:
+        "201":
+          description: Created test
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TestSession"
+
+  /tests/{id}:
+    get:
+      operationId: getTest
+      tags: [tests]
+      summary: Get a test session
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Test session with questions
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TestSessionWithQuestions"
+    patch:
+      operationId: updateTest
+      tags: [tests]
+      summary: Update test session (e.g. mark completed)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateTestSessionInput"
+      responses:
+        "200":
+          description: Updated test session
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TestSessionWithQuestions"
+    delete:
+      operationId: deleteTest
+      tags: [tests]
+      summary: Delete a test session
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+
+  /tests/{id}/questions/{questionId}/status:
+    patch:
+      operationId: updateTestQuestionStatus
+      tags: [tests]
+      summary: Update question status within a test (also updates main DB)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: questionId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status:
+                  type: string
+                  enum: [Cozulmedi, DogruCozuldu, YanlisHocayaSor]
+              required:
+                - status
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Question"
+
+  /filters/options:
+    get:
+      operationId: getFilterOptions
+      tags: [questions]
+      summary: Get distinct filter options (lessons, topics, publishers)
+      responses:
+        "200":
+          description: Filter options
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FilterOptions"
+
+components:
+  schemas:
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+      required:
+        - status
+
+    Question:
+      type: object
+      properties:
+        id:
+          type: integer
+        imageUrl:
+          type: string
+          nullable: true
+        description:
+          type: string
+          nullable: true
+        lesson:
+          type: string
+        topic:
+          type: string
+          nullable: true
+        publisher:
+          type: string
+          nullable: true
+        testName:
+          type: string
+          nullable: true
+        testNo:
+          type: string
+          nullable: true
+        choice:
+          type: string
+          nullable: true
+          enum: [A, B, C, D, E, null]
+        solutionUrl:
+          type: string
+          nullable: true
+        category:
+          type: string
+          enum: [TYT, AYT]
+        source:
+          type: string
+          enum: [Deneme, Banka]
+        status:
+          type: string
+          enum: [Cozulmedi, DogruCozuldu, YanlisHocayaSor]
+        hasDrawing:
+          type: boolean
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+      required:
+        - id
+        - lesson
+        - category
+        - source
+        - status
+        - hasDrawing
+        - createdAt
+        - updatedAt
+
+    CreateQuestionInput:
+      type: object
+      properties:
+        imageUrl:
+          type: string
+          nullable: true
+        description:
+          type: string
+          nullable: true
+        lesson:
+          type: string
+        topic:
+          type: string
+          nullable: true
+        publisher:
+          type: string
+          nullable: true
+        testName:
+          type: string
+          nullable: true
+        testNo:
+          type: string
+          nullable: true
+        choice:
+          type: string
+          nullable: true
+          enum: [A, B, C, D, E, null]
+        solutionUrl:
+          type: string
+          nullable: true
+        category:
+          type: string
+          enum: [TYT, AYT]
+        source:
+          type: string
+          enum: [Deneme, Banka]
+        status:
+          type: string
+          enum: [Cozulmedi, DogruCozuldu, YanlisHocayaSor]
+      required:
+        - lesson
+        - category
+        - source
+
+    UpdateQuestionInput:
+      type: object
+      properties:
+        imageUrl:
+          type: string
+          nullable: true
+        description:
+          type: string
+          nullable: true
+        lesson:
+          type: string
+        topic:
+          type: string
+          nullable: true
+        publisher:
+          type: string
+          nullable: true
+        testName:
+          type: string
+          nullable: true
+        testNo:
+          type: string
+          nullable: true
+        choice:
+          type: string
+          nullable: true
+          enum: [A, B, C, D, E, null]
+        category:
+          type: string
+          enum: [TYT, AYT]
+        source:
+          type: string
+          enum: [Deneme, Banka]
+        status:
+          type: string
+          enum: [Cozulmedi, DogruCozuldu, YanlisHocayaSor]
+        solutionUrl:
+          type: string
+          nullable: true
+
+    UpdateTestSessionInput:
+      type: object
+      properties:
+        completedAt:
+          type: string
+          nullable: true
+          description: ISO 8601; set when test is finished
+
+    Drawing:
+      type: object
+      properties:
+        id:
+          type: integer
+        questionId:
+          type: integer
+        canvasData:
+          type: string
+        updatedAt:
+          type: string
+      required:
+        - id
+        - questionId
+        - canvasData
+        - updatedAt
+
+    SaveDrawingInput:
+      type: object
+      properties:
+        canvasData:
+          type: string
+      required:
+        - canvasData
+
+    TestSession:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        questionCount:
+          type: integer
+        completedCount:
+          type: integer
+        timeLimitSeconds:
+          type: integer
+          nullable: true
+        completedAt:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+      required:
+        - id
+        - name
+        - questionCount
+        - completedCount
+        - createdAt
+
+    TestSessionWithQuestions:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        timeLimitSeconds:
+          type: integer
+          nullable: true
+        completedAt:
+          type: string
+          nullable: true
+        questions:
+          type: array
+          items:
+            $ref: "#/components/schemas/Question"
+        createdAt:
+          type: string
+      required:
+        - id
+        - name
+        - questions
+        - createdAt
+
+    CreateTestInput:
+      type: object
+      properties:
+        name:
+          type: string
+        count:
+          type: integer
+        timeLimitSeconds:
+          type: integer
+          nullable: true
+        questionIds:
+          type: array
+          items:
+            type: integer
+        filters:
+          type: object
+          properties:
+            category:
+              type: string
+              enum: [TYT, AYT]
+            source:
+              type: string
+              enum: [Deneme, Banka]
+            lessons:
+              type: array
+              items:
+                type: string
+            topic:
+              type: string
+            publisher:
+              type: string
+            status:
+              type: string
+              enum: [Cozulmedi, DogruCozuldu, YanlisHocayaSor]
+      required:
+        - name
+
+    FilterOptions:
+      type: object
+      properties:
+        lessons:
+          type: array
+          items:
+            type: string
+        topics:
+          type: array
+          items:
+            type: string
+        publishers:
+          type: array
+          items:
+            type: string
+      required:
+        - lessons
+        - topics
+        - publishers
