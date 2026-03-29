@@ -5,7 +5,6 @@
  * YKS Soru Takibi API
  * OpenAPI spec version: 0.1.0
  */
-
 export * from "./createQuestionInput";
 export * from "./createQuestionInputCategory";
 export * from "./createQuestionInputChoice";
@@ -39,3 +38,4 @@ export * from "./updateQuestionInputStatus";
 export * from "./updateTestQuestionStatusBodyStatus";
 export * from "./updateTestSessionInput";
 export * from "./uploadQuestionImage200";
+//# sourceMappingURL=index.d.ts.map

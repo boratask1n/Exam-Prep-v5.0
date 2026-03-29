@@ -1,5 +1,13 @@
+cat <<EOF > .gitignore
 node_modules/
 .local/
 .env
-.local/
 .agents/
+.backups/
+backups/
+agents/
+dist/
+**/dist/
+*.tsbuildinfo
+artifacts/api-server/uploads/*.png
+EOF

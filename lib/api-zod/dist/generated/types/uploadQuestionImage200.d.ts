@@ -5,8 +5,7 @@
  * YKS Soru Takibi API
  * OpenAPI spec version: 0.1.0
  */
-
-export type UploadQuestionImageBody = {
-  imageData: string;
-  mimeType: string;
+export type UploadQuestionImage200 = {
+    url: string;
 };
+//# sourceMappingURL=uploadQuestionImage200.d.ts.map

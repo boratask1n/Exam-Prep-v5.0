@@ -109,17 +109,23 @@ function mixHex(a: string, b: string, t: number): string {
 /** Eski kayıtlardaki piksel kalınlıklarını 1–100 ölçeğe taşır */
 function normalizeStrokeForLoad(s: Stroke): Stroke {
   const kind: PenKind = s.penKind ?? "ballpoint";
+  // Eski kayıtlar penKind içermez; yeni kayıtlar için dönüştürme yapma
+  const isOldFormat = s.penKind === undefined;
+
   if (s.tool === "eraser") {
     const w = s.width;
-    if (w <= 40 && Number.isInteger(w) && [10, 16, 24, 34].includes(w)) {
+    // Sadece eski format ve eski piksel değerleri için dönüştür
+    if (isOldFormat && w <= 40 && Number.isInteger(w) && [10, 16, 24, 34].includes(w)) {
       const map: Record<number, number> = { 10: 12, 16: 22, 24: 38, 34: 58 };
       return { ...s, width: map[w] };
     }
     if (w > 0 && w <= 100) return { ...s, width: w };
     return { ...s, width: Math.min(100, Math.max(1, Math.round((w / 80) * 100))) };
   }
+
   const w = s.width;
-  if (w <= 16 && Number.isInteger(w) && [2, 4, 7, 12].includes(w)) {
+  // Sadece eski format ve eski piksel değerleri için dönüştür
+  if (isOldFormat && w <= 16 && Number.isInteger(w) && [2, 4, 7, 12].includes(w)) {
     const map: Record<number, number> = { 2: 18, 4: 35, 7: 55, 12: 85 };
     return { ...s, width: map[w], penKind: kind };
   }

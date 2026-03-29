@@ -6,7 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { UpdateTestQuestionStatusBodyStatus } from "./updateTestQuestionStatusBodyStatus";
-
 export type UpdateTestQuestionStatusBody = {
-  status: UpdateTestQuestionStatusBodyStatus;
+    status: UpdateTestQuestionStatusBodyStatus;
 };
+//# sourceMappingURL=updateTestQuestionStatusBody.d.ts.map

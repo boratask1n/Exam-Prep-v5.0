@@ -112,7 +112,7 @@ router.post("/tests", async (req, res) => {
     // Handle multiple lessons filter
     const lessons = filters?.lessons;
     if (lessons && lessons.length > 0) {
-      const lessonConditions = lessons.map((l) => ilike(questionsTable.lesson, `%${l}%`));
+      const lessonConditions = lessons.map((l: string) => ilike(questionsTable.lesson, `%${l}%`));
       // Use OR across lessons
       const { or } = await import("drizzle-orm");
       conditions.push(or(...lessonConditions)!);

@@ -232,6 +232,7 @@ export default function TestMode() {
   const [inlineEraserWidth, setInlineEraserWidth] = useState(16);
   const [inlineColor, setInlineColor] = useState("#111111");
   const [isInlineDrawing, setIsInlineDrawing] = useState(false);
+  const isInlineDrawingRef = useRef(false);
   const [inlineDrawingsByQuestion, setInlineDrawingsByQuestion] = useState<Record<number, InlineStroke[]>>({});
   const [inlineCursorPos, setInlineCursorPos] = useState<CanvasPoint | null>(null);
   const [inlineCursorInCanvas, setInlineCursorInCanvas] = useState(false);
@@ -313,7 +314,7 @@ export default function TestMode() {
         manualStatuses: snapshotStatuses as Record<number, string>,
         currentIndex,
         tempDrawings: { ...tempDrawings },
-        inlineDrawingsByQuestion: { ...inlineDrawingsByQuestion } as Record<number, unknown>,
+        inlineDrawingsByQuestion: { ...inlineDrawingsByQuestion } as Record<number, InlineStroke[]>,
         elapsed,
         collapsedLessons: { ...collapsedLessons },
         inlineDrawEnabled: false,
@@ -466,7 +467,7 @@ export default function TestMode() {
         manualStatuses: manualStatuses as Record<number, string>,
         currentIndex,
         tempDrawings: { ...tempDrawings },
-        inlineDrawingsByQuestion: { ...inlineDrawingsByQuestion } as Record<number, unknown>,
+        inlineDrawingsByQuestion: { ...inlineDrawingsByQuestion } as Record<number, InlineStroke[]>,
         elapsed,
         collapsedLessons: { ...collapsedLessons },
         inlineDrawEnabled: false,
@@ -497,7 +498,10 @@ export default function TestMode() {
   // ── Derived ──
   const groups = groupByLesson(questions);
   const currentQuestion = questions[currentIndex];
+  // Cevap seçimi için readOnly - kontrol modunda cevaplar değiştirilemez
   const readOnly = finished && reviewViewMode === "kontrol";
+  // Çizim için ayrı kontrol - kontrol modunda da çizim yapılabilir
+  const drawingReadOnly = false; // Her zaman çizim yapılabilir
 
   useEffect(() => {
     const wrap = inlineImageWrapRef.current;
@@ -556,7 +560,7 @@ export default function TestMode() {
 
   // Satır içi kalem imleci: canvas üzerinde pointerleave titremesi yerine global pointermove + rect toleransı
   useEffect(() => {
-    if (!inlineDrawEnabled || readOnly) return;
+    if (!inlineDrawEnabled) return;
     const EDGE_PAD = 8;
     const sync = (e: PointerEvent) => {
       const canvas = inlineCanvasRef.current;
@@ -580,7 +584,7 @@ export default function TestMode() {
     };
     window.addEventListener("pointermove", sync, { passive: true });
     return () => window.removeEventListener("pointermove", sync);
-  }, [inlineDrawEnabled, readOnly, currentQuestion?.id]);
+  }, [inlineDrawEnabled, currentQuestion?.id]);
 
   const remaining = timeLimitSeconds !== null ? timeLimitSeconds - elapsed : null;
   const timerLabel =
@@ -792,7 +796,7 @@ export default function TestMode() {
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
-          {currentQuestion.imageUrl && !readOnly && (
+          {currentQuestion.imageUrl && (
             <div className="hidden sm:flex items-center gap-1 rounded-xl border border-border/50 bg-background/70 px-2 py-1">
               <Button
                 variant={inlineDrawEnabled ? "default" : "outline"}
@@ -937,7 +941,7 @@ export default function TestMode() {
               >
                 {currentQuestion.category}
               </Badge>
-              {readOnly && (
+              {finished && (
                 <button
                   type="button"
                   onClick={() => setShowSolutionDialog(true)}
@@ -959,7 +963,7 @@ export default function TestMode() {
                   className="relative flex items-center justify-center p-4 bg-white/5 min-h-[280px]"
                   style={{
                     cursor:
-                      readOnly || !inlineDrawEnabled
+                      !inlineDrawEnabled
                         ? "auto"
                         : inlineTool === "pen"
                           ? "none"
@@ -972,16 +976,17 @@ export default function TestMode() {
                     className="max-w-full object-contain rounded"
                     style={{ maxHeight: "48vh" }}
                   />
-                  {(inlineDrawEnabled || readOnly) && (
+                  {(inlineDrawEnabled || finished) && (
                     <canvas
                       ref={inlineCanvasRef}
-                      className={cn("absolute inset-0 touch-none", readOnly && "pointer-events-none")}
+                      className={cn("absolute inset-0 touch-none")}
                       style={{ touchAction: "none" }}
                       onPointerDown={(e) => {
-                        if (readOnly || !inlineDrawEnabled) return;
+                        if (!inlineDrawEnabled) return;
                         e.preventDefault();
                         (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
                         setIsInlineDrawing(true);
+                        isInlineDrawingRef.current = true;
 
                         const isHardwareEraser = e.button === 5 || (e.buttons & 32) === 32;
                         if (e.pointerType === "pen") {
@@ -1006,7 +1011,7 @@ export default function TestMode() {
                         };
                       }}
                       onPointerMove={(e) => {
-                        if (readOnly) return;
+                        if (!inlineDrawEnabled) return;
                         const point = getInlinePoint(e);
                         const isHardwareEraser = e.button === 5 || (e.buttons & 32) === 32;
                         if (e.pointerType === "pen") {
@@ -1016,7 +1021,7 @@ export default function TestMode() {
                           setInlineTool("eraser");
                         }
                         
-                        if (!isInlineDrawing) return;
+                        if (!isInlineDrawingRef.current) return;
                         e.preventDefault();
                         const next = point;
                         const last = inlineLastPointRef.current;
@@ -1053,8 +1058,8 @@ export default function TestMode() {
                         inlineLastPointRef.current = next;
                       }}
                       onPointerUp={(e) => {
-                        if (readOnly) return;
-                        if (!isInlineDrawing) return;
+                        if (!inlineDrawEnabled) return;
+                        if (!isInlineDrawingRef.current) return;
                         e.preventDefault();
                         const currentStroke = inlineCurrentStrokeRef.current;
                         if (currentStroke && currentQuestion) {
@@ -1068,11 +1073,13 @@ export default function TestMode() {
                           });
                         }
                         setIsInlineDrawing(false);
+                        isInlineDrawingRef.current = false;
                         inlineLastPointRef.current = null;
                         inlineCurrentStrokeRef.current = null;
                       }}
                       onPointerCancel={() => {
                         setIsInlineDrawing(false);
+                        isInlineDrawingRef.current = false;
                         inlineLastPointRef.current = null;
                         inlineCurrentStrokeRef.current = null;
                       }}
@@ -1152,7 +1159,7 @@ export default function TestMode() {
             </div>
 
             {/* Navigation */}
-            <div className="flex justify-between">
+            <div className="flex justify-between items-center">
               <Button
                 variant="outline"
                 onClick={() => setCurrentIndex((p) => Math.max(0, p - 1))}
@@ -1161,14 +1168,14 @@ export default function TestMode() {
               >
                 ← Önceki
               </Button>
-              {!readOnly && (
+              {readOnly && (
                 <Button
                   variant="outline"
                   size="sm"
                   onClick={() => setShowCanvas(true)}
-                  className="rounded-xl gap-2 sm:hidden"
+                  className="rounded-xl gap-2 hidden sm:flex"
                 >
-                  <Paintbrush className="w-4 h-4" />
+                  <Paintbrush className="w-4 h-4" /> Çözüm Tahtası
                 </Button>
               )}
               <Button
@@ -1346,7 +1353,7 @@ export default function TestMode() {
       </Dialog>
 
       {/* ── Drawing canvas modal — TEMPORARY, not saved to DB ── */}
-      {showCanvas && !readOnly && (
+      {showCanvas && (
         <div className="fixed inset-0 z-50 bg-black/95">
           <DrawingCanvas
             questionId={currentQuestion.id}
