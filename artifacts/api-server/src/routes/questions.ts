@@ -19,6 +19,20 @@ if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
 
+/** Uploads dizininden dosya silme yardımcısı */
+function deleteUploadFile(imageUrl: string | null | undefined): void {
+  if (!imageUrl) return;
+  try {
+    const filename = path.basename(imageUrl);
+    const filepath = path.join(uploadsDir, filename);
+    if (fs.existsSync(filepath)) {
+      fs.unlinkSync(filepath);
+    }
+  } catch {
+    // Silme hatası kritik değil, devam et
+  }
+}
+
 function serializeQuestion(q: typeof questionsTable.$inferSelect) {
   return {
     ...q,
@@ -38,13 +52,35 @@ router.get("/questions", async (req, res) => {
   if (query.status) conditions.push(eq(questionsTable.status, query.status));
   if (query.topic) conditions.push(ilike(questionsTable.topic!, `%${query.topic}%`));
 
+  // Pagination
+  const limit = query.limit ? Math.min(parseInt(query.limit as string), 100) : 20; // max 100
+  const offset = query.offset ? parseInt(query.offset as string) : 0;
+
+  // Total count query
+  const countResult = await db
+    .select({ count: sql<number>`count(*)`.mapWith(Number) })
+    .from(questionsTable)
+    .where(conditions.length > 0 ? and(...conditions) : undefined);
+  const total = countResult[0]?.count || 0;
+
+  // Data query with pagination
   const questions = await db
     .select()
     .from(questionsTable)
     .where(conditions.length > 0 ? and(...conditions) : undefined)
-    .orderBy(questionsTable.createdAt);
+    .orderBy(questionsTable.createdAt)
+    .limit(limit)
+    .offset(offset);
 
-  res.json(questions.map(serializeQuestion));
+  res.json({
+    items: questions.map(serializeQuestion),
+    pagination: {
+      total,
+      limit,
+      offset,
+      hasMore: offset + questions.length < total
+    }
+  });
 });
 
 router.post("/questions/image", async (req, res) => {
@@ -101,6 +137,10 @@ router.patch("/questions/:id", async (req, res) => {
   const id = parseInt(req.params.id);
   const body = UpdateQuestionBody.parse(req.body);
 
+  // Mevcut soruyu getir - eski resmi silmek için
+  const [existing] = await db.select().from(questionsTable).where(eq(questionsTable.id, id));
+  if (!existing) { res.status(404).json({ error: "Not found" }); return; }
+
   const updateData: Record<string, unknown> = { updatedAt: new Date() };
   if (body.imageUrl !== undefined) updateData.imageUrl = body.imageUrl;
   if (body.description !== undefined) updateData.description = body.description;
@@ -121,12 +161,23 @@ router.patch("/questions/:id", async (req, res) => {
     .where(eq(questionsTable.id, id))
     .returning();
 
-  if (!question) { res.status(404).json({ error: "Not found" }); return; }
+  // Resim değiştiyse eski dosyayı sil
+  if (body.imageUrl !== undefined && body.imageUrl !== existing.imageUrl) {
+    deleteUploadFile(existing.imageUrl);
+  }
+
   res.json(serializeQuestion(question));
 });
 
 router.delete("/questions/:id", async (req, res) => {
   const id = parseInt(req.params.id);
+
+  // Önce soruyu getir ve resmi varsa sil
+  const [existing] = await db.select().from(questionsTable).where(eq(questionsTable.id, id));
+  if (existing) {
+    deleteUploadFile(existing.imageUrl);
+  }
+
   await db.delete(questionsTable).where(eq(questionsTable.id, id));
   res.status(204).send();
 });
@@ -200,6 +251,41 @@ router.get("/filters/options", async (req, res) => {
     topics: topicsResult.map((r) => r.topic).filter(Boolean),
     publishers: publishersResult.map((r) => r.publisher).filter(Boolean),
   });
+});
+
+/** Kullanılmayan (orphan) upload dosyalarını temizle */
+router.post("/admin/cleanup-uploads", async (_req, res) => {
+  const questions = await db.select({ imageUrl: questionsTable.imageUrl }).from(questionsTable);
+  const referencedFiles = new Set(
+    questions
+      .map((q) => q.imageUrl)
+      .filter((url): url is string => !!url)
+      .map((url) => path.basename(url))
+  );
+
+  const files = fs.readdirSync(uploadsDir);
+  const deleted: string[] = [];
+  const kept: string[] = [];
+
+  for (const file of files) {
+    // Sadece img_ ile başlayan dosyaları kontrol et (sistem dosyalarını atla)
+    if (!file.startsWith("img_")) {
+      kept.push(file);
+      continue;
+    }
+    if (!referencedFiles.has(file)) {
+      try {
+        fs.unlinkSync(path.join(uploadsDir, file));
+        deleted.push(file);
+      } catch {
+        kept.push(file);
+      }
+    } else {
+      kept.push(file);
+    }
+  }
+
+  res.json({ deleted, kept, deletedCount: deleted.length, keptCount: kept.length });
 });
 
 export default router;

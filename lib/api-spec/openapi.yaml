@@ -39,7 +39,7 @@ paths:
           in: query
           schema:
             type: string
-            enum: [TYT, AYT]
+            enum: [TYT, AYT, Geometri]
         - name: source
           in: query
           schema:
@@ -400,7 +400,7 @@ components:
           nullable: true
         category:
           type: string
-          enum: [TYT, AYT]
+          enum: [TYT, AYT, Geometri]
         source:
           type: string
           enum: [Deneme, Banka]
@@ -455,7 +455,7 @@ components:
           nullable: true
         category:
           type: string
-          enum: [TYT, AYT]
+          enum: [TYT, AYT, Geometri]
         source:
           type: string
           enum: [Deneme, Banka]
@@ -496,7 +496,7 @@ components:
           enum: [A, B, C, D, E, null]
         category:
           type: string
-          enum: [TYT, AYT]
+          enum: [TYT, AYT, Geometri]
         source:
           type: string
           enum: [Deneme, Banka]
@@ -610,7 +610,7 @@ components:
           properties:
             category:
               type: string
-              enum: [TYT, AYT]
+              enum: [TYT, AYT, Geometri]
             source:
               type: string
               enum: [Deneme, Banka]

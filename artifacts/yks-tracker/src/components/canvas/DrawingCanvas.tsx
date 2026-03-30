@@ -42,7 +42,7 @@ export interface DrawingCanvasProps {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const COLORS = [
-  { hex: "#3b82f6", name: "Mavi" },
+  { hex: "#0f0be7", name: "Mavi" },
   { hex: "#ef4444", name: "Kırmızı" },
   { hex: "#22c55e", name: "Yeşil" },
   { hex: "#f59e0b", name: "Turuncu" },

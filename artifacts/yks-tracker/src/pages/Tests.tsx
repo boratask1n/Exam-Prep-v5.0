@@ -13,12 +13,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { PlayCircle, PlusCircle, Trash2, Calendar, CheckSquare, Target, Book, Clock, X, Eye } from "lucide-react";
+import { PlayCircle, PlusCircle, Trash2, Calendar, CheckSquare, Target, Book, Clock, X, Eye, BookOpen, CheckCircle } from "lucide-react";
 import { hasTestDraft, clearTestLocalStorage } from "@/lib/testSessionStorage";
 import { format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
+import { getTopicsForLesson } from "@/lib/lessonTopics";
 
 const TYT_LESSONS = ["Türkçe", "Matematik", "Geometri", "Fizik", "Kimya", "Biyoloji", "Din Kültürü", "Felsefe", "Tarih", "Coğrafya"];
 const AYT_LESSONS = ["Matematik", "Geometri", "Fizik", "Kimya", "Biyoloji", "Türk Dili ve Edebiyatı", "Tarih", "Coğrafya", "Felsefe"];
@@ -34,6 +35,8 @@ export default function Tests() {
   const [count, setCount] = useState("10");
   const [category, setCategory] = useState<"ALL" | QuestionCategory>("ALL");
   const [selectedLessons, setSelectedLessons] = useState<string[]>([]);
+  const [selectedTopics, setSelectedTopics] = useState<string[]>([]);
+  const [showTopicSelector, setShowTopicSelector] = useState(false);
   const [onlyUnsolved, setOnlyUnsolved] = useState(true);
   const [timeLimitEnabled, setTimeLimitEnabled] = useState(false);
   const [timeLimitMinutes, setTimeLimitMinutes] = useState("30");
@@ -41,10 +44,37 @@ export default function Tests() {
   const lessonOptions = category === QuestionCategory.AYT ? AYT_LESSONS : category === QuestionCategory.TYT ? TYT_LESSONS : [...TYT_LESSONS, ...AYT_LESSONS.filter(l => !TYT_LESSONS.includes(l))];
 
   const toggleLesson = (lesson: string) => {
-    setSelectedLessons((prev) =>
-      prev.includes(lesson) ? prev.filter((l) => l !== lesson) : [...prev, lesson]
+    setSelectedLessons((prev) => {
+      const newSelection = prev.includes(lesson) ? prev.filter((l) => l !== lesson) : [...prev, lesson];
+      // Clear topics when lesson is removed
+      if (prev.includes(lesson) && !newSelection.includes(lesson)) {
+        const topicsForLesson = getTopicsForLesson(category === "ALL" ? "TYT" : (category as QuestionCategory), lesson);
+        setSelectedTopics((topics) => topics.filter((t) => !topicsForLesson.includes(t)));
+      }
+      return newSelection;
+    });
+  };
+
+  const toggleTopic = (topic: string) => {
+    setSelectedTopics((prev) =>
+      prev.includes(topic) ? prev.filter((t) => t !== topic) : [...prev, topic]
     );
   };
+
+  const clearAllTopics = () => {
+    setSelectedTopics([]);
+  };
+
+  // Get all available topics for selected lessons
+  const availableTopics = selectedLessons.flatMap((lesson) =>
+    getTopicsForLesson(category === "ALL" ? "TYT" : (category as QuestionCategory), lesson)
+  );
+
+  // Group topics by lesson for display
+  const topicsByLesson = selectedLessons.map((lesson) => ({
+    lesson,
+    topics: getTopicsForLesson(category === "ALL" ? "TYT" : (category as QuestionCategory), lesson),
+  }));
 
   const handleCreate = async () => {
     if (!name.trim()) { toast({ title: "Test adı zorunludur", variant: "destructive" }); return; }
@@ -59,6 +89,7 @@ export default function Tests() {
           filters: {
             category: category !== "ALL" ? category : undefined,
             lessons: selectedLessons.length > 0 ? selectedLessons : undefined,
+            topic: selectedTopics.length === 1 ? selectedTopics[0] : undefined,
             status: onlyUnsolved ? QuestionStatus.Cozulmedi : undefined,
           },
         },
@@ -68,6 +99,8 @@ export default function Tests() {
       setOpen(false);
       setName("");
       setSelectedLessons([]);
+      setSelectedTopics([]);
+      setShowTopicSelector(false);
       setTimeLimitEnabled(false);
     } catch {
       toast({ title: "Test oluşturulurken hata", variant: "destructive" });
@@ -153,13 +186,101 @@ export default function Tests() {
                 {selectedLessons.length > 0 && (
                   <button
                     type="button"
-                    onClick={() => setSelectedLessons([])}
+                    onClick={() => { setSelectedLessons([]); setSelectedTopics([]); }}
                     className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
                   >
                     <X className="w-3 h-3" /> Seçimi temizle
                   </button>
                 )}
               </div>
+
+              {/* Topic Selection - Only show if lessons are selected */}
+              {selectedLessons.length > 0 && availableTopics.length > 0 && (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <Label className="flex items-center gap-2">
+                      <BookOpen className="w-4 h-4 text-primary" />
+                      Konu Seçimi
+                      <span className="text-muted-foreground text-xs font-normal">
+                        ({selectedTopics.length} konu seçili)
+                      </span>
+                    </Label>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setShowTopicSelector(!showTopicSelector)}
+                      className="rounded-lg text-xs"
+                    >
+                      {showTopicSelector ? "Gizle" : "Konuları Göster"}
+                    </Button>
+                  </div>
+
+                  {showTopicSelector && (
+                    <div className="p-4 bg-muted/20 rounded-xl border border-border/50 space-y-4 max-h-[300px] overflow-y-auto">
+                      {topicsByLesson.map(({ lesson, topics }) => (
+                        <div key={lesson} className="space-y-2">
+                          <h4 className="text-sm font-semibold text-foreground flex items-center gap-2">
+                            <Book className="w-3 h-3 text-primary" />
+                            {lesson}
+                          </h4>
+                          <div className="flex flex-wrap gap-1.5">
+                            {topics.map((topic) => (
+                              <button
+                                key={topic}
+                                type="button"
+                                onClick={() => toggleTopic(topic)}
+                                className={cn(
+                                  "px-2.5 py-1 rounded-md text-xs font-medium transition-all border",
+                                  selectedTopics.includes(topic)
+                                    ? "bg-accent text-accent-foreground border-accent shadow-sm"
+                                    : "bg-background text-muted-foreground border-border/50 hover:border-accent/50 hover:text-foreground"
+                                )}
+                              >
+                                {topic}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+
+                      {selectedTopics.length > 0 && (
+                        <div className="pt-3 border-t border-border/30 flex items-center justify-between">
+                          <span className="text-xs text-muted-foreground">
+                            {selectedTopics.length} konu seçildi
+                          </span>
+                          <button
+                            type="button"
+                            onClick={clearAllTopics}
+                            className="text-xs text-destructive hover:text-destructive/80 flex items-center gap-1"
+                          >
+                            <X className="w-3 h-3" /> Tümünü Temizle
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {!showTopicSelector && selectedTopics.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 p-3 bg-muted/20 rounded-xl border border-border/50">
+                      {selectedTopics.slice(0, 5).map((topic) => (
+                        <span
+                          key={topic}
+                          className="px-2 py-1 bg-accent/20 text-accent-foreground rounded-md text-xs font-medium flex items-center gap-1"
+                        >
+                          <CheckCircle className="w-3 h-3" />
+                          {topic.length > 20 ? topic.slice(0, 20) + "..." : topic}
+                        </span>
+                      ))}
+                      {selectedTopics.length > 5 && (
+                        <span className="px-2 py-1 text-muted-foreground rounded-md text-xs">
+                          +{selectedTopics.length - 5} daha...
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Only unsolved */}
               <div className="flex items-center gap-3 p-3 bg-muted/20 rounded-xl border border-border/50">

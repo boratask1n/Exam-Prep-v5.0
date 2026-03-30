@@ -23,6 +23,7 @@ import type {
   FilterOptions,
   HealthStatus,
   ListQuestionsParams,
+  ListQuestionsResponse,
   Question,
   SaveDrawingInput,
   TestSession,
@@ -140,8 +141,8 @@ export const getListQuestionsUrl = (params?: ListQuestionsParams) => {
 export const listQuestions = async (
   params?: ListQuestionsParams,
   options?: RequestInit,
-): Promise<Question[]> => {
-  return customFetch<Question[]>(getListQuestionsUrl(params), {
+): Promise<ListQuestionsResponse> => {
+  return customFetch<ListQuestionsResponse>(getListQuestionsUrl(params), {
     ...options,
     method: "GET",
   });

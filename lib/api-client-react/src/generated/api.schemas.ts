@@ -307,3 +307,15 @@ export const UpdateTestQuestionStatusBodyStatus = {
 export type UpdateTestQuestionStatusBody = {
   status: UpdateTestQuestionStatusBodyStatus;
 };
+
+export interface PaginationInfo {
+  total: number;
+  limit: number;
+  offset: number;
+  hasMore: boolean;
+}
+
+export interface ListQuestionsResponse {
+  items: Question[];
+  pagination: PaginationInfo;
+}

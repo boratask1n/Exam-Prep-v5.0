@@ -18,7 +18,7 @@ export const HealthCheckResponse = zod.object({
  * @summary List all questions with optional filters
  */
 export const ListQuestionsQueryParams = zod.object({
-  category: zod.enum(["TYT", "AYT"]).optional(),
+  category: zod.enum(["TYT", "AYT", "Geometri"]).optional(),
   source: zod.enum(["Deneme", "Banka"]).optional(),
   lesson: zod.coerce.string().optional(),
   publisher: zod.coerce.string().optional(),
@@ -46,7 +46,7 @@ export const ListQuestionsResponseItem = zod.object({
     ])
     .nullish(),
   solutionUrl: zod.string().nullish(),
-  category: zod.enum(["TYT", "AYT"]),
+  category: zod.enum(["TYT", "AYT", "Geometri"]),
   source: zod.enum(["Deneme", "Banka"]),
   status: zod.enum(["Cozulmedi", "DogruCozuldu", "YanlisHocayaSor"]),
   hasDrawing: zod.boolean(),
@@ -77,7 +77,7 @@ export const CreateQuestionBody = zod.object({
     ])
     .nullish(),
   solutionUrl: zod.string().nullish(),
-  category: zod.enum(["TYT", "AYT"]),
+  category: zod.enum(["TYT", "AYT", "Geometri"]),
   source: zod.enum(["Deneme", "Banka"]),
   status: zod.enum(["Cozulmedi", "DogruCozuldu", "YanlisHocayaSor"]).optional(),
 });
@@ -109,7 +109,7 @@ export const GetQuestionResponse = zod.object({
     ])
     .nullish(),
   solutionUrl: zod.string().nullish(),
-  category: zod.enum(["TYT", "AYT"]),
+  category: zod.enum(["TYT", "AYT", "Geometri"]),
   source: zod.enum(["Deneme", "Banka"]),
   status: zod.enum(["Cozulmedi", "DogruCozuldu", "YanlisHocayaSor"]),
   hasDrawing: zod.boolean(),
@@ -142,7 +142,7 @@ export const UpdateQuestionBody = zod.object({
       zod.literal(null),
     ])
     .nullish(),
-  category: zod.enum(["TYT", "AYT"]).optional(),
+  category: zod.enum(["TYT", "AYT", "Geometri"]).optional(),
   source: zod.enum(["Deneme", "Banka"]).optional(),
   status: zod.enum(["Cozulmedi", "DogruCozuldu", "YanlisHocayaSor"]).optional(),
   solutionUrl: zod.string().nullish(),
@@ -168,7 +168,7 @@ export const UpdateQuestionResponse = zod.object({
     ])
     .nullish(),
   solutionUrl: zod.string().nullish(),
-  category: zod.enum(["TYT", "AYT"]),
+  category: zod.enum(["TYT", "AYT", "Geometri"]),
   source: zod.enum(["Deneme", "Banka"]),
   status: zod.enum(["Cozulmedi", "DogruCozuldu", "YanlisHocayaSor"]),
   hasDrawing: zod.boolean(),
@@ -251,7 +251,7 @@ export const CreateTestBody = zod.object({
   questionIds: zod.array(zod.number()).optional(),
   filters: zod
     .object({
-      category: zod.enum(["TYT", "AYT"]).optional(),
+      category: zod.enum(["TYT", "AYT", "Geometri"]).optional(),
       source: zod.enum(["Deneme", "Banka"]).optional(),
       lessons: zod.array(zod.string()).optional(),
       topic: zod.string().optional(),
@@ -296,7 +296,7 @@ export const GetTestResponse = zod.object({
         ])
         .nullish(),
       solutionUrl: zod.string().nullish(),
-      category: zod.enum(["TYT", "AYT"]),
+      category: zod.enum(["TYT", "AYT", "Geometri"]),
       source: zod.enum(["Deneme", "Banka"]),
       status: zod.enum(["Cozulmedi", "DogruCozuldu", "YanlisHocayaSor"]),
       hasDrawing: zod.boolean(),
@@ -347,7 +347,7 @@ export const UpdateTestResponse = zod.object({
         ])
         .nullish(),
       solutionUrl: zod.string().nullish(),
-      category: zod.enum(["TYT", "AYT"]),
+      category: zod.enum(["TYT", "AYT", "Geometri"]),
       source: zod.enum(["Deneme", "Banka"]),
       status: zod.enum(["Cozulmedi", "DogruCozuldu", "YanlisHocayaSor"]),
       hasDrawing: zod.boolean(),
@@ -397,7 +397,7 @@ export const UpdateTestQuestionStatusResponse = zod.object({
     ])
     .nullish(),
   solutionUrl: zod.string().nullish(),
-  category: zod.enum(["TYT", "AYT"]),
+  category: zod.enum(["TYT", "AYT", "Geometri"]),
   source: zod.enum(["Deneme", "Banka"]),
   status: zod.enum(["Cozulmedi", "DogruCozuldu", "YanlisHocayaSor"]),
   hasDrawing: zod.boolean(),

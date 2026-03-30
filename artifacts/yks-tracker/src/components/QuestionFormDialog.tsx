@@ -20,9 +20,7 @@ import {
 } from "@workspace/api-client-react";
 import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
-
-const TYT_LESSONS = ["Türkçe", "Matematik", "Geometri", "Fizik", "Kimya", "Biyoloji", "Din Kültürü", "Felsefe", "Tarih", "Coğrafya"];
-const AYT_LESSONS = ["Matematik", "Geometri", "Fizik", "Kimya", "Biyoloji", "Türk Dili ve Edebiyatı", "Tarih", "Coğrafya", "Felsefe"];
+import { getLessonsForCategory, getTopicsForLesson } from "@/lib/lessonTopics";
 
 const formSchema = z.object({
   lesson: z.string().min(1, "Ders adı zorunludur"),
@@ -94,7 +92,13 @@ export function QuestionFormDialog({ question, trigger, onSaved }: Props) {
   });
 
   const category = watch("category");
-  const lessonOptions = category === QuestionCategory.AYT ? AYT_LESSONS : TYT_LESSONS;
+  const lesson = watch("lesson");
+  
+  // Get lessons based on selected category
+  const lessonOptions = getLessonsForCategory(category).map(l => l.name);
+  
+  // Get topics based on selected category and lesson
+  const topicOptions = lesson ? getTopicsForLesson(category, lesson) : [];
 
   // Populate form when editing
   useEffect(() => {
@@ -286,7 +290,13 @@ export function QuestionFormDialog({ question, trigger, onSaved }: Props) {
             {/* Lesson as listbox */}
             <div className="space-y-2">
               <Label>Ders *</Label>
-              <Select value={watch("lesson") || ""} onValueChange={(val) => setValue("lesson", val)}>
+              <Select 
+                value={watch("lesson") || ""} 
+                onValueChange={(val) => {
+                  setValue("lesson", val);
+                  setValue("topic", ""); // Reset topic when lesson changes
+                }}
+              >
                 <SelectTrigger className="bg-muted/30 border-border/50 rounded-xl">
                   <SelectValue placeholder="Ders seçin..." />
                 </SelectTrigger>
@@ -301,7 +311,30 @@ export function QuestionFormDialog({ question, trigger, onSaved }: Props) {
 
             <div className="space-y-2">
               <Label>Konu</Label>
-              <Input {...register("topic")} placeholder="Üslü Sayılar..." className="bg-muted/30 border-border/50 rounded-xl" />
+              {topicOptions.length > 0 ? (
+                <Select
+                  value={watch("topic") || "NONE"}
+                  onValueChange={(val) => setValue("topic", val === "NONE" ? "" : val)}
+                  disabled={!lesson}
+                >
+                  <SelectTrigger className="bg-muted/30 border-border/50 rounded-xl">
+                    <SelectValue placeholder={lesson ? "Konu seçin..." : "Önce ders seçin"} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="NONE">Konu seçilmedi</SelectItem>
+                    {topicOptions.map((t) => (
+                      <SelectItem key={t} value={t}>{t}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <Input 
+                  {...register("topic")} 
+                  placeholder={lesson ? "Konu girin..." : "Önce ders seçin"} 
+                  className="bg-muted/30 border-border/50 rounded-xl"
+                  disabled={!lesson}
+                />
+              )}
             </div>
 
             <div className="space-y-2">

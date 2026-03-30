@@ -41490,7 +41490,7 @@ var HealthCheckResponse = objectType({
   status: stringType()
 });
 var ListQuestionsQueryParams = objectType({
-  category: enumType(["TYT", "AYT"]).optional(),
+  category: enumType(["TYT", "AYT", "Geometri"]).optional(),
   source: enumType(["Deneme", "Banka"]).optional(),
   lesson: coerce.string().optional(),
   publisher: coerce.string().optional(),
@@ -41515,7 +41515,7 @@ var ListQuestionsResponseItem = objectType({
     literalType(null)
   ]).nullish(),
   solutionUrl: stringType().nullish(),
-  category: enumType(["TYT", "AYT"]),
+  category: enumType(["TYT", "AYT", "Geometri"]),
   source: enumType(["Deneme", "Banka"]),
   status: enumType(["Cozulmedi", "DogruCozuldu", "YanlisHocayaSor"]),
   hasDrawing: booleanType(),
@@ -41540,7 +41540,7 @@ var CreateQuestionBody = objectType({
     literalType(null)
   ]).nullish(),
   solutionUrl: stringType().nullish(),
-  category: enumType(["TYT", "AYT"]),
+  category: enumType(["TYT", "AYT", "Geometri"]),
   source: enumType(["Deneme", "Banka"]),
   status: enumType(["Cozulmedi", "DogruCozuldu", "YanlisHocayaSor"]).optional()
 });
@@ -41565,7 +41565,7 @@ var GetQuestionResponse = objectType({
     literalType(null)
   ]).nullish(),
   solutionUrl: stringType().nullish(),
-  category: enumType(["TYT", "AYT"]),
+  category: enumType(["TYT", "AYT", "Geometri"]),
   source: enumType(["Deneme", "Banka"]),
   status: enumType(["Cozulmedi", "DogruCozuldu", "YanlisHocayaSor"]),
   hasDrawing: booleanType(),
@@ -41591,7 +41591,7 @@ var UpdateQuestionBody = objectType({
     literalType("E"),
     literalType(null)
   ]).nullish(),
-  category: enumType(["TYT", "AYT"]).optional(),
+  category: enumType(["TYT", "AYT", "Geometri"]).optional(),
   source: enumType(["Deneme", "Banka"]).optional(),
   status: enumType(["Cozulmedi", "DogruCozuldu", "YanlisHocayaSor"]).optional(),
   solutionUrl: stringType().nullish()
@@ -41614,7 +41614,7 @@ var UpdateQuestionResponse = objectType({
     literalType(null)
   ]).nullish(),
   solutionUrl: stringType().nullish(),
-  category: enumType(["TYT", "AYT"]),
+  category: enumType(["TYT", "AYT", "Geometri"]),
   source: enumType(["Deneme", "Banka"]),
   status: enumType(["Cozulmedi", "DogruCozuldu", "YanlisHocayaSor"]),
   hasDrawing: booleanType(),
@@ -41668,7 +41668,7 @@ var CreateTestBody = objectType({
   timeLimitSeconds: numberType().nullish(),
   questionIds: arrayType(numberType()).optional(),
   filters: objectType({
-    category: enumType(["TYT", "AYT"]).optional(),
+    category: enumType(["TYT", "AYT", "Geometri"]).optional(),
     source: enumType(["Deneme", "Banka"]).optional(),
     lessons: arrayType(stringType()).optional(),
     topic: stringType().optional(),
@@ -41703,7 +41703,7 @@ var GetTestResponse = objectType({
         literalType(null)
       ]).nullish(),
       solutionUrl: stringType().nullish(),
-      category: enumType(["TYT", "AYT"]),
+      category: enumType(["TYT", "AYT", "Geometri"]),
       source: enumType(["Deneme", "Banka"]),
       status: enumType(["Cozulmedi", "DogruCozuldu", "YanlisHocayaSor"]),
       hasDrawing: booleanType(),
@@ -41743,7 +41743,7 @@ var UpdateTestResponse = objectType({
         literalType(null)
       ]).nullish(),
       solutionUrl: stringType().nullish(),
-      category: enumType(["TYT", "AYT"]),
+      category: enumType(["TYT", "AYT", "Geometri"]),
       source: enumType(["Deneme", "Banka"]),
       status: enumType(["Cozulmedi", "DogruCozuldu", "YanlisHocayaSor"]),
       hasDrawing: booleanType(),
@@ -41781,7 +41781,7 @@ var UpdateTestQuestionStatusResponse = objectType({
     literalType(null)
   ]).nullish(),
   solutionUrl: stringType().nullish(),
-  category: enumType(["TYT", "AYT"]),
+  category: enumType(["TYT", "AYT", "Geometri"]),
   source: enumType(["Deneme", "Banka"]),
   status: enumType(["Cozulmedi", "DogruCozuldu", "YanlisHocayaSor"]),
   hasDrawing: booleanType(),
@@ -57067,6 +57067,17 @@ var uploadsDir = process.env.UPLOADS_DIR || path.join(process.cwd(), "uploads");
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
+function deleteUploadFile(imageUrl) {
+  if (!imageUrl) return;
+  try {
+    const filename = path.basename(imageUrl);
+    const filepath = path.join(uploadsDir, filename);
+    if (fs.existsSync(filepath)) {
+      fs.unlinkSync(filepath);
+    }
+  } catch {
+  }
+}
 function serializeQuestion(q) {
   return {
     ...q,
@@ -57083,8 +57094,20 @@ router2.get("/questions", async (req, res) => {
   if (query.publisher) conditions.push(ilike(questionsTable.publisher, `%${query.publisher}%`));
   if (query.status) conditions.push(eq(questionsTable.status, query.status));
   if (query.topic) conditions.push(ilike(questionsTable.topic, `%${query.topic}%`));
-  const questions = await db.select().from(questionsTable).where(conditions.length > 0 ? and(...conditions) : void 0).orderBy(questionsTable.createdAt);
-  res.json(questions.map(serializeQuestion));
+  const limit = query.limit ? Math.min(parseInt(query.limit), 100) : 20;
+  const offset = query.offset ? parseInt(query.offset) : 0;
+  const countResult = await db.select({ count: sql`count(*)`.mapWith(Number) }).from(questionsTable).where(conditions.length > 0 ? and(...conditions) : void 0);
+  const total = countResult[0]?.count || 0;
+  const questions = await db.select().from(questionsTable).where(conditions.length > 0 ? and(...conditions) : void 0).orderBy(questionsTable.createdAt).limit(limit).offset(offset);
+  res.json({
+    items: questions.map(serializeQuestion),
+    pagination: {
+      total,
+      limit,
+      offset,
+      hasMore: offset + questions.length < total
+    }
+  });
 });
 router2.post("/questions/image", async (req, res) => {
   const body = UploadQuestionImageBody.parse(req.body);
@@ -57134,6 +57157,11 @@ router2.get("/questions/:id", async (req, res) => {
 router2.patch("/questions/:id", async (req, res) => {
   const id = parseInt(req.params.id);
   const body = UpdateQuestionBody.parse(req.body);
+  const [existing] = await db.select().from(questionsTable).where(eq(questionsTable.id, id));
+  if (!existing) {
+    res.status(404).json({ error: "Not found" });
+    return;
+  }
   const updateData = { updatedAt: /* @__PURE__ */ new Date() };
   if (body.imageUrl !== void 0) updateData.imageUrl = body.imageUrl;
   if (body.description !== void 0) updateData.description = body.description;
@@ -57148,14 +57176,17 @@ router2.patch("/questions/:id", async (req, res) => {
   if (body.status !== void 0) updateData.status = body.status;
   if (body.solutionUrl !== void 0) updateData.solutionUrl = body.solutionUrl;
   const [question] = await db.update(questionsTable).set(updateData).where(eq(questionsTable.id, id)).returning();
-  if (!question) {
-    res.status(404).json({ error: "Not found" });
-    return;
+  if (body.imageUrl !== void 0 && body.imageUrl !== existing.imageUrl) {
+    deleteUploadFile(existing.imageUrl);
   }
   res.json(serializeQuestion(question));
 });
 router2.delete("/questions/:id", async (req, res) => {
   const id = parseInt(req.params.id);
+  const [existing] = await db.select().from(questionsTable).where(eq(questionsTable.id, id));
+  if (existing) {
+    deleteUploadFile(existing.imageUrl);
+  }
   await db.delete(questionsTable).where(eq(questionsTable.id, id));
   res.status(204).send();
 });
@@ -57201,6 +57232,32 @@ router2.get("/filters/options", async (req, res) => {
     topics: topicsResult.map((r) => r.topic).filter(Boolean),
     publishers: publishersResult.map((r) => r.publisher).filter(Boolean)
   });
+});
+router2.post("/admin/cleanup-uploads", async (_req, res) => {
+  const questions = await db.select({ imageUrl: questionsTable.imageUrl }).from(questionsTable);
+  const referencedFiles = new Set(
+    questions.map((q) => q.imageUrl).filter((url2) => !!url2).map((url2) => path.basename(url2))
+  );
+  const files = fs.readdirSync(uploadsDir);
+  const deleted = [];
+  const kept = [];
+  for (const file2 of files) {
+    if (!file2.startsWith("img_")) {
+      kept.push(file2);
+      continue;
+    }
+    if (!referencedFiles.has(file2)) {
+      try {
+        fs.unlinkSync(path.join(uploadsDir, file2));
+        deleted.push(file2);
+      } catch {
+        kept.push(file2);
+      }
+    } else {
+      kept.push(file2);
+    }
+  }
+  res.json({ deleted, kept, deletedCount: deleted.length, keptCount: kept.length });
 });
 var questions_default = router2;
 
