@@ -9,5 +9,5 @@ agents/
 dist/
 **/dist/
 *.tsbuildinfo
-artifacts/api-server/uploads/*.png
+artifacts/
 EOF
