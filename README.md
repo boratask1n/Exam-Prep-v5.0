@@ -1,120 +1,204 @@
-# Exam-Prep (Yerel Kurulum)
+# Exam-Prep
 
-Bu proje bilgisayarınızda ve aynı ağdaki cihazlarda çalışır.
+Exam-Prep; soru havuzu, test oluşturma, test çözme, çizim araçları ve test oturumu takibi içeren yerel bir çalışma uygulamasıdır.
 
-## Docker Desktop (Windows)
+## Yerel Kurulum
 
-`BASLAT.bat` veritabanı için **Docker** kullanır; Docker yoksa önce aşağıdakileri yapın:
+Bu proje bilgisayarınızda ve aynı ağdaki cihazlarda çalışabilir.
 
-1. [Docker Desktop for Windows](https://docs.docker.com/desktop/setup/install/windows-install/) indir ve kur.
-2. Kurulum **WSL 2** önerirse etkinleştir (Docker Desktop genelde yönlendirir).
-3. Kurulumdan sonra **Docker Desktop** uygulamasını açın; sistem tepsisinde balina ikonu **hazır** olana kadar bekleyin.
-4. Doğrulama (PowerShell veya `cmd`): `docker version` ve `docker compose version` hata vermemeli.
+### Gereksinimler
 
-> Sadece veritabanını elle başlatmak için proje klasöründe: `docker compose up -d`
+- Node.js
+- `pnpm`
+- Docker Desktop
+
+### Docker Desktop (Windows)
+
+`BASLAT.bat` veritabanı için Docker kullanır. Docker kurulu değilse:
+
+1. [Docker Desktop for Windows](https://docs.docker.com/desktop/setup/install/windows-install/) indirip kurun.
+2. Kurulum WSL 2 isterse etkinleştirin.
+3. Docker Desktop uygulamasını açın ve tamamen hazır olmasını bekleyin.
+4. Doğrulamak için PowerShell veya `cmd` içinde şu komutları çalıştırın:
+
+```powershell
+docker version
+docker compose version
+```
+
+Sadece veritabanını elle başlatmak isterseniz:
+
+```powershell
+docker compose up -d
+```
 
 ## Hızlı Başlat
 
-1. `BASLAT.bat` dosyasına çift tıklayın.
-2. Açılan pencereleri kapatmayın (API + Web çalışır).
-3. Tarayıcı:
-   - Bu bilgisayar: `http://localhost:24486`
-   - Aynı ağ: `http://<LAN_IP>:24486` (BASLAT sonunda ekranda yazar)
+1. `BASLAT.bat` dosyasını çalıştırın.
+2. Açılan API ve Web pencerelerini kapatmayın.
+3. Tarayıcıdan uygulamayı açın:
+   - Bu bilgisayardan: `http://localhost:24486`
+   - Aynı ağdan: `http://<LAN_IP>:24486`
 
 ## Durdurma
 
-- `DURDUR.bat` dosyasına çift tıklayın.
+Uygulamayı kapatmak için:
+
+```powershell
+DURDUR.bat
+```
 
 ## Veri Kalıcılığı
 
 - Veriler PostgreSQL Docker volume içinde saklanır.
-- Normal kapat/aç yapınca veriler silinmez.
-- `docker compose down -v` komutunu çalıştırmayın (volume siler).
+- Normal kapatıp açmada veriler silinmez.
+- `docker compose down -v` komutunu çalıştırmayın; volume silinir.
 
 ## Yedek Alma ve Geri Yükleme
 
-### Yeni Scriptler (Node.js)
+### Node.js Scriptleri
 
-Daha gelişmiş yedekleme seçenekleri:
+- Veritabanı yedeği almak:
 
-- **Yedek al**: `node artifacts/yks-tracker/scripts/backup-db.cjs [isim]`
-  - Veritabanı + uploads klasörü birlikte yedekler
-  - Metadata dosyası oluşturur
-  - `backups/` klasörüne kaydeder
-  
-- **Yedekten yükle**: `node artifacts/yks-tracker/scripts/restore-db.cjs <yedek-adi>`
-  - Tüm verileri ve resimleri geri yükler
-  - Onay isteyerek çalışır
-  
-- **Veritabanını sıfırla**: `node artifacts/yks-tracker/scripts/reset-db.cjs [--force]`
-  - Tüm tabloları siler ve uploads klasörünü temizler
-  - `--force` ile onay sormadan çalışır
+```powershell
+node artifacts/yks-tracker/scripts/backup-db.cjs [isim]
+```
 
-- **Soru import et**: `node artifacts/yks-tracker/scripts/import-sorular.cjs [--dry-run] [--limit N]`
-  - `Soru Arşivi` klasöründen otomatik soru yükleme
-  - `--dry-run`: Sadece simülasyon, veritabanına yazmaz
-  - `--limit N`: İlk N soruyu import eder
+- Yedekten geri yüklemek:
 
-### Eski BAT Scriptleri (Hâlâ çalışır)
+```powershell
+node artifacts/yks-tracker/scripts/restore-db.cjs <yedek-adi>
+```
 
-- **Yedek al**: `YEDEK_AL.bat`
-- **Yedekten yükle**: `YEDEKTEN_GERI_YUKLE.bat`
-- **Veritabanını temizle**: `VERITABANI_TEMIZLE.bat`
+- Veritabanını sıfırlamak:
 
-Yedekler `backups` klasörüne kaydedilir.
+```powershell
+node artifacts/yks-tracker/scripts/reset-db.cjs [--force]
+```
 
-## Test Modu Özellikleri
+- Soru import etmek:
 
-### Soru Havuzu Özellikleri
+```powershell
+node artifacts/yks-tracker/scripts/import-sorular.cjs [--dry-run] [--limit N]
+```
 
-- **Pagination (Sayfalama)**: 20 soru/sayfa ile performanslı yükleme
-- **Lazy Loading**: Resimler görünür oldukça yüklenir
-- **Gelişmiş Filtreleme**:
-  - Kategori (TYT, AYT, Geometri)
-  - Ders seçimi
-  - Konu seçimi (ders bazlı dinamik konular)
-  - Durum (Çözülmedi, Doğru, Yanlış)
-  - Kaynak (Deneme, Banka)
-- **Toplu İşlemler**: Filtrelenmiş soruları test oluşturmada kullanma
+### BAT Scriptleri
+
+- `YEDEK_AL.bat`
+- `YEDEKTEN_GERI_YUKLE.bat`
+- `VERITABANI_TEMIZLE.bat`
+
+Yedekler `backups/` klasörüne yazılır.
+
+## Özellikler
+
+### Soru Havuzu
+
+- Sayfalama ile performanslı yükleme
+- Lazy loading ile resimlerin görünür oldukça yüklenmesi
+- Gelişmiş filtreleme:
+  - Kategori
+  - Ders
+  - Konu
+  - Durum
+  - Kaynak
+- Filtrelenmiş sorularla test oluşturma
 
 ### Test Oluşturma
 
-- **Akıllı Test Kurucu**: Filtrelere göre otomatik soru seçimi
-- **Konu Bazlı Seçim**: Birden fazla konu seçimi desteği
-- **Ders Bazlı Filtreleme**: Tek veya çoklu ders seçimi
-- **Soru Sayısı**: İstenilen sayıda soru ile test oluşturma
-- **Süre Limiti**: Opsiyonel test süresi belirleme
+- Akıllı test kurucu
+- Çoklu ders ve çoklu konu seçimi
+- İstenilen soru sayısıyla test üretme
+- Opsiyonel süre limiti
+- Test oturumu ve ilerleme takibi
 
 ### Çizim Araçları
-- **Resim Üstü Kalem**: Soru resminin üzerine doğrudan çizim yapma
-  - Kalem ve silgi araçları
-  - Renk seçimi (Siyah, Kırmızı, Mavi, Yeşil)
-  - Çizimler test bitene kadar kalıcı
-  
-- **Çözüm Tahtası**: Ayrı pencerede geniş çizim alanı
-  - Daha gelişmiş çizim araçları
-  - Zoom ve kaydırma desteği
-  - Çizimler test bitene kadar saklanır
+
+- Soru resmi üstüne çizim
+- Kalem ve silgi
+- Renk seçimi
+- Çözüm tahtası
+- Test bitene kadar çizimleri koruma
+- Kontrol modunda çizimlere devam etme
 
 ### Test Akışı
-1. **Test Çözme**: Soruları yanıtlama, çizim yapma
-2. **Test Bitir**: Cevaplar gönderilir, sonuçlar hesaplanır
-3. **Sonuçlar**: Özet ekranı - başarı oranı, doğru/yanlış sayısı
-4. **Kontrol Modu**: Soru soru inceleme, çizimlere devam etme, çözüm videosu izleme
 
-### Kontrol Modu
-- Test bitince **"Soruları kontrol et"** butonu ile açılır
-- Tüm çizimler korunur ve editlebilir
-- Çözüm videoları erişilebilir
-- Cevaplar değiştirilemez (sadece görüntüleme)
+1. Test başlatılır.
+2. Sorular çözülür.
+3. İlerleme ve cevaplar kaydedilir.
+4. Test bitirilir.
+5. Sonuçlar görüntülenir.
+6. Kontrol modunda sorular tekrar incelenir.
 
-## Çizim Kısa Notlar
+## Kontrol Modu
 
-- **Soru Havuzu / Resim Üzeri Çizim**: Kalıcı kayıt (Kaydet butonuyla).
-- **Test İçi Resim Üstü Kalem**: Test bitene kadar kalıcı, kontrol modunda editlebilir.
-- **Çözüm Tahtası**: Test bitene kadar kalıcı, kontrol modunda erişilebilir.
-- Resim üstü modda:
-  - Fare tekerleği (Mouse wheel) ile dikey kaydırma
-  - `Shift + tekerlek` ile yatay kaydırma
-  - Kaydırma çubuğu (Scrollbar) ile manuel kaydırma
-  - `Ctrl + tekerlek` ile zoom
+- Test sonrası açılır.
+- Çizimler korunur.
+- Çözüm videoları erişilebilir.
+- Cevaplar görüntülenir, sonuçlar incelenir.
+
+## Güvenli GitHub Kullanımı
+
+Bu projede aşağıdaki dosya ve klasörler GitHub'a gönderilmez:
+
+- `.env`
+- `.pnpm-store/`
+- `backups/`
+- `artifacts/api-server/uploads/`
+- `dist/`
+- `*.tsbuildinfo`
+
+Örnek ortam değişkenleri için sadece `.env.example` dosyası repoda tutulur.
+
+## Branch ile Çalışma Yöntemi
+
+Ana branch üzerinde doğrudan çalışmak yerine yeni özellik veya düzeltme için branch açmak daha güvenlidir.
+
+### Yeni branch açma
+
+```powershell
+git checkout -b codex/ozellik-adi
+```
+
+Örnek:
+
+```powershell
+git checkout -b codex/test-akisi-duzeltme
+```
+
+### Değişiklikleri kaydetme
+
+```powershell
+git status
+git add .
+git commit -m "feat: test akisi duzeltmeleri"
+```
+
+### Branch'i GitHub'a gönderme
+
+```powershell
+git push -u origin codex/ozellik-adi
+```
+
+### Çalışma önerisi
+
+1. `main` branch'i temiz bırakın.
+2. Her iş için yeni branch açın.
+3. İş bitince branch'i GitHub'a gönderin.
+4. Gerekirse GitHub üzerinden Pull Request açın.
+5. Onaydan sonra `main` ile birleştirin.
+
+## Hızlı Git Akışı
+
+Kısa kullanım:
+
+```powershell
+git checkout -b codex/yeni-is
+git add .
+git commit -m "feat: degisiklik aciklamasi"
+git push -u origin codex/yeni-is
+```
+
+## Not
+
+Yerel çalışma sırasında oluşan runtime dosyaları, yedekler ve yüklenen görseller repo dışında tutulacak şekilde ayarlanmıştır. Böylece GitHub tarafı daha temiz, güvenli ve paylaşılabilir kalır.
