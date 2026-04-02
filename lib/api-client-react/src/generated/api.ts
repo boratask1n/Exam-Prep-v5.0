@@ -23,11 +23,15 @@ import type {
   FilterOptions,
   HealthStatus,
   ListQuestionsParams,
-  ListQuestionsResponse,
   Question,
   SaveDrawingInput,
+  SaveTestProgressInput,
+  SaveTestSolutionInput,
+  SaveTestSolutionsInput,
   TestSession,
+  TestSessionProgress,
   TestSessionWithQuestions,
+  TestSolution,
   UpdateQuestionInput,
   UpdateTestQuestionStatusBody,
   UpdateTestSessionInput,
@@ -141,8 +145,8 @@ export const getListQuestionsUrl = (params?: ListQuestionsParams) => {
 export const listQuestions = async (
   params?: ListQuestionsParams,
   options?: RequestInit,
-): Promise<ListQuestionsResponse> => {
-  return customFetch<ListQuestionsResponse>(getListQuestionsUrl(params), {
+): Promise<Question[]> => {
+  return customFetch<Question[]>(getListQuestionsUrl(params), {
     ...options,
     method: "GET",
   });
@@ -1328,6 +1332,555 @@ export const useUpdateTestQuestionStatus = <
   TContext
 > => {
   return useMutation(getUpdateTestQuestionStatusMutationOptions(options));
+};
+
+/**
+ * @summary Get all solutions for a test session
+ */
+export const getGetTestSolutionsUrl = (id: number) => {
+  return `/api/tests/${id}/solutions`;
+};
+
+export const getTestSolutions = async (
+  id: number,
+  options?: RequestInit,
+): Promise<TestSolution[]> => {
+  return customFetch<TestSolution[]>(getGetTestSolutionsUrl(id), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetTestSolutionsQueryKey = (id: number) => {
+  return [`/api/tests/${id}/solutions`] as const;
+};
+
+export const getGetTestSolutionsQueryOptions = <
+  TData = Awaited<ReturnType<typeof getTestSolutions>>,
+  TError = ErrorType<unknown>,
+>(
+  id: number,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getTestSolutions>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetTestSolutionsQueryKey(id);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getTestSolutions>>
+  > = ({ signal }) => getTestSolutions(id, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!id,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getTestSolutions>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetTestSolutionsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getTestSolutions>>
+>;
+export type GetTestSolutionsQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Get all solutions for a test session
+ */
+
+export function useGetTestSolutions<
+  TData = Awaited<ReturnType<typeof getTestSolutions>>,
+  TError = ErrorType<unknown>,
+>(
+  id: number,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getTestSolutions>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetTestSolutionsQueryOptions(id, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Save or update test solutions (bulk)
+ */
+export const getSaveTestSolutionsUrl = (id: number) => {
+  return `/api/tests/${id}/solutions`;
+};
+
+export const saveTestSolutions = async (
+  id: number,
+  saveTestSolutionsInput: SaveTestSolutionsInput,
+  options?: RequestInit,
+): Promise<TestSolution[]> => {
+  return customFetch<TestSolution[]>(getSaveTestSolutionsUrl(id), {
+    ...options,
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(saveTestSolutionsInput),
+  });
+};
+
+export const getSaveTestSolutionsMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof saveTestSolutions>>,
+    TError,
+    { id: number; data: BodyType<SaveTestSolutionsInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof saveTestSolutions>>,
+  TError,
+  { id: number; data: BodyType<SaveTestSolutionsInput> },
+  TContext
+> => {
+  const mutationKey = ["saveTestSolutions"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof saveTestSolutions>>,
+    { id: number; data: BodyType<SaveTestSolutionsInput> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return saveTestSolutions(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type SaveTestSolutionsMutationResult = NonNullable<
+  Awaited<ReturnType<typeof saveTestSolutions>>
+>;
+export type SaveTestSolutionsMutationBody = BodyType<SaveTestSolutionsInput>;
+export type SaveTestSolutionsMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Save or update test solutions (bulk)
+ */
+export const useSaveTestSolutions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof saveTestSolutions>>,
+    TError,
+    { id: number; data: BodyType<SaveTestSolutionsInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof saveTestSolutions>>,
+  TError,
+  { id: number; data: BodyType<SaveTestSolutionsInput> },
+  TContext
+> => {
+  return useMutation(getSaveTestSolutionsMutationOptions(options));
+};
+
+/**
+ * @summary Get solution for a specific question in a test
+ */
+export const getGetTestQuestionSolutionUrl = (
+  id: number,
+  questionId: number,
+) => {
+  return `/api/tests/${id}/questions/${questionId}/solution`;
+};
+
+export const getTestQuestionSolution = async (
+  id: number,
+  questionId: number,
+  options?: RequestInit,
+): Promise<TestSolution> => {
+  return customFetch<TestSolution>(
+    getGetTestQuestionSolutionUrl(id, questionId),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getGetTestQuestionSolutionQueryKey = (
+  id: number,
+  questionId: number,
+) => {
+  return [`/api/tests/${id}/questions/${questionId}/solution`] as const;
+};
+
+export const getGetTestQuestionSolutionQueryOptions = <
+  TData = Awaited<ReturnType<typeof getTestQuestionSolution>>,
+  TError = ErrorType<void>,
+>(
+  id: number,
+  questionId: number,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getTestQuestionSolution>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ??
+    getGetTestQuestionSolutionQueryKey(id, questionId);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getTestQuestionSolution>>
+  > = ({ signal }) =>
+    getTestQuestionSolution(id, questionId, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!(id && questionId),
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getTestQuestionSolution>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetTestQuestionSolutionQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getTestQuestionSolution>>
+>;
+export type GetTestQuestionSolutionQueryError = ErrorType<void>;
+
+/**
+ * @summary Get solution for a specific question in a test
+ */
+
+export function useGetTestQuestionSolution<
+  TData = Awaited<ReturnType<typeof getTestQuestionSolution>>,
+  TError = ErrorType<void>,
+>(
+  id: number,
+  questionId: number,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getTestQuestionSolution>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetTestQuestionSolutionQueryOptions(
+    id,
+    questionId,
+    options,
+  );
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Save or update solution for a specific question in a test
+ */
+export const getSaveTestQuestionSolutionUrl = (
+  id: number,
+  questionId: number,
+) => {
+  return `/api/tests/${id}/questions/${questionId}/solution`;
+};
+
+export const saveTestQuestionSolution = async (
+  id: number,
+  questionId: number,
+  saveTestSolutionInput: SaveTestSolutionInput,
+  options?: RequestInit,
+): Promise<TestSolution> => {
+  return customFetch<TestSolution>(
+    getSaveTestQuestionSolutionUrl(id, questionId),
+    {
+      ...options,
+      method: "PUT",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(saveTestSolutionInput),
+    },
+  );
+};
+
+export const getSaveTestQuestionSolutionMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof saveTestQuestionSolution>>,
+    TError,
+    { id: number; questionId: number; data: BodyType<SaveTestSolutionInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof saveTestQuestionSolution>>,
+  TError,
+  { id: number; questionId: number; data: BodyType<SaveTestSolutionInput> },
+  TContext
+> => {
+  const mutationKey = ["saveTestQuestionSolution"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof saveTestQuestionSolution>>,
+    { id: number; questionId: number; data: BodyType<SaveTestSolutionInput> }
+  > = (props) => {
+    const { id, questionId, data } = props ?? {};
+
+    return saveTestQuestionSolution(id, questionId, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type SaveTestQuestionSolutionMutationResult = NonNullable<
+  Awaited<ReturnType<typeof saveTestQuestionSolution>>
+>;
+export type SaveTestQuestionSolutionMutationBody =
+  BodyType<SaveTestSolutionInput>;
+export type SaveTestQuestionSolutionMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Save or update solution for a specific question in a test
+ */
+export const useSaveTestQuestionSolution = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof saveTestQuestionSolution>>,
+    TError,
+    { id: number; questionId: number; data: BodyType<SaveTestSolutionInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof saveTestQuestionSolution>>,
+  TError,
+  { id: number; questionId: number; data: BodyType<SaveTestSolutionInput> },
+  TContext
+> => {
+  return useMutation(getSaveTestQuestionSolutionMutationOptions(options));
+};
+
+/**
+ * @summary Get test session progress
+ */
+export const getGetTestProgressUrl = (id: number) => {
+  return `/api/tests/${id}/progress`;
+};
+
+export const getTestProgress = async (
+  id: number,
+  options?: RequestInit,
+): Promise<TestSessionProgress> => {
+  return customFetch<TestSessionProgress>(getGetTestProgressUrl(id), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetTestProgressQueryKey = (id: number) => {
+  return [`/api/tests/${id}/progress`] as const;
+};
+
+export const getGetTestProgressQueryOptions = <
+  TData = Awaited<ReturnType<typeof getTestProgress>>,
+  TError = ErrorType<unknown>,
+>(
+  id: number,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getTestProgress>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetTestProgressQueryKey(id);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getTestProgress>>> = ({
+    signal,
+  }) => getTestProgress(id, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!id,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getTestProgress>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetTestProgressQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getTestProgress>>
+>;
+export type GetTestProgressQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Get test session progress
+ */
+
+export function useGetTestProgress<
+  TData = Awaited<ReturnType<typeof getTestProgress>>,
+  TError = ErrorType<unknown>,
+>(
+  id: number,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getTestProgress>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetTestProgressQueryOptions(id, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Save or update test session progress
+ */
+export const getSaveTestProgressUrl = (id: number) => {
+  return `/api/tests/${id}/progress`;
+};
+
+export const saveTestProgress = async (
+  id: number,
+  saveTestProgressInput: SaveTestProgressInput,
+  options?: RequestInit,
+): Promise<TestSessionProgress> => {
+  return customFetch<TestSessionProgress>(getSaveTestProgressUrl(id), {
+    ...options,
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(saveTestProgressInput),
+  });
+};
+
+export const getSaveTestProgressMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof saveTestProgress>>,
+    TError,
+    { id: number; data: BodyType<SaveTestProgressInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof saveTestProgress>>,
+  TError,
+  { id: number; data: BodyType<SaveTestProgressInput> },
+  TContext
+> => {
+  const mutationKey = ["saveTestProgress"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof saveTestProgress>>,
+    { id: number; data: BodyType<SaveTestProgressInput> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return saveTestProgress(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type SaveTestProgressMutationResult = NonNullable<
+  Awaited<ReturnType<typeof saveTestProgress>>
+>;
+export type SaveTestProgressMutationBody = BodyType<SaveTestProgressInput>;
+export type SaveTestProgressMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Save or update test session progress
+ */
+export const useSaveTestProgress = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof saveTestProgress>>,
+    TError,
+    { id: number; data: BodyType<SaveTestProgressInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof saveTestProgress>>,
+  TError,
+  { id: number; data: BodyType<SaveTestProgressInput> },
+  TContext
+> => {
+  return useMutation(getSaveTestProgressMutationOptions(options));
 };
 
 /**

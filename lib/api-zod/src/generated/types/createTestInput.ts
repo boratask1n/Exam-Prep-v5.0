@@ -13,4 +13,6 @@ export interface CreateTestInput {
   timeLimitSeconds?: number | null;
   questionIds?: number[];
   filters?: CreateTestInputFilters;
+  distribution?: Record<string, number>;
 }
+

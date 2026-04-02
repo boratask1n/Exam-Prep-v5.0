@@ -33,23 +33,57 @@ Bu proje bilgisayarınızda ve aynı ağdaki cihazlarda çalışır.
 
 ## Yedek Alma ve Geri Yükleme
 
-- **Yedek al**: `YEDEK_AL.bat`
-  - `.env` dosyasından otomatik bağlantı bilgisi okur
-  - Hem **Docker** hem **doğrudan psql** desteği
-  - Yedek boyutu kontrolü
-  
-- **Yedekten yükle**: `YEDEKTEN_GERI_YUKLE.bat`
-  - Mevcut verileri silip seçilen yedeği yükler
-  - Docker/psql otomatik algılama
-  
-- **Veritabanını temizle** (sıfırla): `VERITABANI_TEMIZLE.bat`
-  - Tüm tablolardaki verileri siler
-  - ID'leri 1'den başlatır
-  - Tablo yapılarını korur
+### Yeni Scriptler (Node.js)
 
-Yedekler `backups` klasörüne `.sql` olarak kaydedilir.
+Daha gelişmiş yedekleme seçenekleri:
+
+- **Yedek al**: `node artifacts/yks-tracker/scripts/backup-db.cjs [isim]`
+  - Veritabanı + uploads klasörü birlikte yedekler
+  - Metadata dosyası oluşturur
+  - `backups/` klasörüne kaydeder
+  
+- **Yedekten yükle**: `node artifacts/yks-tracker/scripts/restore-db.cjs <yedek-adi>`
+  - Tüm verileri ve resimleri geri yükler
+  - Onay isteyerek çalışır
+  
+- **Veritabanını sıfırla**: `node artifacts/yks-tracker/scripts/reset-db.cjs [--force]`
+  - Tüm tabloları siler ve uploads klasörünü temizler
+  - `--force` ile onay sormadan çalışır
+
+- **Soru import et**: `node artifacts/yks-tracker/scripts/import-sorular.cjs [--dry-run] [--limit N]`
+  - `Soru Arşivi` klasöründen otomatik soru yükleme
+  - `--dry-run`: Sadece simülasyon, veritabanına yazmaz
+  - `--limit N`: İlk N soruyu import eder
+
+### Eski BAT Scriptleri (Hâlâ çalışır)
+
+- **Yedek al**: `YEDEK_AL.bat`
+- **Yedekten yükle**: `YEDEKTEN_GERI_YUKLE.bat`
+- **Veritabanını temizle**: `VERITABANI_TEMIZLE.bat`
+
+Yedekler `backups` klasörüne kaydedilir.
 
 ## Test Modu Özellikleri
+
+### Soru Havuzu Özellikleri
+
+- **Pagination (Sayfalama)**: 20 soru/sayfa ile performanslı yükleme
+- **Lazy Loading**: Resimler görünür oldukça yüklenir
+- **Gelişmiş Filtreleme**:
+  - Kategori (TYT, AYT, Geometri)
+  - Ders seçimi
+  - Konu seçimi (ders bazlı dinamik konular)
+  - Durum (Çözülmedi, Doğru, Yanlış)
+  - Kaynak (Deneme, Banka)
+- **Toplu İşlemler**: Filtrelenmiş soruları test oluşturmada kullanma
+
+### Test Oluşturma
+
+- **Akıllı Test Kurucu**: Filtrelere göre otomatik soru seçimi
+- **Konu Bazlı Seçim**: Birden fazla konu seçimi desteği
+- **Ders Bazlı Filtreleme**: Tek veya çoklu ders seçimi
+- **Soru Sayısı**: İstenilen sayıda soru ile test oluşturma
+- **Süre Limiti**: Opsiyonel test süresi belirleme
 
 ### Çizim Araçları
 - **Resim Üstü Kalem**: Soru resminin üzerine doğrudan çizim yapma

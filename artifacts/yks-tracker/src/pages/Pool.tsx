@@ -91,8 +91,8 @@ export default function Pool() {
 
   const offset = (page - 1) * limit;
   const { data: response, isLoading } = useListQuestions({ ...filters, offset, limit } as any);
-  const questions: any[] = response?.items || [];
-  const pagination = response?.pagination;
+  const questions: any[] = (response as any)?.items || [];
+  const pagination = (response as any)?.pagination;
   const { data: options } = useGetFilterOptions();
   
   // Get available lessons based on selected category
@@ -119,11 +119,12 @@ export default function Pool() {
 
   const activeQuestion = questions?.find((q: any) => q.id === canvasQuestionId);
 
-  const totalCount = pagination?.total ?? questions?.length ?? 0;
+  const visibleCount = questions?.length ?? 0;
+  const totalCount = pagination?.total ?? visibleCount;
   const solvedCount = questions?.filter((q: any) => q.status === QuestionStatus.DogruCozuldu).length ?? 0;
   const wrongCount = questions?.filter((q: any) => q.status === QuestionStatus.YanlisHocayaSor).length ?? 0;
-  const solvedPct = totalCount > 0 ? Math.round((solvedCount / totalCount) * 100) : 0;
-  const wrongPct = totalCount > 0 ? Math.round((wrongCount / totalCount) * 100) : 0;
+  const solvedPct = visibleCount > 0 ? Math.round((solvedCount / visibleCount) * 100) : 0;
+  const wrongPct = visibleCount > 0 ? Math.round((wrongCount / visibleCount) * 100) : 0;
 
   return (
     <div className="h-full flex flex-col p-6 max-w-7xl mx-auto w-full">
@@ -135,23 +136,39 @@ export default function Pool() {
         <QuestionFormDialog />
       </div>
 
-      {/* Progress bar */}
-      {totalCount > 0 && (
-        <div className="mb-5 bg-card/40 border border-border/50 rounded-2xl p-4 backdrop-blur-md">
-          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 mb-2">
-            <span className="text-sm font-medium text-muted-foreground shrink-0">{totalCount} soru</span>
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs font-semibold">
-              <span className="text-green-500 shrink-0">✓ {solvedCount} doğru</span>
-              <span className="text-destructive shrink-0">✗ {wrongCount} yanlış</span>
-              <span className="text-muted-foreground shrink-0">· {totalCount - solvedCount - wrongCount} çözülmedi</span>
-            </div>
-          </div>
-          <div className="h-2.5 rounded-full bg-muted/40 overflow-hidden flex">
-            <div className="h-full bg-green-500 transition-all duration-500" style={{ width: `${solvedPct}%` }} />
-            <div className="h-full bg-destructive/70 transition-all duration-500" style={{ width: `${wrongPct}%` }} />
+      {/* Progress bar - always visible */}
+      <div className="mb-5 bg-card/40 border border-border/50 rounded-2xl p-4 backdrop-blur-md">
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 mb-2">
+          <span className="text-sm font-medium text-muted-foreground shrink-0">
+            {visibleCount || 0} gorunen soru
+          </span>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs font-semibold">
+            <span className="text-green-500 shrink-0">✓ {solvedCount || 0} doğru</span>
+            <span className="text-destructive shrink-0">✗ {wrongCount || 0} yanlış</span>
+            <span className="text-muted-foreground shrink-0">· {(visibleCount || 0) - (solvedCount || 0) - (wrongCount || 0)} çözülmedi</span>
           </div>
         </div>
-      )}
+        {totalCount !== visibleCount && (
+          <p className="text-xs text-muted-foreground mb-2">
+            Ozet yalnizca bu sayfayi gosterir. Filtre toplam: {totalCount} soru.
+          </p>
+        )}
+        <div className="h-2.5 rounded-full bg-muted/40 overflow-hidden flex">
+          <div 
+            className="h-full bg-green-500 transition-all duration-500" 
+            style={{ width: `${solvedPct}%` }} 
+          />
+          <div 
+            className="h-full bg-destructive/70 transition-all duration-500" 
+            style={{ width: `${wrongPct}%` }} 
+          />
+        </div>
+        {totalCount === 0 && (
+          <p className="text-xs text-muted-foreground mt-2 text-center">
+            Veri görmek için bu başlık altına soru yükleyin
+          </p>
+        )}
+      </div>
 
       {/* Filters */}
       <div className="flex flex-wrap gap-3 mb-6 bg-card/40 p-4 rounded-2xl border border-border/50 backdrop-blur-md">
@@ -159,7 +176,16 @@ export default function Pool() {
           <Filter className="w-4 h-4" /> Filtreler:
         </div>
 
-        <Select value={filters.category || "ALL"} onValueChange={(v) => setFilters((p) => ({ ...p, category: v === "ALL" ? undefined : (v as QuestionCategory), lesson: undefined, topic: undefined }))}>
+        <Select value={filters.category || "ALL"} onValueChange={(v) => { 
+          setPage(1); 
+          const newCategory = v === "ALL" ? undefined : (v as QuestionCategory);
+          // If Geometri is selected, auto-set lesson to Geometri
+          if (newCategory === QuestionCategory.Geometri) {
+            setFilters((p) => ({ ...p, category: newCategory, lesson: "Geometri", topic: undefined }));
+          } else {
+            setFilters((p) => ({ ...p, category: newCategory, lesson: undefined, topic: undefined }));
+          }
+        }}>
           <SelectTrigger className="bg-background rounded-xl border-border/50 h-9 w-40">
             <SelectValue placeholder="Kategori" />
           </SelectTrigger>
@@ -171,9 +197,13 @@ export default function Pool() {
           </SelectContent>
         </Select>
 
-        <Select value={filters.lesson || "ALL"} onValueChange={(v) => setFilters((p) => ({ ...p, lesson: v === "ALL" ? undefined : v, topic: undefined }))}>
+        <Select 
+          value={filters.lesson || "ALL"} 
+          onValueChange={(v) => { setPage(1); setFilters((p) => ({ ...p, lesson: v === "ALL" ? undefined : v, topic: undefined })); }}
+          disabled={filters.category === "Geometri"}
+        >
           <SelectTrigger className="bg-background rounded-xl border-border/50 h-9 w-40">
-            <SelectValue placeholder="Ders" />
+            <SelectValue placeholder={filters.category === "Geometri" ? "Geometri" : "Ders"} />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="ALL">Tüm Dersler</SelectItem>
@@ -184,7 +214,7 @@ export default function Pool() {
         {availableTopics.length > 0 && (
           <Select 
             value={filters.topic || "ALL"} 
-            onValueChange={(v) => setFilters((p) => ({ ...p, topic: v === "ALL" ? undefined : v }))}
+            onValueChange={(v) => { setPage(1); setFilters((p) => ({ ...p, topic: v === "ALL" ? undefined : v })); }}
             disabled={!filters.lesson}
           >
             <SelectTrigger className="bg-background rounded-xl border-border/50 h-9 w-44">
@@ -197,19 +227,10 @@ export default function Pool() {
           </Select>
         )}
 
-        <Select value={filters.status || "ALL"} onValueChange={(v) => setFilters((p) => ({ ...p, status: v === "ALL" ? undefined : (v as QuestionStatus) }))}>
-          <SelectTrigger className="bg-background rounded-xl border-border/50 h-9 w-44">
-            <SelectValue placeholder="Durum" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="ALL">Tüm Durumlar</SelectItem>
-            <SelectItem value={QuestionStatus.Cozulmedi}>Çözülmedi</SelectItem>
-            <SelectItem value={QuestionStatus.DogruCozuldu}>Doğru Çözüldü</SelectItem>
-            <SelectItem value={QuestionStatus.YanlisHocayaSor}>Yanlış / Hocaya Sor</SelectItem>
-          </SelectContent>
-        </Select>
-
-        <Select value={filters.source || "ALL"} onValueChange={(v) => setFilters((p) => ({ ...p, source: v === "ALL" ? undefined : (v as QuestionSource) }))}>
+        <Select 
+          value={filters.source || "ALL"} 
+          onValueChange={(v) => { setPage(1); setFilters((p) => ({ ...p, source: v === "ALL" ? undefined : (v as QuestionSource) })); }}
+        >
           <SelectTrigger className="bg-background rounded-xl border-border/50 h-9 w-40">
             <SelectValue placeholder="Kaynak" />
           </SelectTrigger>
@@ -217,11 +238,42 @@ export default function Pool() {
             <SelectItem value="ALL">Tüm Kaynaklar</SelectItem>
             <SelectItem value="Deneme">Deneme</SelectItem>
             <SelectItem value="Banka">Soru Bankası</SelectItem>
+            <SelectItem value="Fasikül">Fasikül</SelectItem>
           </SelectContent>
         </Select>
 
+        {/* Durum filtreleri - açık liste şeklinde */}
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-muted-foreground mr-1">Durum:</span>
+          {[
+            { value: "ALL", label: "Tümü", icon: Filter },
+            { value: QuestionStatus.Cozulmedi, label: "Beklemede", icon: Clock, color: "text-amber-500" },
+            { value: QuestionStatus.DogruCozuldu, label: "Doğru", icon: CheckCircle2, color: "text-green-500" },
+            { value: QuestionStatus.YanlisHocayaSor, label: "Yanlış", icon: XCircle, color: "text-destructive" },
+          ].map((statusOption) => {
+            const Icon = statusOption.icon;
+            const isActive = filters.status === statusOption.value || (statusOption.value === "ALL" && !filters.status);
+            return (
+              <button
+                key={statusOption.value}
+                type="button"
+                onClick={() => { setPage(1); setFilters((p) => ({ ...p, status: statusOption.value === "ALL" ? undefined : (statusOption.value as QuestionStatus) })); }}
+                className={cn(
+                  "flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-all border",
+                  isActive
+                    ? "bg-primary text-primary-foreground border-primary shadow-sm"
+                    : "bg-background text-muted-foreground border-border/50 hover:border-primary/50 hover:text-foreground"
+                )}
+              >
+                <Icon className={cn("w-3.5 h-3.5", !isActive && statusOption.color)} />
+                {statusOption.label}
+              </button>
+            );
+          })}
+        </div>
+
         {(filters.category || filters.lesson || filters.topic || filters.status || filters.source) && (
-          <Button variant="ghost" size="sm" onClick={() => setFilters({})} className="rounded-xl h-9 text-muted-foreground hover:text-foreground">
+          <Button variant="ghost" size="sm" onClick={() => { setPage(1); setFilters({}); }} className="rounded-xl h-9 text-muted-foreground hover:text-foreground">
             Temizle
           </Button>
         )}
@@ -365,7 +417,7 @@ export default function Pool() {
 
       {/* Canvas Modal — fixed overlay (avoids Dialog X button and w-screen overflow) */}
       {canvasQuestionId && activeQuestion && (
-        <div className="fixed inset-0 z-50 bg-black/95">
+        <div className="fixed inset-0 z-50 bg-background/95 backdrop-blur-sm">
           <CanvasModal
             questionId={activeQuestion.id}
             imageUrl={activeQuestion.imageUrl}
@@ -376,3 +428,4 @@ export default function Pool() {
     </div>
   );
 }
+

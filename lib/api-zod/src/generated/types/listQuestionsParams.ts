@@ -16,4 +16,7 @@ export type ListQuestionsParams = {
   publisher?: string;
   status?: ListQuestionsStatus;
   topic?: string;
+  limit?: number;
+  offset?: number;
 };
+

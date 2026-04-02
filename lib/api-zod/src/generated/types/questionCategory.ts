@@ -12,4 +12,5 @@ export type QuestionCategory =
 export const QuestionCategory = {
   TYT: "TYT",
   AYT: "AYT",
+  Geometri: "Geometri",
 } as const;

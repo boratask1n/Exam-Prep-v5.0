@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type UpdateTestSessionInput = {
+export interface UpdateTestSessionInput {
+  /** ISO 8601; set when test is finished */
   completedAt?: string | null;
-};
+}

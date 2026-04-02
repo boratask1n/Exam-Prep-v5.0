@@ -1,19 +1,32 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "wouter";
 import {
   useListTests,
   useCreateTest,
+  useGetFilterOptions,
   QuestionCategory,
   QuestionStatus,
   type TestSession,
+  type TestSessionProgress,
+  type TestSolution,
 } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { PlayCircle, PlusCircle, Trash2, Calendar, CheckSquare, Target, Book, Clock, X, Eye, BookOpen, CheckCircle } from "lucide-react";
+import { PlayCircle, PlusCircle, Trash2, Calendar, CheckSquare, Target, Book, Clock, X, Eye, BookOpen, CheckCircle, BarChart3 } from "lucide-react";
 import { hasTestDraft, clearTestLocalStorage } from "@/lib/testSessionStorage";
 import { format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
@@ -24,11 +37,38 @@ import { getTopicsForLesson } from "@/lib/lessonTopics";
 const TYT_LESSONS = ["Türkçe", "Matematik", "Geometri", "Fizik", "Kimya", "Biyoloji", "Din Kültürü", "Felsefe", "Tarih", "Coğrafya"];
 const AYT_LESSONS = ["Matematik", "Geometri", "Fizik", "Kimya", "Biyoloji", "Türk Dili ve Edebiyatı", "Tarih", "Coğrafya", "Felsefe"];
 
+function hasRemoteDraftData(
+  progress: TestSessionProgress | null | undefined,
+  solutions: TestSolution[] | undefined,
+) {
+  const hasProgress =
+    !!progress &&
+    (
+      (progress.currentIndex ?? 0) > 0 ||
+      (progress.elapsed ?? 0) > 0 ||
+      progress.inlineDrawEnabled === true ||
+      !!(progress.collapsedLessons && Object.keys(progress.collapsedLessons).length > 0)
+    );
+
+  const hasSolutions =
+    !!solutions?.some(
+      (solution) =>
+        !!solution.userAnswer ||
+        !!solution.tempDrawing ||
+        !!solution.canvasData ||
+        (Array.isArray(solution.inlineDrawings) && solution.inlineDrawings.length > 0),
+    );
+
+  return hasProgress || hasSolutions;
+}
+
 export default function Tests() {
   const { data: tests, isLoading } = useListTests();
+  const { data: filterOptions, isLoading: isLoadingFilters } = useGetFilterOptions();
   const createMutation = useCreateTest();
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const [remoteDrafts, setRemoteDrafts] = useState<Record<number, boolean>>({});
 
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
@@ -40,8 +80,152 @@ export default function Tests() {
   const [onlyUnsolved, setOnlyUnsolved] = useState(true);
   const [timeLimitEnabled, setTimeLimitEnabled] = useState(false);
   const [timeLimitMinutes, setTimeLimitMinutes] = useState("30");
+  
+  // Soru dağılımı state'leri
+  const [enableDistribution, setEnableDistribution] = useState(false);
+  const [distributionMode, setDistributionMode] = useState<"auto" | "manual">("auto");
+  const [manualDistribution, setManualDistribution] = useState<Record<string, number>>({});
 
-  const lessonOptions = category === QuestionCategory.AYT ? AYT_LESSONS : category === QuestionCategory.TYT ? TYT_LESSONS : [...TYT_LESSONS, ...AYT_LESSONS.filter(l => !TYT_LESSONS.includes(l))];
+  // Silme onay dialog state
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [testToDelete, setTestToDelete] = useState<number | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadRemoteDrafts = async () => {
+      if (!tests?.length) {
+        if (!cancelled) setRemoteDrafts({});
+        return;
+      }
+
+      const incompleteTests = tests.filter(
+        (test) => !(test as { completedAt?: string | null }).completedAt,
+      );
+
+      const results = await Promise.all(
+        incompleteTests.map(async (test) => {
+          try {
+            const [progressResponse, solutionsResponse] = await Promise.all([
+              fetch(`/api/tests/${test.id}/progress`),
+              fetch(`/api/tests/${test.id}/solutions`),
+            ]);
+
+            const progress = progressResponse.ok
+              ? ((await progressResponse.json()) as TestSessionProgress | null)
+              : null;
+            const solutions = solutionsResponse.ok
+              ? ((await solutionsResponse.json()) as TestSolution[])
+              : [];
+
+            return [test.id, hasRemoteDraftData(progress, solutions)] as const;
+          } catch {
+            return [test.id, false] as const;
+          }
+        }),
+      );
+
+      if (!cancelled) {
+        setRemoteDrafts(Object.fromEntries(results));
+      }
+    };
+
+    void loadRemoteDrafts();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [tests]);
+
+  // Mevcut dersleri filtrele (soru olanlar)
+  const availableLessons = filterOptions?.lessons || [];
+  
+  const lessonOptions = category === QuestionCategory.AYT 
+    ? AYT_LESSONS.filter(l => availableLessons.includes(l))
+    : category === QuestionCategory.TYT 
+      ? TYT_LESSONS.filter(l => availableLessons.includes(l))
+      : [...new Set([...TYT_LESSONS, ...AYT_LESSONS])].filter(l => availableLessons.includes(l));
+
+  // TYT ve AYT ders ağırlıkları (soru sayılarına göre)
+  const TYT_WEIGHTS: Record<string, number> = {
+    "Türkçe": 40,
+    "Matematik": 30,
+    "Geometri": 10,
+    "Fizik": 7,
+    "Kimya": 7,
+    "Biyoloji": 6,
+    "Din Kültürü": 5,
+    "Felsefe": 5,
+    "Tarih": 5,
+    "Coğrafya": 5,
+  };
+  
+  const AYT_WEIGHTS: Record<string, number> = {
+    "Matematik": 30,
+    "Geometri": 10,
+    "Fizik": 14,
+    "Kimya": 13,
+    "Biyoloji": 13,
+    "Türk Dili ve Edebiyatı": 24,
+    "Tarih": 10,
+    "Coğrafya": 6,
+    "Felsefe": 12,
+  };
+  
+  // Otomatik dağılım hesaplama
+  const calculateAutoDistribution = (): Record<string, number> => {
+    if (selectedLessons.length === 0) return {};
+    
+    const totalQuestions = parseInt(count) || 10;
+    const weights = category === "AYT" ? AYT_WEIGHTS : TYT_WEIGHTS;
+    
+    // Seçili derslerin ağırlıklarını topla
+    let totalWeight = 0;
+    const selectedWeights: Record<string, number> = {};
+    
+    selectedLessons.forEach((lesson) => {
+      const weight = weights[lesson] || 10;
+      selectedWeights[lesson] = weight;
+      totalWeight += weight;
+    });
+    
+    // Ağırlıklara göre soru sayılarını hesapla
+    const distribution: Record<string, number> = {};
+    let assigned = 0;
+    
+    selectedLessons.forEach((lesson) => {
+      const ratio = selectedWeights[lesson] / totalWeight;
+      const questions = Math.max(1, Math.round(totalQuestions * ratio));
+      distribution[lesson] = questions;
+      assigned += questions;
+    });
+    
+    // Yuvarlama farkını en yüksek ağırlıklı derse ekle/çıkar
+    const diff = totalQuestions - assigned;
+    if (diff !== 0 && selectedLessons.length > 0) {
+      let maxLesson = selectedLessons[0];
+      let maxWeight = selectedWeights[maxLesson] || 0;
+      
+      selectedLessons.forEach((lesson) => {
+        if ((selectedWeights[lesson] || 0) > maxWeight) {
+          maxWeight = selectedWeights[lesson] || 0;
+          maxLesson = lesson;
+        }
+      });
+      
+      distribution[maxLesson] = Math.max(1, (distribution[maxLesson] || 0) + diff);
+    }
+    
+    return distribution;
+  };
+  
+  const handleManualDistributionChange = (lesson: string, value: string) => {
+    const num = parseInt(value) || 0;
+    setManualDistribution((prev) => ({
+      ...prev,
+      [lesson]: Math.max(0, num),
+    }));
+  };
 
   const toggleLesson = (lesson: string) => {
     setSelectedLessons((prev) => {
@@ -65,22 +249,68 @@ export default function Tests() {
     setSelectedTopics([]);
   };
 
-  // Get all available topics for selected lessons
-  const availableTopics = selectedLessons.flatMap((lesson) =>
-    getTopicsForLesson(category === "ALL" ? "TYT" : (category as QuestionCategory), lesson)
-  );
+  // Get all available topics for selected lessons - sadece mevcut konuları göster
+  const availableTopics = selectedLessons.flatMap((lesson) => {
+    // Filter options'dan gelen konuları al
+    const existingTopics = filterOptions?.topics || [];
+    const lessonTopics = lesson === "Geometri" ? [
+      'Doğruda ve Üçgende Açılar',
+      'Dik Üçgen ve Trigonometrik Bağıntılar',
+      'İkizkenar ve Eşkenar Üçgen',
+      'Üçgende Alan ve Benzerlik',
+      'Üçgende Yardımcı Elemanlar',
+      'Çokgenler ve Dörtgenler',
+      'Özel Dörtgenler',
+      'Çember ve Daire',
+      'Katı Cisimler',
+      'Analitik Geometri',
+      'Çemberin Analitik İncelenmesi'
+    ] : getTopicsForLesson(category === "ALL" ? "TYT" : (category as QuestionCategory), lesson);
+    // Sadece veritabanında mevcut olan konuları göster
+    return lessonTopics.filter(topic => existingTopics.includes(topic));
+  });
 
-  // Group topics by lesson for display
-  const topicsByLesson = selectedLessons.map((lesson) => ({
-    lesson,
-    topics: getTopicsForLesson(category === "ALL" ? "TYT" : (category as QuestionCategory), lesson),
-  }));
+  // Group topics by lesson for display - sadece mevcut konuları göster
+  const topicsByLesson = selectedLessons.map((lesson) => {
+    const existingTopics = filterOptions?.topics || [];
+    const allLessonTopics = lesson === "Geometri" ? [
+      'Doğruda ve Üçgende Açılar',
+      'Dik Üçgen ve Trigonometrik Bağıntılar',
+      'İkizkenar ve Eşkenar Üçgen',
+      'Üçgende Alan ve Benzerlik',
+      'Üçgende Yardımcı Elemanlar',
+      'Çokgenler ve Dörtgenler',
+      'Özel Dörtgenler',
+      'Çember ve Daire',
+      'Katı Cisimler',
+      'Analitik Geometri',
+      'Çemberin Analitik İncelenmesi'
+    ] : getTopicsForLesson(category === "ALL" ? "TYT" : (category as QuestionCategory), lesson);
+    return {
+      lesson,
+      topics: allLessonTopics.filter(topic => existingTopics.includes(topic)),
+    };
+  });
 
   const handleCreate = async () => {
     if (!name.trim()) { toast({ title: "Test adı zorunludur", variant: "destructive" }); return; }
 
     try {
       const timeLimitSeconds = timeLimitEnabled ? parseInt(timeLimitMinutes) * 60 : null;
+      
+      // Calculate question distribution if enabled
+      let distribution: Record<string, number> | undefined;
+      if (enableDistribution && selectedLessons.length > 0) {
+        if (distributionMode === "auto") {
+          distribution = calculateAutoDistribution();
+        } else {
+          // Use manual distribution, filter out 0 values
+          distribution = Object.fromEntries(
+            Object.entries(manualDistribution).filter(([_, count]) => count > 0)
+          );
+        }
+      }
+      
       await createMutation.mutateAsync({
         data: {
           name: name.trim(),
@@ -89,9 +319,10 @@ export default function Tests() {
           filters: {
             category: category !== "ALL" ? category : undefined,
             lessons: selectedLessons.length > 0 ? selectedLessons : undefined,
-            topic: selectedTopics.length === 1 ? selectedTopics[0] : undefined,
+            topics: selectedTopics.length > 0 ? selectedTopics : undefined,
             status: onlyUnsolved ? QuestionStatus.Cozulmedi : undefined,
           },
+          distribution,
         },
       });
       toast({ title: "Test oluşturuldu!" });
@@ -102,18 +333,26 @@ export default function Tests() {
       setSelectedTopics([]);
       setShowTopicSelector(false);
       setTimeLimitEnabled(false);
+      setEnableDistribution(false);
+      setManualDistribution({});
     } catch {
       toast({ title: "Test oluşturulurken hata", variant: "destructive" });
     }
   };
 
-  const handleDelete = async (id: number) => {
-    if (confirm("Testi silmek istediğinize emin misiniz?")) {
-      await fetch(`/api/tests/${id}`, { method: "DELETE" });
-      clearTestLocalStorage(id);
-      queryClient.invalidateQueries({ queryKey: ["/api/tests"] });
-      toast({ title: "Test silindi" });
-    }
+  const handleDelete = (id: number) => {
+    setTestToDelete(id);
+    setDeleteDialogOpen(true);
+  };
+
+  const confirmDelete = async () => {
+    if (!testToDelete) return;
+    await fetch(`/api/tests/${testToDelete}`, { method: "DELETE" });
+    clearTestLocalStorage(testToDelete);
+    queryClient.invalidateQueries({ queryKey: ["/api/tests"] });
+    toast({ title: "Test silindi" });
+    setDeleteDialogOpen(false);
+    setTestToDelete(null);
   };
 
   return (
@@ -150,7 +389,7 @@ export default function Tests() {
                 </div>
                 <div className="space-y-2">
                   <Label>Kategori</Label>
-                  <Select value={category} onValueChange={(v) => { setCategory(v as any); setSelectedLessons([]); }}>
+                  <Select value={category} onValueChange={(v) => { setCategory(v as any); setSelectedLessons([]); setSelectedTopics([]); }}>
                     <SelectTrigger className="rounded-xl">
                       <SelectValue />
                     </SelectTrigger>
@@ -166,31 +405,46 @@ export default function Tests() {
               {/* Lesson multi-select */}
               <div className="space-y-2">
                 <Label>Ders Filtresi <span className="text-muted-foreground text-xs">(boş bırakılırsa tüm dersler)</span></Label>
-                <div className="flex flex-wrap gap-2 p-3 bg-muted/20 rounded-xl border border-border/50 min-h-[48px]">
-                  {lessonOptions.map((lesson) => (
-                    <button
-                      key={lesson}
-                      type="button"
-                      onClick={() => toggleLesson(lesson)}
-                      className={cn(
-                        "px-3 py-1 rounded-lg text-sm font-medium transition-all border",
-                        selectedLessons.includes(lesson)
-                          ? "bg-primary text-primary-foreground border-primary shadow-sm"
-                          : "bg-background text-muted-foreground border-border/50 hover:border-primary/50 hover:text-foreground"
-                      )}
-                    >
-                      {lesson}
-                    </button>
-                  ))}
-                </div>
-                {selectedLessons.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => { setSelectedLessons([]); setSelectedTopics([]); }}
-                    className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
-                  >
-                    <X className="w-3 h-3" /> Seçimi temizle
-                  </button>
+                {lessonOptions.length === 0 ? (
+                  <div className="p-4 bg-muted/20 rounded-xl border border-border/50 text-center">
+                    <p className="text-sm text-muted-foreground mb-2">
+                      Henüz hiç ders eklenmemiş.
+                    </p>
+                    <Link href="/">
+                      <Button variant="outline" size="sm" className="rounded-lg text-xs">
+                        <PlusCircle className="w-3 h-3 mr-1" /> Soru kaydetmeye başla
+                      </Button>
+                    </Link>
+                  </div>
+                ) : (
+                  <>
+                    <div className="flex flex-wrap gap-2 p-3 bg-muted/20 rounded-xl border border-border/50 min-h-[48px]">
+                      {lessonOptions.map((lesson) => (
+                        <button
+                          key={lesson}
+                          type="button"
+                          onClick={() => toggleLesson(lesson)}
+                          className={cn(
+                            "px-3 py-1 rounded-lg text-sm font-medium transition-all border",
+                            selectedLessons.includes(lesson)
+                              ? "bg-primary text-primary-foreground border-primary shadow-sm"
+                              : "bg-background text-muted-foreground border-border/50 hover:border-primary/50 hover:text-foreground"
+                          )}
+                        >
+                          {lesson}
+                        </button>
+                      ))}
+                    </div>
+                    {selectedLessons.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => { setSelectedLessons([]); setSelectedTopics([]); }}
+                        className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
+                      >
+                        <X className="w-3 h-3" /> Seçimi temizle
+                      </button>
+                    )}
+                  </>
                 )}
               </div>
 
@@ -296,6 +550,115 @@ export default function Tests() {
                 </label>
               </div>
 
+              {/* Question Distribution */}
+              <div className="space-y-3 p-3 bg-muted/20 rounded-xl border border-border/50">
+                <div className="flex items-center gap-3">
+                  <input
+                    type="checkbox"
+                    id="enableDistribution"
+                    checked={enableDistribution}
+                    onChange={(e) => setEnableDistribution(e.target.checked)}
+                    className="w-4 h-4 accent-primary"
+                  />
+                  <label htmlFor="enableDistribution" className="text-sm font-medium flex items-center gap-2 cursor-pointer">
+                    <BarChart3 className="w-4 h-4 text-primary" /> Soru Dağılımını Düzenle
+                  </label>
+                </div>
+                
+                {enableDistribution && selectedLessons.length > 0 && (
+                  <div className="pl-7 space-y-3">
+                    {/* Mode Selection */}
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setDistributionMode("auto")}
+                        className={cn(
+                          "px-3 py-1.5 rounded-lg text-xs font-medium transition-all border",
+                          distributionMode === "auto"
+                            ? "bg-primary text-primary-foreground border-primary"
+                            : "bg-background text-muted-foreground border-border/50 hover:border-primary/50"
+                        )}
+                      >
+                        🤖 Otomatik (TYT/AYT Oranları)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDistributionMode("manual")}
+                        className={cn(
+                          "px-3 py-1.5 rounded-lg text-xs font-medium transition-all border",
+                          distributionMode === "manual"
+                            ? "bg-primary text-primary-foreground border-primary"
+                            : "bg-background text-muted-foreground border-border/50 hover:border-primary/50"
+                        )}
+                      >
+                        ✏️ Manuel
+                      </button>
+                    </div>
+                    
+                    {distributionMode === "auto" ? (
+                      <div className="space-y-2">
+                        <p className="text-xs text-muted-foreground">
+                          {category === "AYT" ? "AYT" : "TYT"} oranlarına göre dağılım:
+                        </p>
+                        <div className="space-y-1.5">
+                          {(() => {
+                            const distribution = calculateAutoDistribution();
+                            const total = Object.values(distribution).reduce((a, b) => a + b, 0);
+                            return selectedLessons.map((lesson) => {
+                              const count_ = distribution[lesson] || 0;
+                              const weight = (category === "AYT" ? AYT_WEIGHTS : TYT_WEIGHTS)[lesson] || 10;
+                              return (
+                                <div key={lesson} className="flex items-center gap-2 text-sm">
+                                  <span className="w-24 truncate">{lesson}</span>
+                                  <div className="flex-1 h-4 bg-muted rounded-full overflow-hidden">
+                                    <div
+                                      className="h-full bg-primary/60 rounded-full transition-all"
+                                      style={{ width: `${total > 0 ? (count_ / total) * 100 : 0}%` }}
+                                    />
+                                  </div>
+                                  <span className="w-8 text-right font-medium">{count_}</span>
+                                  <span className="text-xs text-muted-foreground">({weight})</span>
+                                </div>
+                              );
+                            });
+                          })()}
+                        </div>
+                        <p className="text-[10px] text-muted-foreground">
+                          Matematik, Geometri ve Türkçe'ye daha fazla ağırlık verilir.
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        <p className="text-xs text-muted-foreground">Her dersten kaç soru:</p>
+                        <div className="grid grid-cols-2 gap-2">
+                          {selectedLessons.map((lesson) => (
+                            <div key={lesson} className="flex items-center gap-2">
+                              <span className="text-xs w-20 truncate">{lesson}</span>
+                              <Input
+                                type="number"
+                                min="0"
+                                max="50"
+                                value={manualDistribution[lesson] || ""}
+                                onChange={(e) => handleManualDistributionChange(lesson, e.target.value)}
+                                className="h-7 w-16 text-xs rounded-lg"
+                              />
+                            </div>
+                          ))}
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          Toplam: {Object.values(manualDistribution).reduce((a, b) => a + b, 0)} soru
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
+                {enableDistribution && selectedLessons.length === 0 && (
+                  <p className="text-xs text-muted-foreground pl-7">
+                    Dağılım için önce ders seçin.
+                  </p>
+                )}
+              </div>
+
               {/* Timer */}
               <div className="space-y-3 p-3 bg-muted/20 rounded-xl border border-border/50">
                 <div className="flex items-center gap-3">
@@ -351,7 +714,7 @@ export default function Tests() {
           tests.map((test: TestSession) => {
             const pct = test.questionCount > 0 ? Math.round((test.completedCount / test.questionCount) * 100) : 0;
             const completedAt = (test as { completedAt?: string | null }).completedAt;
-            const hasDraft = hasTestDraft(test.id);
+            const hasDraft = hasTestDraft(test.id) || !!remoteDrafts[test.id];
             const ctaLabel = completedAt ? "Gözden geçir" : hasDraft ? "Devam et" : "Testi çöz";
             const CtaIcon = completedAt ? Eye : PlayCircle;
             return (
@@ -409,6 +772,32 @@ export default function Tests() {
           })
         )}
       </div>
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent className="bg-card border-border/50 rounded-2xl">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="font-display text-xl flex items-center gap-2">
+              <Trash2 className="w-5 h-5 text-destructive" />
+              Testi Sil
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-muted-foreground">
+              Bu testi silmek istediğinize emin misiniz? Bu işlem geri alınamaz.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="gap-2">
+            <AlertDialogCancel className="rounded-xl border-border/50 hover:bg-muted">
+              İptal
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={confirmDelete}
+              className="rounded-xl bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Sil
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

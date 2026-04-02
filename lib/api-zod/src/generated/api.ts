@@ -19,11 +19,13 @@ export const HealthCheckResponse = zod.object({
  */
 export const ListQuestionsQueryParams = zod.object({
   category: zod.enum(["TYT", "AYT", "Geometri"]).optional(),
-  source: zod.enum(["Deneme", "Banka"]).optional(),
+  source: zod.enum(["Deneme", "Banka", "Fasikül"]).optional(),
   lesson: zod.coerce.string().optional(),
   publisher: zod.coerce.string().optional(),
   status: zod.enum(["Cozulmedi", "DogruCozuldu", "YanlisHocayaSor"]).optional(),
   topic: zod.coerce.string().optional(),
+  limit: zod.coerce.number().int().positive().optional(),
+  offset: zod.coerce.number().int().min(0).optional(),
 });
 
 export const ListQuestionsResponseItem = zod.object({
@@ -47,7 +49,7 @@ export const ListQuestionsResponseItem = zod.object({
     .nullish(),
   solutionUrl: zod.string().nullish(),
   category: zod.enum(["TYT", "AYT", "Geometri"]),
-  source: zod.enum(["Deneme", "Banka"]),
+  source: zod.enum(["Deneme", "Banka", "Fasikül"]),
   status: zod.enum(["Cozulmedi", "DogruCozuldu", "YanlisHocayaSor"]),
   hasDrawing: zod.boolean(),
   createdAt: zod.string(),
@@ -78,7 +80,7 @@ export const CreateQuestionBody = zod.object({
     .nullish(),
   solutionUrl: zod.string().nullish(),
   category: zod.enum(["TYT", "AYT", "Geometri"]),
-  source: zod.enum(["Deneme", "Banka"]),
+  source: zod.enum(["Deneme", "Banka", "Fasikül"]),
   status: zod.enum(["Cozulmedi", "DogruCozuldu", "YanlisHocayaSor"]).optional(),
 });
 
@@ -110,7 +112,7 @@ export const GetQuestionResponse = zod.object({
     .nullish(),
   solutionUrl: zod.string().nullish(),
   category: zod.enum(["TYT", "AYT", "Geometri"]),
-  source: zod.enum(["Deneme", "Banka"]),
+  source: zod.enum(["Deneme", "Banka", "Fasikül"]),
   status: zod.enum(["Cozulmedi", "DogruCozuldu", "YanlisHocayaSor"]),
   hasDrawing: zod.boolean(),
   createdAt: zod.string(),
@@ -143,7 +145,7 @@ export const UpdateQuestionBody = zod.object({
     ])
     .nullish(),
   category: zod.enum(["TYT", "AYT", "Geometri"]).optional(),
-  source: zod.enum(["Deneme", "Banka"]).optional(),
+  source: zod.enum(["Deneme", "Banka", "Fasikül"]).optional(),
   status: zod.enum(["Cozulmedi", "DogruCozuldu", "YanlisHocayaSor"]).optional(),
   solutionUrl: zod.string().nullish(),
 });
@@ -169,7 +171,7 @@ export const UpdateQuestionResponse = zod.object({
     .nullish(),
   solutionUrl: zod.string().nullish(),
   category: zod.enum(["TYT", "AYT", "Geometri"]),
-  source: zod.enum(["Deneme", "Banka"]),
+  source: zod.enum(["Deneme", "Banka", "Fasikül"]),
   status: zod.enum(["Cozulmedi", "DogruCozuldu", "YanlisHocayaSor"]),
   hasDrawing: zod.boolean(),
   createdAt: zod.string(),
@@ -252,15 +254,17 @@ export const CreateTestBody = zod.object({
   filters: zod
     .object({
       category: zod.enum(["TYT", "AYT", "Geometri"]).optional(),
-      source: zod.enum(["Deneme", "Banka"]).optional(),
+      source: zod.enum(["Deneme", "Banka", "Fasikül"]).optional(),
       lessons: zod.array(zod.string()).optional(),
       topic: zod.string().optional(),
+      topics: zod.array(zod.string()).optional(),
       publisher: zod.string().optional(),
       status: zod
         .enum(["Cozulmedi", "DogruCozuldu", "YanlisHocayaSor"])
         .optional(),
     })
     .optional(),
+  distribution: zod.record(zod.string(), zod.number().int().positive()).optional(),
 });
 
 /**
@@ -297,7 +301,7 @@ export const GetTestResponse = zod.object({
         .nullish(),
       solutionUrl: zod.string().nullish(),
       category: zod.enum(["TYT", "AYT", "Geometri"]),
-      source: zod.enum(["Deneme", "Banka"]),
+      source: zod.enum(["Deneme", "Banka", "Fasikül"]),
       status: zod.enum(["Cozulmedi", "DogruCozuldu", "YanlisHocayaSor"]),
       hasDrawing: zod.boolean(),
       createdAt: zod.string(),
@@ -348,7 +352,7 @@ export const UpdateTestResponse = zod.object({
         .nullish(),
       solutionUrl: zod.string().nullish(),
       category: zod.enum(["TYT", "AYT", "Geometri"]),
-      source: zod.enum(["Deneme", "Banka"]),
+      source: zod.enum(["Deneme", "Banka", "Fasikül"]),
       status: zod.enum(["Cozulmedi", "DogruCozuldu", "YanlisHocayaSor"]),
       hasDrawing: zod.boolean(),
       createdAt: zod.string(),
@@ -398,9 +402,289 @@ export const UpdateTestQuestionStatusResponse = zod.object({
     .nullish(),
   solutionUrl: zod.string().nullish(),
   category: zod.enum(["TYT", "AYT", "Geometri"]),
-  source: zod.enum(["Deneme", "Banka"]),
+  source: zod.enum(["Deneme", "Banka", "Fasikül"]),
   status: zod.enum(["Cozulmedi", "DogruCozuldu", "YanlisHocayaSor"]),
   hasDrawing: zod.boolean(),
+  createdAt: zod.string(),
+  updatedAt: zod.string(),
+});
+
+/**
+ * @summary Get all solutions for a test session
+ */
+export const GetTestSolutionsParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const GetTestSolutionsResponseItem = zod.object({
+  id: zod.number(),
+  testSessionId: zod.number(),
+  questionId: zod.number(),
+  userAnswer: zod.string().nullish(),
+  status: zod.enum(["Cozulmedi", "DogruCozuldu", "YanlisHocayaSor"]),
+  isCompleted: zod.boolean(),
+  canvasData: zod.string().nullish(),
+  inlineDrawings: zod
+    .array(
+      zod.object({
+        tool: zod.enum(["pen", "eraser"]).optional(),
+        color: zod.string().optional(),
+        width: zod.number().optional(),
+        points: zod
+          .array(
+            zod.object({
+              x: zod.number().optional(),
+              y: zod.number().optional(),
+            }),
+          )
+          .optional(),
+      }),
+    )
+    .nullish(),
+  tempDrawing: zod.string().nullish(),
+  currentIndex: zod.number().nullish(),
+  timer: zod.number().nullish(),
+  elapsed: zod.number().nullish(),
+  inlineDrawEnabled: zod.boolean(),
+  createdAt: zod.string(),
+  updatedAt: zod.string(),
+});
+export const GetTestSolutionsResponse = zod.array(GetTestSolutionsResponseItem);
+
+/**
+ * @summary Save or update test solutions (bulk)
+ */
+export const SaveTestSolutionsParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const SaveTestSolutionsBody = zod.object({
+  solutions: zod.array(
+    zod.object({
+      questionId: zod.number().optional(),
+      userAnswer: zod.string().nullish(),
+      status: zod
+        .enum(["Cozulmedi", "DogruCozuldu", "YanlisHocayaSor"])
+        .optional(),
+      isCompleted: zod.boolean().optional(),
+      canvasData: zod.string().nullish(),
+      inlineDrawings: zod
+        .array(
+          zod.object({
+            tool: zod.enum(["pen", "eraser"]).optional(),
+            color: zod.string().optional(),
+            width: zod.number().optional(),
+            points: zod
+              .array(
+                zod.object({
+                  x: zod.number().optional(),
+                  y: zod.number().optional(),
+                }),
+              )
+              .optional(),
+          }),
+        )
+        .nullish(),
+      tempDrawing: zod.string().nullish(),
+      inlineDrawEnabled: zod.boolean().optional(),
+    }),
+  ),
+});
+
+export const SaveTestSolutionsResponseItem = zod.object({
+  id: zod.number(),
+  testSessionId: zod.number(),
+  questionId: zod.number(),
+  userAnswer: zod.string().nullish(),
+  status: zod.enum(["Cozulmedi", "DogruCozuldu", "YanlisHocayaSor"]),
+  isCompleted: zod.boolean(),
+  canvasData: zod.string().nullish(),
+  inlineDrawings: zod
+    .array(
+      zod.object({
+        tool: zod.enum(["pen", "eraser"]).optional(),
+        color: zod.string().optional(),
+        width: zod.number().optional(),
+        points: zod
+          .array(
+            zod.object({
+              x: zod.number().optional(),
+              y: zod.number().optional(),
+            }),
+          )
+          .optional(),
+      }),
+    )
+    .nullish(),
+  tempDrawing: zod.string().nullish(),
+  currentIndex: zod.number().nullish(),
+  timer: zod.number().nullish(),
+  elapsed: zod.number().nullish(),
+  inlineDrawEnabled: zod.boolean(),
+  createdAt: zod.string(),
+  updatedAt: zod.string(),
+});
+export const SaveTestSolutionsResponse = zod.array(
+  SaveTestSolutionsResponseItem,
+);
+
+/**
+ * @summary Get solution for a specific question in a test
+ */
+export const GetTestQuestionSolutionParams = zod.object({
+  id: zod.coerce.number(),
+  questionId: zod.coerce.number(),
+});
+
+export const GetTestQuestionSolutionResponse = zod.object({
+  id: zod.number(),
+  testSessionId: zod.number(),
+  questionId: zod.number(),
+  userAnswer: zod.string().nullish(),
+  status: zod.enum(["Cozulmedi", "DogruCozuldu", "YanlisHocayaSor"]),
+  isCompleted: zod.boolean(),
+  canvasData: zod.string().nullish(),
+  inlineDrawings: zod
+    .array(
+      zod.object({
+        tool: zod.enum(["pen", "eraser"]).optional(),
+        color: zod.string().optional(),
+        width: zod.number().optional(),
+        points: zod
+          .array(
+            zod.object({
+              x: zod.number().optional(),
+              y: zod.number().optional(),
+            }),
+          )
+          .optional(),
+      }),
+    )
+    .nullish(),
+  tempDrawing: zod.string().nullish(),
+  currentIndex: zod.number().nullish(),
+  timer: zod.number().nullish(),
+  elapsed: zod.number().nullish(),
+  inlineDrawEnabled: zod.boolean(),
+  createdAt: zod.string(),
+  updatedAt: zod.string(),
+});
+
+/**
+ * @summary Save or update solution for a specific question in a test
+ */
+export const SaveTestQuestionSolutionParams = zod.object({
+  id: zod.coerce.number(),
+  questionId: zod.coerce.number(),
+});
+
+export const SaveTestQuestionSolutionBody = zod.object({
+  userAnswer: zod.string().nullish(),
+  status: zod.enum(["Cozulmedi", "DogruCozuldu", "YanlisHocayaSor"]).optional(),
+  isCompleted: zod.boolean().optional(),
+  canvasData: zod.string().nullish(),
+  inlineDrawings: zod
+    .array(
+      zod.object({
+        tool: zod.enum(["pen", "eraser"]).optional(),
+        color: zod.string().optional(),
+        width: zod.number().optional(),
+        points: zod
+          .array(
+            zod.object({
+              x: zod.number().optional(),
+              y: zod.number().optional(),
+            }),
+          )
+          .optional(),
+      }),
+    )
+    .nullish(),
+  tempDrawing: zod.string().nullish(),
+  inlineDrawEnabled: zod.boolean().optional(),
+});
+
+export const SaveTestQuestionSolutionResponse = zod.object({
+  id: zod.number(),
+  testSessionId: zod.number(),
+  questionId: zod.number(),
+  userAnswer: zod.string().nullish(),
+  status: zod.enum(["Cozulmedi", "DogruCozuldu", "YanlisHocayaSor"]),
+  isCompleted: zod.boolean(),
+  canvasData: zod.string().nullish(),
+  inlineDrawings: zod
+    .array(
+      zod.object({
+        tool: zod.enum(["pen", "eraser"]).optional(),
+        color: zod.string().optional(),
+        width: zod.number().optional(),
+        points: zod
+          .array(
+            zod.object({
+              x: zod.number().optional(),
+              y: zod.number().optional(),
+            }),
+          )
+          .optional(),
+      }),
+    )
+    .nullish(),
+  tempDrawing: zod.string().nullish(),
+  currentIndex: zod.number().nullish(),
+  timer: zod.number().nullish(),
+  elapsed: zod.number().nullish(),
+  inlineDrawEnabled: zod.boolean(),
+  createdAt: zod.string(),
+  updatedAt: zod.string(),
+});
+
+/**
+ * @summary Get test session progress
+ */
+export const GetTestProgressParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const GetTestProgressResponse = zod.object({
+  id: zod.number(),
+  testSessionId: zod.number(),
+  currentIndex: zod.number(),
+  timer: zod.number().nullish(),
+  elapsed: zod.number(),
+  isCompleted: zod.boolean(),
+  completedAt: zod.string().nullish(),
+  inlineDrawEnabled: zod.boolean(),
+  collapsedLessons: zod.record(zod.string(), zod.boolean()).nullish(),
+  createdAt: zod.string(),
+  updatedAt: zod.string(),
+});
+
+/**
+ * @summary Save or update test session progress
+ */
+export const SaveTestProgressParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const SaveTestProgressBody = zod.object({
+  currentIndex: zod.number().optional(),
+  timer: zod.number().nullish(),
+  elapsed: zod.number().optional(),
+  isCompleted: zod.boolean().optional(),
+  inlineDrawEnabled: zod.boolean().optional(),
+  collapsedLessons: zod.record(zod.string(), zod.boolean()).nullish(),
+});
+
+export const SaveTestProgressResponse = zod.object({
+  id: zod.number(),
+  testSessionId: zod.number(),
+  currentIndex: zod.number(),
+  timer: zod.number().nullish(),
+  elapsed: zod.number(),
+  isCompleted: zod.boolean(),
+  completedAt: zod.string().nullish(),
+  inlineDrawEnabled: zod.boolean(),
+  collapsedLessons: zod.record(zod.string(), zod.boolean()).nullish(),
   createdAt: zod.string(),
   updatedAt: zod.string(),
 });
@@ -413,3 +697,4 @@ export const GetFilterOptionsResponse = zod.object({
   topics: zod.array(zod.string()),
   publishers: zod.array(zod.string()),
 });
+

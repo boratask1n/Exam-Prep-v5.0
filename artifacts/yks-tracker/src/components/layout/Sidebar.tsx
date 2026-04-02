@@ -1,14 +1,14 @@
 import { Link, useLocation } from "wouter";
 import { PenTool, LayoutGrid, BookOpen, Sun, Moon } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 
 function getInitialDark(): boolean {
   try {
     const stored = localStorage.getItem("yks-dark-mode");
     if (stored !== null) return stored === "true";
   } catch {}
-  return true;
+  return false;
 }
 
 export function Sidebar({ children }: { children: React.ReactNode }) {
@@ -18,10 +18,11 @@ export function Sidebar({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     document.documentElement.classList.toggle("dark", isDark);
     document.documentElement.classList.toggle("light", !isDark);
-    try { localStorage.setItem("yks-dark-mode", String(isDark)); } catch {}
+    try {
+      localStorage.setItem("yks-dark-mode", String(isDark));
+    } catch {}
   }, [isDark]);
 
-  // Apply on mount without waiting for state change
   useEffect(() => {
     document.documentElement.classList.toggle("dark", isDark);
     document.documentElement.classList.toggle("light", !isDark);
@@ -29,80 +30,94 @@ export function Sidebar({ children }: { children: React.ReactNode }) {
 
   const navItems = [
     { href: "/", icon: LayoutGrid, label: "Soru Havuzu" },
-    { href: "/tests", icon: BookOpen, label: "Testlerim & Oluştur" },
+    { href: "/tests", icon: BookOpen, label: "Testlerim ve Olustur" },
   ];
 
   return (
-    <div className="flex h-screen w-full bg-background overflow-hidden selection:bg-primary/30">
-      {/* Desktop Sidebar */}
-      <aside className="hidden md:flex w-72 flex-col border-r border-border/50 bg-card/50 backdrop-blur-xl z-20">
-        <div className="p-6 flex items-center gap-3">
-          <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-primary to-accent flex items-center justify-center shadow-lg shadow-primary/20">
-            <PenTool className="text-white h-5 w-5" />
+    <div className="flex h-screen w-full overflow-hidden bg-background selection:bg-primary/20">
+      <aside className="glass-panel hidden w-72 flex-col rounded-none border-r md:flex">
+        <div className="flex items-center gap-3 p-6">
+          <div className="flex h-11 w-11 items-center justify-center rounded-[1.35rem] border border-white/60 bg-white/70 shadow-[0_18px_36px_-24px_rgba(15,23,42,0.35)] dark:border-white/10 dark:bg-white/5">
+            <PenTool className="h-5 w-5 text-primary" />
           </div>
-          <span className="font-display font-bold text-xl tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-foreground to-foreground/70">
+          <span className="font-display text-xl font-semibold tracking-[-0.04em] text-foreground">
             YKS Tracker
           </span>
         </div>
 
-        <nav className="flex-1 px-4 py-6 space-y-2">
+        <nav className="flex-1 space-y-2 px-4 py-6">
           {navItems.map((item) => {
-            const isActive = location === item.href || (item.href !== "/" && location.startsWith(item.href));
+            const isActive =
+              location === item.href ||
+              (item.href !== "/" && location.startsWith(item.href));
+
             return (
               <Link
                 key={item.href}
                 href={item.href}
                 className={cn(
-                  "flex items-center gap-3 px-4 py-3 rounded-xl font-medium transition-all duration-200 group relative",
+                  "group relative flex items-center gap-3 rounded-[1.25rem] px-4 py-3 font-medium transition-all duration-200",
                   isActive
-                    ? "bg-primary/10 text-primary"
-                    : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+                    ? "bg-primary/10 text-primary shadow-[inset_0_1px_0_rgba(255,255,255,0.55)]"
+                    : "text-muted-foreground hover:bg-foreground/[0.04] hover:text-foreground",
                 )}
               >
                 {isActive && (
-                  <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1.5 h-8 bg-primary rounded-r-full" />
+                  <div className="absolute left-1.5 top-1/2 h-7 w-1 -translate-y-1/2 rounded-full bg-primary" />
                 )}
-                <item.icon className={cn("h-5 w-5 transition-transform duration-200", isActive ? "scale-110" : "group-hover:scale-110")} />
+                <item.icon
+                  className={cn(
+                    "h-5 w-5 transition-transform duration-200",
+                    isActive ? "scale-110" : "group-hover:scale-110",
+                  )}
+                />
                 {item.label}
               </Link>
             );
           })}
         </nav>
 
-        <div className="p-4 mt-auto border-t border-border/50">
+        <div className="mt-auto border-t border-border/50 p-4">
           <button
             onClick={() => setIsDark(!isDark)}
-            className="flex items-center w-full gap-3 px-4 py-3 rounded-xl font-medium text-muted-foreground hover:bg-muted/50 hover:text-foreground transition-all duration-200"
+            className="flex w-full items-center gap-3 rounded-[1.25rem] px-4 py-3 font-medium text-muted-foreground transition-all duration-200 hover:bg-foreground/[0.04] hover:text-foreground"
           >
             {isDark ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
-            {isDark ? "Aydınlık Mod" : "Karanlık Mod"}
+            {isDark ? "Aydinlik Mod" : "Karanlik Mod"}
           </button>
         </div>
       </aside>
 
-      {/* Mobile Bottom Nav */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 h-16 bg-card/80 backdrop-blur-xl border-t border-border/50 z-50 flex items-center justify-around px-6">
+      <nav className="glass-panel fixed bottom-0 left-3 right-3 z-50 mb-3 flex h-16 items-center justify-around rounded-[1.4rem] px-6 md:hidden">
         {navItems.map((item) => {
-          const isActive = location === item.href || (item.href !== "/" && location.startsWith(item.href));
+          const isActive =
+            location === item.href ||
+            (item.href !== "/" && location.startsWith(item.href));
+
           return (
             <Link
               key={item.href}
               href={item.href}
               className={cn(
-                "flex flex-col items-center justify-center gap-1 w-16 h-full transition-colors",
-                isActive ? "text-primary" : "text-muted-foreground"
+                "flex h-full w-16 flex-col items-center justify-center gap-1 transition-colors",
+                isActive ? "text-primary" : "text-muted-foreground",
               )}
             >
-              <item.icon className={cn("h-5 w-5", isActive && "fill-primary/20")} />
+              <item.icon className={cn("h-5 w-5", isActive && "fill-primary/15")} />
               <span className="text-[10px] font-medium">{item.label}</span>
             </Link>
           );
         })}
       </nav>
 
-      {/* Main Content */}
-      <main className="flex-1 h-screen overflow-y-auto relative pb-16 md:pb-0">
-        <div className="absolute inset-0 bg-[url('/images/hero-bg.png')] bg-cover bg-center opacity-[0.03] pointer-events-none mix-blend-screen" />
+      <main className="relative h-screen flex-1 overflow-y-auto pb-16 md:pb-0">
+        <div
+          className="pointer-events-none absolute inset-0"
+          style={{
+            background:
+              "radial-gradient(circle at top, hsl(var(--primary) / 0.08), transparent 34%), linear-gradient(180deg, transparent, hsl(var(--background) / 0.24))",
+          }}
+        />
         <div className="relative h-full">{children}</div>
       </main>
     </div>

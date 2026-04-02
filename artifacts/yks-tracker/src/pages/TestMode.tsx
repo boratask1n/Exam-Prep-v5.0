@@ -45,6 +45,10 @@ import {
   testReviewKey,
   type TestReviewSnapshotV1,
 } from "@/lib/testSessionStorage";
+import {
+  buildTestSolutionsInput,
+  useTestSessionStorage,
+} from "@/lib/testSessionDbStorage";
 import { getYoutubeEmbedSrc } from "@/lib/youtubeEmbed";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -73,8 +77,286 @@ interface InlineStroke {
   color: string;
   width: number;
   points: CanvasPoint[];
+  snapShape?: "line";
 }
 type InlineEraserMode = "area" | "stroke";
+
+function inlineDistance(a: CanvasPoint, b: CanvasPoint) {
+  return Math.hypot(a.x - b.x, a.y - b.y);
+}
+
+function inlinePointToSegmentDistance(point: CanvasPoint, start: CanvasPoint, end: CanvasPoint) {
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  if (dx === 0 && dy === 0) return inlineDistance(point, start);
+  const t = Math.max(
+    0,
+    Math.min(1, ((point.x - start.x) * dx + (point.y - start.y) * dy) / (dx * dx + dy * dy)),
+  );
+  return Math.hypot(point.x - (start.x + dx * t), point.y - (start.y + dy * t));
+}
+
+function inlinePathLength(points: CanvasPoint[]) {
+  let total = 0;
+  for (let i = 1; i < points.length; i++) total += inlineDistance(points[i - 1], points[i]);
+  return total;
+}
+
+function makeInlineLinePoints(start: CanvasPoint, end: CanvasPoint): CanvasPoint[] {
+  return [start, end];
+}
+
+function makeInlineRectPoints(points: CanvasPoint[]): CanvasPoint[] {
+  const xs = points.map((p) => p.x);
+  const ys = points.map((p) => p.y);
+  const minX = Math.min(...xs);
+  const maxX = Math.max(...xs);
+  const minY = Math.min(...ys);
+  const maxY = Math.max(...ys);
+  return [
+    { x: minX, y: minY },
+    { x: maxX, y: minY },
+    { x: maxX, y: maxY },
+    { x: minX, y: maxY },
+    { x: minX, y: minY },
+  ];
+}
+
+function makeInlineCirclePoints(points: CanvasPoint[]): CanvasPoint[] {
+  const xs = points.map((p) => p.x);
+  const ys = points.map((p) => p.y);
+  const minX = Math.min(...xs);
+  const maxX = Math.max(...xs);
+  const minY = Math.min(...ys);
+  const maxY = Math.max(...ys);
+  const cx = (minX + maxX) / 2;
+  const cy = (minY + maxY) / 2;
+  const rx = Math.max(6, (maxX - minX) / 2);
+  const ry = Math.max(6, (maxY - minY) / 2);
+  const startAngle = Math.atan2(points[0].y - cy, points[0].x - cx);
+  const out: CanvasPoint[] = [];
+  for (let i = 0; i <= 32; i++) {
+    const t = startAngle + (Math.PI * 2 * i) / 32;
+    out.push({ x: cx + Math.cos(t) * rx, y: cy + Math.sin(t) * ry });
+  }
+  return out;
+}
+
+function makeInlinePolygonPoints(points: CanvasPoint[]): CanvasPoint[] {
+  const out = points.map((point) => ({ x: point.x, y: point.y }));
+  if (out.length > 0) out.push({ ...out[0] });
+  return out;
+}
+
+function simplifyInlinePath(points: CanvasPoint[], epsilon: number): CanvasPoint[] {
+  if (points.length <= 2) return points.slice();
+
+  let maxDistance = 0;
+  let index = 0;
+  const start = points[0];
+  const end = points[points.length - 1];
+
+  for (let i = 1; i < points.length - 1; i++) {
+    const d = inlinePointToSegmentDistance(points[i], start, end);
+    if (d > maxDistance) {
+      maxDistance = d;
+      index = i;
+    }
+  }
+
+  if (maxDistance <= epsilon) return [start, end];
+
+  const left = simplifyInlinePath(points.slice(0, index + 1), epsilon);
+  const right = simplifyInlinePath(points.slice(index), epsilon);
+  return [...left.slice(0, -1), ...right];
+}
+
+function dedupeInlinePoints(points: CanvasPoint[], minDistance: number) {
+  const out: CanvasPoint[] = [];
+  for (const point of points) {
+    if (out.length === 0 || inlineDistance(out[out.length - 1], point) > minDistance) {
+      out.push(point);
+    }
+  }
+  return out;
+}
+
+function detectInlinePolygonVertices(points: CanvasPoint[], diag: number): CanvasPoint[] | null {
+  if (points.length < 6) return null;
+
+  const loop = inlineDistance(points[0], points[points.length - 1]) < Math.max(18, diag * 0.16)
+    ? points.slice(0, -1)
+    : points.slice();
+  const simplified = dedupeInlinePoints(
+    simplifyInlinePath(loop, Math.max(6, diag * 0.032)),
+    Math.max(6, diag * 0.035),
+  );
+
+  if (simplified.length < 3 || simplified.length > 6) return null;
+
+  const sides: number[] = [];
+  for (let i = 0; i < simplified.length; i++) {
+    const next = simplified[(i + 1) % simplified.length];
+    sides.push(inlineDistance(simplified[i], next));
+  }
+
+  if (Math.min(...sides) < diag * 0.08) return null;
+  return simplified;
+}
+
+function normalizeInlinePolygonVertices(points: CanvasPoint[], diag: number): CanvasPoint[] {
+  let normalized = points.slice();
+
+  while (normalized.length > 3) {
+    const sides = normalized.map((point, index) =>
+      inlineDistance(point, normalized[(index + 1) % normalized.length]),
+    );
+    const shortest = Math.min(...sides);
+    const longest = Math.max(...sides);
+    const shortIndex = sides.findIndex((side) => side === shortest);
+
+    if (normalized.length > 4 || shortest <= Math.max(diag * 0.12, longest * 0.28)) {
+      normalized = normalized.filter((_, index) => index !== (shortIndex + 1) % normalized.length);
+      continue;
+    }
+
+    break;
+  }
+
+  return normalized;
+}
+
+function inlinePolygonInteriorAngles(points: CanvasPoint[]) {
+  return points.map((point, index) => {
+    const prev = points[(index - 1 + points.length) % points.length];
+    const next = points[(index + 1) % points.length];
+    const v1x = prev.x - point.x;
+    const v1y = prev.y - point.y;
+    const v2x = next.x - point.x;
+    const v2y = next.y - point.y;
+    const len1 = Math.hypot(v1x, v1y);
+    const len2 = Math.hypot(v2x, v2y);
+    if (len1 === 0 || len2 === 0) return 180;
+    const dot = (v1x * v2x + v1y * v2y) / (len1 * len2);
+    return (Math.acos(Math.max(-1, Math.min(1, dot))) * 180) / Math.PI;
+  });
+}
+
+function smoothInlinePoints(points: CanvasPoint[]): CanvasPoint[] {
+  if (points.length < 3) return points;
+  if (points.length > 1200) return points;
+
+  const passes = points.length > 260 ? 1 : 2;
+  const alpha = 0.34;
+  let current = points.map((p) => ({ ...p }));
+
+  for (let pass = 0; pass < passes; pass++) {
+    const next = current.map((p) => ({ ...p }));
+    for (let i = 1; i < current.length - 1; i++) {
+      const prev = current[i - 1];
+      const cur = current[i];
+      const after = current[i + 1];
+      const avgX = (prev.x + after.x) / 2;
+      const avgY = (prev.y + after.y) / 2;
+      next[i] = {
+        x: cur.x * (1 - alpha) + avgX * alpha,
+        y: cur.y * (1 - alpha) + avgY * alpha,
+      };
+    }
+    current = next;
+  }
+
+  return current;
+}
+
+function maybeSnapInlineStroke(stroke: InlineStroke): InlineStroke | null {
+  if (stroke.tool !== "pen" || stroke.points.length < 8) return null;
+
+  const points = stroke.points;
+  const start = points[0];
+  const end = points[points.length - 1];
+  const direct = Math.max(1, inlineDistance(start, end));
+  const total = Math.max(direct, inlinePathLength(points));
+  if (direct < 18) return null;
+
+  let maxDeviation = 0;
+  for (const point of points) {
+    const num = Math.abs(
+      (end.y - start.y) * point.x -
+      (end.x - start.x) * point.y +
+      end.x * start.y -
+      end.y * start.x,
+    );
+    maxDeviation = Math.max(maxDeviation, num / direct);
+  }
+
+  if (total / direct < 1.11 && maxDeviation < Math.max(6, stroke.width * 1.1)) {
+    return { ...stroke, points: [start, end], snapShape: "line" };
+  }
+
+  return null;
+}
+
+function renderInlineEraserTrail(
+  ctx: CanvasRenderingContext2D,
+  points: CanvasPoint[],
+  width: number,
+) {
+  if (points.length < 2) return;
+  const tail = points.slice(Math.max(0, points.length - 18));
+  for (let i = 1; i < tail.length; i++) {
+    const p0 = tail[i - 1];
+    const p1 = tail[i];
+    const progress = i / (tail.length - 1);
+    const taper = 0.42 + progress * 0.92;
+
+    ctx.save();
+    ctx.globalCompositeOperation = "source-over";
+    ctx.strokeStyle = `rgba(98, 106, 120, ${0.18 + progress * 0.42})`;
+    ctx.lineWidth = Math.max(2.5, width * taper);
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.shadowColor = `rgba(71, 85, 105, ${0.16 + progress * 0.18})`;
+    ctx.shadowBlur = 8 + progress * 6;
+    ctx.beginPath();
+    ctx.moveTo(p0.x, p0.y);
+    ctx.lineTo(p1.x, p1.y);
+    ctx.stroke();
+    ctx.restore();
+  }
+}
+
+function renderInlineAreaEraserPreview(
+  ctx: CanvasRenderingContext2D,
+  points: CanvasPoint[],
+  width: number,
+) {
+  if (points.length === 0) return;
+
+  const radius = Math.max(8, width / 2);
+  const preview = points.slice(Math.max(0, points.length - 8));
+
+  ctx.save();
+  ctx.globalCompositeOperation = "source-over";
+  for (let i = 0; i < preview.length; i++) {
+    const p = preview[i];
+    const progress = (i + 1) / preview.length;
+    ctx.beginPath();
+    ctx.fillStyle = `rgba(59, 130, 246, ${0.08 + progress * 0.1})`;
+    ctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  const last = preview[preview.length - 1];
+  ctx.beginPath();
+  ctx.fillStyle = "rgba(255,255,255,0.42)";
+  ctx.strokeStyle = "rgba(14, 165, 233, 0.9)";
+  ctx.lineWidth = 2;
+  ctx.arc(last.x, last.y, radius, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+  ctx.restore();
+}
 
 interface TestDraftV1 {
   version: 1;
@@ -132,6 +414,8 @@ function groupByLesson(questions: Question[]): LessonGroup[] {
 
 function renderInlineStroke(ctx: CanvasRenderingContext2D, stroke: InlineStroke) {
   if (stroke.points.length === 0) return;
+  const points =
+    stroke.tool === "pen" ? smoothInlinePoints(stroke.points) : stroke.points;
   ctx.save();
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
@@ -139,19 +423,29 @@ function renderInlineStroke(ctx: CanvasRenderingContext2D, stroke: InlineStroke)
     stroke.tool === "eraser" ? "destination-out" : "source-over";
   ctx.strokeStyle = stroke.color;
 
-  if (stroke.points.length === 1) {
+  if (points.length === 1) {
     ctx.beginPath();
-    ctx.arc(stroke.points[0].x, stroke.points[0].y, Math.max(1, stroke.width / 2), 0, Math.PI * 2);
+    ctx.arc(points[0].x, points[0].y, Math.max(1, stroke.width / 2), 0, Math.PI * 2);
     ctx.fillStyle = stroke.color;
     ctx.fill();
     ctx.restore();
     return;
   }
 
+  if (stroke.snapShape === "line" && points.length >= 2) {
+    ctx.beginPath();
+    ctx.lineWidth = stroke.width;
+    ctx.moveTo(points[0].x, points[0].y);
+    ctx.lineTo(points[points.length - 1].x, points[points.length - 1].y);
+    ctx.stroke();
+    ctx.restore();
+    return;
+  }
+
   // Use quadraticCurveTo for smooth curves like in DrawingCanvas
-  for (let i = 0; i < stroke.points.length - 1; i++) {
-    const p0 = stroke.points[i];
-    const p1 = stroke.points[i + 1];
+  for (let i = 0; i < points.length - 1; i++) {
+    const p0 = points[i];
+    const p1 = points[i + 1];
 
     ctx.beginPath();
     ctx.lineWidth = stroke.width;
@@ -160,7 +454,7 @@ function renderInlineStroke(ctx: CanvasRenderingContext2D, stroke: InlineStroke)
     if (i === 0) {
       ctx.moveTo(p0.x, p0.y);
     } else {
-      ctx.moveTo((stroke.points[i - 1].x + p0.x) / 2, (stroke.points[i - 1].y + p0.y) / 2);
+      ctx.moveTo((points[i - 1].x + p0.x) / 2, (points[i - 1].y + p0.y) / 2);
     }
     ctx.quadraticCurveTo(p0.x, p0.y, (p0.x + p1.x) / 2, (p0.y + p1.y) / 2);
     ctx.stroke();
@@ -173,9 +467,20 @@ function redrawInlineCanvas(
   strokes: InlineStroke[],
   width: number,
   height: number,
+  previewStroke?: InlineStroke | null,
+  eraserMode: InlineEraserMode = "area",
 ) {
   ctx.clearRect(0, 0, width, height);
   for (const stroke of strokes) renderInlineStroke(ctx, stroke);
+  if (previewStroke) {
+    if (previewStroke.tool === "eraser" && eraserMode === "stroke") {
+      renderInlineEraserTrail(ctx, previewStroke.points, previewStroke.width);
+    }
+    if (previewStroke.tool === "eraser" && eraserMode === "area") {
+      renderInlineAreaEraserPreview(ctx, previewStroke.points, previewStroke.width);
+    }
+    renderInlineStroke(ctx, previewStroke);
+  }
 }
 
 function eraseInlineStrokesByPath(
@@ -209,6 +514,9 @@ export default function TestMode() {
   const queryClient = useQueryClient();
   const sessionCompleted = !!(test as { completedAt?: string | null } | undefined)?.completedAt;
 
+  // ── Database Storage for Sync ──
+  const { storage } = useTestSessionStorage(testId);
+
   const questions: Question[] = (test?.questions as any) ?? [];
 
   // ── State ──
@@ -227,7 +535,7 @@ export default function TestMode() {
   const [tempDrawings, setTempDrawings] = useState<Record<number, string>>({});
   const [inlineDrawEnabled, setInlineDrawEnabled] = useState(false);
   const [inlineTool, setInlineTool] = useState<"pen" | "eraser">("pen");
-  const [inlineEraserMode, setInlineEraserMode] = useState<InlineEraserMode>("area");
+  const [inlineEraserMode, setInlineEraserMode] = useState<InlineEraserMode>("stroke");
   const [inlinePenWidth, setInlinePenWidth] = useState(3);
   const [inlineEraserWidth, setInlineEraserWidth] = useState(16);
   const [inlineColor, setInlineColor] = useState("#111111");
@@ -240,17 +548,59 @@ export default function TestMode() {
   const inlineImageWrapRef = useRef<HTMLDivElement | null>(null);
   const inlineLastPointRef = useRef<CanvasPoint | null>(null);
   const inlineCurrentStrokeRef = useRef<InlineStroke | null>(null);
+  const inlineRawStrokeRef = useRef<InlineStroke | null>(null);
+  const inlineSnapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const groups = groupByLesson(questions);
+  const currentQuestion = questions[currentIndex];
+  const currentInlineStrokes = currentQuestion
+    ? inlineDrawingsByQuestion[currentQuestion.id] ?? []
+    : [];
+
+  const clearInlineSnapTimer = useCallback(() => {
+    if (inlineSnapTimerRef.current) {
+      clearTimeout(inlineSnapTimerRef.current);
+      inlineSnapTimerRef.current = null;
+    }
+  }, []);
+
+  const scheduleInlineSnap = useCallback(() => {
+    clearInlineSnapTimer();
+    inlineSnapTimerRef.current = setTimeout(() => {
+      if (!isInlineDrawingRef.current || !inlineRawStrokeRef.current) return;
+      const snapped = maybeSnapInlineStroke(inlineRawStrokeRef.current);
+      if (!snapped) return;
+      inlineCurrentStrokeRef.current = snapped;
+      const canvas = inlineCanvasRef.current;
+      if (!canvas || !currentQuestion) return;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+      const existingStrokes = inlineDrawingsByQuestion[currentQuestion.id] ?? [];
+      redrawInlineCanvas(
+        ctx,
+        existingStrokes,
+        canvas.width,
+        canvas.height,
+        snapped,
+        inlineEraserMode,
+      );
+    }, 360);
+  }, [clearInlineSnapTimer, currentQuestion, inlineDrawingsByQuestion, inlineEraserMode]);
 
   // ── Timer ──
   const timeLimitSeconds: number | null = (test as any)?.timeLimitSeconds ?? null;
   const [elapsed, setElapsed] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const handleFinishRef = useRef<((forced?: boolean) => Promise<void>) | null>(null);
   const finishRef = useRef(false);
   const draftHydratedRef = useRef(false);
-  const persistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const solutionsPersistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const progressPersistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const reviewPersistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [showExitDialog, setShowExitDialog] = useState(false);
   /** Taslak okunana kadar kaydetme — boş state ile üzerine yazmayı önler */
   const [draftReady, setDraftReady] = useState(false);
+
 
   useEffect(() => {
     draftHydratedRef.current = false;
@@ -285,54 +635,80 @@ export default function TestMode() {
         snapshotStatuses[q.id] = status;
       }
 
-      await Promise.all(
-        questions.map(async (q) => {
-          const userAnswer = answers[q.id];
-          const status = snapshotStatuses[q.id];
-          if (userAnswer || q.status !== "Cozulmedi") {
-            await statusMutation.mutateAsync({
-              id: testId,
-              questionId: q.id,
-              data: { status },
-            });
-          }
-        })
-      );
-
       try {
-        await updateTestMutation.mutateAsync({
-          id: testId,
-          data: { completedAt: new Date().toISOString() },
-        });
-      } catch {
-        /* Sunucu hatası — yine de yerel gözden geçirme kaydı tutulur */
+        await Promise.all(
+          questions.map(async (q) => {
+            const userAnswer = answers[q.id];
+            const status = snapshotStatuses[q.id];
+            if (userAnswer || q.status !== "Cozulmedi") {
+              await statusMutation.mutateAsync({
+                id: testId,
+                questionId: q.id,
+                data: { status },
+              });
+            }
+          })
+        );
+
+        try {
+          await updateTestMutation.mutateAsync({
+            id: testId,
+            data: { completedAt: new Date().toISOString() },
+          });
+        } catch {
+          /* Sunucu hatas� � yine de yerel g�zden ge�irme kayd� tutulur */
+        }
+
+        const snapshot: TestReviewSnapshotV1 = {
+          version: 1,
+          answers: { ...answers },
+          manualStatuses: snapshotStatuses as Record<number, string>,
+          currentIndex,
+          tempDrawings: { ...tempDrawings },
+          inlineDrawingsByQuestion: { ...inlineDrawingsByQuestion } as Record<number, InlineStroke[]>,
+          elapsed,
+          collapsedLessons: { ...collapsedLessons },
+          inlineDrawEnabled: false,
+        };
+
+        await Promise.all([
+          storage.saveSolutions(
+            buildTestSolutionsInput({
+              answers: snapshot.answers,
+              tempDrawings: snapshot.tempDrawings ?? {},
+              inlineDrawingsByQuestion: snapshot.inlineDrawingsByQuestion ?? {},
+              inlineDrawEnabled: false,
+              isCompleted: true,
+              manualStatuses: snapshot.manualStatuses,
+            }),
+          ),
+          storage.saveProgress({
+            currentIndex,
+            elapsed,
+            isCompleted: true,
+            inlineDrawEnabled: false,
+            collapsedLessons,
+          }),
+        ]);
+
+        try {
+          localStorage.setItem(testReviewKey(testId), JSON.stringify(snapshot));
+        } catch {
+          /* quota */
+        }
+
+        setManualStatuses(snapshotStatuses);
+        setInlineDrawEnabled(false);
+        setReviewViewMode("summary");
+
+        await queryClient.invalidateQueries({ queryKey: getListQuestionsQueryKey() });
+        await queryClient.invalidateQueries({ queryKey: getListTestsQueryKey() });
+        await queryClient.invalidateQueries({ queryKey: getGetTestQueryKey(testId) });
+        setFinished(true);
+      } catch (error) {
+        finishRef.current = false;
+        console.error("Failed to finish test:", error);
       }
-
-      const snapshot: TestReviewSnapshotV1 = {
-        version: 1,
-        answers: { ...answers },
-        manualStatuses: snapshotStatuses as Record<number, string>,
-        currentIndex,
-        tempDrawings: { ...tempDrawings },
-        inlineDrawingsByQuestion: { ...inlineDrawingsByQuestion } as Record<number, InlineStroke[]>,
-        elapsed,
-        collapsedLessons: { ...collapsedLessons },
-        inlineDrawEnabled: false,
-      };
-      try {
-        localStorage.setItem(testReviewKey(testId), JSON.stringify(snapshot));
-      } catch {
-        /* quota */
-      }
-
-      setManualStatuses(snapshotStatuses);
-      setInlineDrawEnabled(false);
-      setReviewViewMode("summary");
-
-      await queryClient.invalidateQueries({ queryKey: getListQuestionsQueryKey() });
-      await queryClient.invalidateQueries({ queryKey: getListTestsQueryKey() });
-      await queryClient.invalidateQueries({ queryKey: getGetTestQueryKey(testId) });
-      setFinished(true);
     },
     [
       answers,
@@ -350,13 +726,18 @@ export default function TestMode() {
   );
 
   useEffect(() => {
+    handleFinishRef.current = handleFinish;
+  }, [handleFinish]);
+
+  useEffect(() => {
     if (!test) return;
     if (sessionCompleted) return;
+    if (timerRef.current) clearInterval(timerRef.current);
     timerRef.current = setInterval(() => {
       setElapsed((prev) => {
         const next = prev + 1;
         if (timeLimitSeconds && next >= timeLimitSeconds && !finishRef.current) {
-          handleFinish(true);
+          void handleFinishRef.current?.(true);
         }
         return next;
       });
@@ -364,7 +745,7 @@ export default function TestMode() {
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, [test?.id, sessionCompleted, timeLimitSeconds, handleFinish]);
+  }, [test?.id, sessionCompleted, timeLimitSeconds]);
 
   // Taslak veya tamamlanmış test gözden geçirme yükleme
   useEffect(() => {
@@ -372,11 +753,13 @@ export default function TestMode() {
     draftHydratedRef.current = true;
 
     if (sessionCompleted) {
+      let loadedFromLocalReview = false;
       try {
         const raw = localStorage.getItem(testReviewKey(testId));
         if (raw) {
           const r = JSON.parse(raw) as TestReviewSnapshotV1;
           if (r.version === 1) {
+            loadedFromLocalReview = true;
             setAnswers((r.answers ?? {}) as Record<number, string>);
             setManualStatuses((r.manualStatuses ?? {}) as Record<number, QStatus>);
             setCurrentIndex(Math.min(Math.max(0, r.currentIndex ?? 0), questions.length - 1));
@@ -392,6 +775,56 @@ export default function TestMode() {
       } catch {
         /* ignore */
       }
+
+      if (!loadedFromLocalReview) {
+        const loadCompletedFromDatabase = async () => {
+          try {
+            const [solutions, progress] = await Promise.all([
+              storage.loadSolutions(),
+              storage.loadProgress(),
+            ]);
+
+            const dbAnswers: Record<number, string> = {};
+            const dbManualStatuses: Record<number, QStatus> = {};
+            const dbTempDrawings: Record<number, string> = {};
+            const dbInlineDrawings: Record<number, InlineStroke[]> = {};
+
+            solutions.forEach((solution) => {
+              if (solution.userAnswer) {
+                dbAnswers[solution.questionId] = solution.userAnswer;
+              }
+              dbManualStatuses[solution.questionId] = (solution.status as QStatus) || "Cozulmedi";
+              if (solution.tempDrawing) {
+                dbTempDrawings[solution.questionId] = solution.tempDrawing;
+              }
+              if (solution.inlineDrawings) {
+                dbInlineDrawings[solution.questionId] = solution.inlineDrawings as InlineStroke[];
+              }
+            });
+
+            setAnswers(dbAnswers);
+            setManualStatuses(dbManualStatuses);
+            setTempDrawings(dbTempDrawings);
+            setInlineDrawingsByQuestion(dbInlineDrawings);
+
+            if (progress) {
+              setCurrentIndex(Math.min(Math.max(0, progress.currentIndex ?? 0), questions.length - 1));
+              setElapsed(Math.max(0, progress.elapsed ?? 0));
+              if (progress.collapsedLessons) setCollapsedLessons(progress.collapsedLessons);
+            }
+          } catch (error) {
+            console.error("Failed to load completed test from database:", error);
+          } finally {
+            setFinished(true);
+            setReviewViewMode("summary");
+            setDraftReady(true);
+          }
+        };
+
+        void loadCompletedFromDatabase();
+        return;
+      }
+
       setFinished(true);
       setReviewViewMode("summary");
       setDraftReady(true);
@@ -415,14 +848,77 @@ export default function TestMode() {
     } catch {
       /* ignore */
     }
-    setDraftReady(true);
+    
+    // Load from database if localStorage is empty or for cross-device sync
+    const loadFromDatabase = async () => {
+      try {
+        const [solutions, progress] = await Promise.all([
+          storage.loadSolutions(),
+          storage.loadProgress()
+        ]);
+        
+        // Merge database data with localStorage (localStorage takes priority)
+        if (solutions.length > 0 || progress) {
+          const dbAnswers: Record<number, string> = {};
+          const dbTempDrawings: Record<number, string> = {};
+          const dbInlineDrawings: Record<number, InlineStroke[]> = {};
+          
+          solutions.forEach(solution => {
+            if (solution.userAnswer) {
+              dbAnswers[solution.questionId] = solution.userAnswer;
+            }
+            if (solution.tempDrawing) {
+              dbTempDrawings[solution.questionId] = solution.tempDrawing;
+            }
+            if (solution.inlineDrawings) {
+              dbInlineDrawings[solution.questionId] = solution.inlineDrawings as InlineStroke[];
+            }
+          });
+          
+          // Use database data if it's newer or localStorage is empty
+          const localStorageData = localStorage.getItem(testDraftKey(testId));
+          let shouldUseDatabase = !localStorageData;
+          
+          if (localStorageData) {
+            try {
+              const localDraft = JSON.parse(localStorageData) as TestDraftV1;
+              // If database has newer data, use database
+              if (progress && progress.elapsed > (localDraft.elapsed || 0)) {
+                shouldUseDatabase = true;
+              }
+            } catch {
+              shouldUseDatabase = true;
+            }
+          }
+          
+          if (shouldUseDatabase) {
+            setAnswers(dbAnswers);
+            setTempDrawings(dbTempDrawings);
+            setInlineDrawingsByQuestion(dbInlineDrawings);
+            
+            if (progress) {
+              setCurrentIndex(Math.min(Math.max(0, progress.currentIndex ?? 0), questions.length - 1));
+              setElapsed(Math.max(0, progress.elapsed ?? 0));
+              if (progress.collapsedLessons) setCollapsedLessons(progress.collapsedLessons);
+              setInlineDrawEnabled(!!progress.inlineDrawEnabled);
+            }
+          }
+        }
+      } catch (error) {
+        console.error("Failed to load from database:", error);
+      }
+    };
+    
+    void loadFromDatabase().finally(() => {
+      setDraftReady(true);
+    });
   }, [test?.id, testId, questions.length, sessionCompleted]);
 
   // Taslak kaydet (test bitene kadar; tamamlanmış testte taslak yok)
   useEffect(() => {
     if (!testId || finished || !draftReady || sessionCompleted) return;
-    if (persistTimerRef.current) clearTimeout(persistTimerRef.current);
-    persistTimerRef.current = setTimeout(() => {
+    if (solutionsPersistTimerRef.current) clearTimeout(solutionsPersistTimerRef.current);
+    solutionsPersistTimerRef.current = setTimeout(() => {
       const draft: TestDraftV1 = {
         version: 1,
         answers,
@@ -435,32 +931,83 @@ export default function TestMode() {
       };
       try {
         localStorage.setItem(testDraftKey(testId), JSON.stringify(draft));
+        storage.saveSolutions(
+          buildTestSolutionsInput({
+            answers: draft.answers,
+            tempDrawings: draft.tempDrawings,
+            inlineDrawingsByQuestion: draft.inlineDrawingsByQuestion,
+            inlineDrawEnabled: draft.inlineDrawEnabled,
+            isCompleted: false,
+          }),
+        ).catch(() => {});
       } catch {
         /* quota */
       }
-    }, 450);
+    }, 700);
     return () => {
-      if (persistTimerRef.current) clearTimeout(persistTimerRef.current);
+      if (solutionsPersistTimerRef.current) clearTimeout(solutionsPersistTimerRef.current);
     };
   }, [
     testId,
     finished,
     draftReady,
     answers,
-    currentIndex,
     tempDrawings,
     inlineDrawingsByQuestion,
+    inlineDrawEnabled,
+    sessionCompleted,
+  ]);
+
+  useEffect(() => {
+    if (!testId || finished || !draftReady || sessionCompleted) return;
+    if (progressPersistTimerRef.current) clearTimeout(progressPersistTimerRef.current);
+    progressPersistTimerRef.current = setTimeout(() => {
+      try {
+        localStorage.setItem(
+          testDraftKey(testId),
+          JSON.stringify({
+            version: 1,
+            answers,
+            currentIndex,
+            tempDrawings,
+            inlineDrawingsByQuestion,
+            elapsed,
+            collapsedLessons,
+            inlineDrawEnabled,
+          } satisfies TestDraftV1),
+        );
+        storage.saveProgress({
+          currentIndex,
+          elapsed,
+          collapsedLessons,
+          inlineDrawEnabled,
+        }).catch(() => {});
+      } catch {
+        /* quota */
+      }
+    }, 1200);
+    return () => {
+      if (progressPersistTimerRef.current) clearTimeout(progressPersistTimerRef.current);
+    };
+  }, [
+    testId,
+    finished,
+    draftReady,
+    currentIndex,
     elapsed,
     collapsedLessons,
     inlineDrawEnabled,
     sessionCompleted,
+    answers,
+    tempDrawings,
+    inlineDrawingsByQuestion,
   ]);
 
   // Gözden geçirme (kontrol) sırasında indeks / çizimleri yerelde güncelle
   useEffect(() => {
     if (!testId || !finished || reviewViewMode !== "kontrol" || !draftReady) return;
-    if (persistTimerRef.current) clearTimeout(persistTimerRef.current);
-    persistTimerRef.current = setTimeout(() => {
+    if (reviewPersistTimerRef.current) clearTimeout(reviewPersistTimerRef.current);
+    reviewPersistTimerRef.current = setTimeout(() => {
       const snap: TestReviewSnapshotV1 = {
         version: 1,
         answers: { ...answers },
@@ -479,7 +1026,7 @@ export default function TestMode() {
       }
     }, 400);
     return () => {
-      if (persistTimerRef.current) clearTimeout(persistTimerRef.current);
+      if (reviewPersistTimerRef.current) clearTimeout(reviewPersistTimerRef.current);
     };
   }, [
     testId,
@@ -496,8 +1043,6 @@ export default function TestMode() {
   ]);
 
   // ── Derived ──
-  const groups = groupByLesson(questions);
-  const currentQuestion = questions[currentIndex];
   // Cevap seçimi için readOnly - kontrol modunda cevaplar değiştirilemez
   const readOnly = finished && reviewViewMode === "kontrol";
   // Çizim için ayrı kontrol - kontrol modunda da çizim yapılabilir
@@ -518,15 +1063,36 @@ export default function TestMode() {
       if (!ctx) return;
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-      const strokes = inlineDrawingsByQuestion[currentQuestion.id] ?? [];
-      redrawInlineCanvas(ctx, strokes, canvas.width, canvas.height);
+      redrawInlineCanvas(
+        ctx,
+        currentInlineStrokes,
+        canvas.width,
+        canvas.height,
+        inlineCurrentStrokeRef.current,
+        inlineEraserMode,
+      );
     };
 
     resize();
     const ro = new ResizeObserver(resize);
     ro.observe(wrap);
     return () => ro.disconnect();
-  }, [currentQuestion?.id, currentQuestion?.imageUrl, inlineDrawingsByQuestion, inlineDrawEnabled, readOnly]);
+  }, [currentQuestion?.id, currentQuestion?.imageUrl, inlineDrawEnabled, readOnly]);
+
+  useEffect(() => {
+    const canvas = inlineCanvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    redrawInlineCanvas(
+      ctx,
+      currentInlineStrokes,
+      canvas.width,
+      canvas.height,
+      inlineCurrentStrokeRef.current,
+      inlineEraserMode,
+    );
+  }, [currentQuestion?.id, currentInlineStrokes, inlineEraserMode]);
 
   const getInlinePoint = (e: React.PointerEvent<HTMLCanvasElement>): CanvasPoint => {
     const canvas = inlineCanvasRef.current!;
@@ -562,6 +1128,7 @@ export default function TestMode() {
   useEffect(() => {
     if (!inlineDrawEnabled) return;
     const EDGE_PAD = 8;
+    const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
     const sync = (e: PointerEvent) => {
       const canvas = inlineCanvasRef.current;
       if (!canvas) return;
@@ -571,15 +1138,15 @@ export default function TestMode() {
         e.clientX <= rect.right + EDGE_PAD &&
         e.clientY >= rect.top - EDGE_PAD &&
         e.clientY <= rect.bottom + EDGE_PAD;
-      if (!inBounds) {
+      if (!inBounds && !isInlineDrawingRef.current) {
         setInlineCursorInCanvas(false);
         setInlineCursorPos(null);
         return;
       }
       setInlineCursorInCanvas(true);
       setInlineCursorPos({
-        x: e.clientX - rect.left,
-        y: e.clientY - rect.top,
+        x: clamp(e.clientX - rect.left, 0, rect.width),
+        y: clamp(e.clientY - rect.top, 0, rect.height),
       });
     };
     window.addEventListener("pointermove", sync, { passive: true });
@@ -628,7 +1195,7 @@ export default function TestMode() {
 
     return (
       <div className="h-screen bg-background flex flex-col">
-        <header className="h-16 flex items-center justify-between px-6 border-b border-border/50 bg-card/80 backdrop-blur-xl shrink-0">
+        <header className="glass-panel h-16 flex items-center justify-between border-b border-border/50 px-6 shrink-0">
           <div className="flex items-center gap-4">
             <Button
               variant="ghost"
@@ -649,19 +1216,19 @@ export default function TestMode() {
 
         <div className="flex-1 overflow-y-auto p-6 max-w-3xl mx-auto w-full">
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8">
-            <div className="bg-green-500/10 border border-green-500/30 rounded-2xl p-5 text-center">
+            <div className="apple-surface rounded-[1.75rem] p-5 text-center">
               <div className="text-3xl font-bold text-green-500">{correct}</div>
               <div className="text-sm text-green-400 mt-1 font-medium">Doğru</div>
             </div>
-            <div className="bg-destructive/10 border border-destructive/30 rounded-2xl p-5 text-center">
+            <div className="apple-surface rounded-[1.75rem] p-5 text-center">
               <div className="text-3xl font-bold text-destructive">{wrong}</div>
               <div className="text-sm text-destructive/80 mt-1 font-medium">Yanlış</div>
             </div>
-            <div className="bg-muted/30 border border-border/50 rounded-2xl p-5 text-center">
+            <div className="apple-surface rounded-[1.75rem] p-5 text-center">
               <div className="text-3xl font-bold text-muted-foreground">{skipped}</div>
               <div className="text-sm text-muted-foreground mt-1 font-medium">Boş</div>
             </div>
-            <div className="bg-primary/10 border border-primary/30 rounded-2xl p-5 text-center">
+            <div className="apple-surface rounded-[1.75rem] p-5 text-center">
               <div className="text-3xl font-bold text-primary font-mono">{formatTime(elapsed)}</div>
               <div className="text-sm text-primary/70 mt-1 font-medium">Süre</div>
             </div>
@@ -693,7 +1260,7 @@ export default function TestMode() {
                   return (
                     <div
                       key={q.id}
-                      className="flex items-center gap-3 p-3 bg-card rounded-xl border border-border/40"
+                      className="apple-surface flex items-center gap-3 rounded-[1.4rem] p-3"
                     >
                       <span className="text-sm font-bold text-muted-foreground w-6 shrink-0">
                         #{index + 1}
@@ -754,7 +1321,7 @@ export default function TestMode() {
   return (
     <div className="flex flex-col h-screen bg-background">
       {/* Top bar */}
-      <header className="h-14 flex items-center justify-between px-4 border-b border-border/50 bg-card/80 backdrop-blur-xl shrink-0 z-10">
+      <header className="glass-panel z-10 flex h-14 items-center justify-between border-b border-border/50 px-4 shrink-0">
         <div className="flex items-center gap-3 min-w-0">
           <Button
             variant="ghost"
@@ -797,12 +1364,12 @@ export default function TestMode() {
 
         <div className="flex items-center gap-2 shrink-0">
           {currentQuestion.imageUrl && (
-            <div className="hidden sm:flex items-center gap-1 rounded-xl border border-border/50 bg-background/70 px-2 py-1">
+            <div className="hidden sm:flex items-center gap-1 rounded-[1.35rem] border border-border/60 bg-card/82 px-2.5 py-1.5 shadow-[0_16px_32px_-24px_rgba(15,23,42,0.3)]">
               <Button
                 variant={inlineDrawEnabled ? "default" : "outline"}
                 size="sm"
                 onClick={() => setInlineDrawEnabled((v) => !v)}
-                className="rounded-lg h-8 px-2 gap-1.5"
+                className="h-8 gap-1.5 rounded-[0.95rem] px-3"
               >
                 <Pencil className="w-3.5 h-3.5" /> Kalem
               </Button>
@@ -811,7 +1378,7 @@ export default function TestMode() {
                 size="icon"
                 onClick={() => setInlineTool("pen")}
                 disabled={!inlineDrawEnabled}
-                className="h-7 w-7 rounded-lg"
+                className="h-8 w-8 rounded-[0.95rem]"
                 title="Kalem"
               >
                 <Pencil className="w-3.5 h-3.5" />
@@ -821,22 +1388,22 @@ export default function TestMode() {
                 size="icon"
                 onClick={() => setInlineTool("eraser")}
                 disabled={!inlineDrawEnabled}
-                className="h-7 w-7 rounded-lg"
+                className="h-8 w-8 rounded-[0.95rem]"
                 title="Silgi"
               >
                 <Eraser className="w-3.5 h-3.5" />
               </Button>
               {inlineTool === "pen" && (
-                <div className="flex items-center gap-1 px-1">
-                  {["#111111", "#dc2626", "#2563eb", "#16a34a"].map((c) => (
+                <div className="flex items-center gap-1.5 px-1">
+                  {["#111827", "#0a84ff", "#34c759", "#ff9f0a", "#ff375f"].map((c) => (
                     <button
                       key={c}
                       type="button"
                       disabled={!inlineDrawEnabled}
                       onClick={() => setInlineColor(c)}
                       className={cn(
-                        "h-6 w-6 rounded-full border disabled:opacity-40",
-                        inlineColor === c ? "border-white" : "border-border/50",
+                        "h-6 w-6 rounded-full border-2 border-white/70 transition-transform disabled:opacity-40",
+                        inlineColor === c ? "scale-110 border-foreground shadow-[0_10px_18px_-10px_rgba(15,23,42,0.45)]" : "",
                       )}
                       style={{ backgroundColor: c }}
                       title="Renk"
@@ -851,7 +1418,7 @@ export default function TestMode() {
                     size="sm"
                     onClick={() => setInlineEraserMode("area")}
                     disabled={!inlineDrawEnabled}
-                    className="h-7 px-2 rounded-lg text-[10px]"
+                    className="h-8 rounded-[0.95rem] px-2.5 text-[10px]"
                   >
                     Alan
                   </Button>
@@ -860,31 +1427,59 @@ export default function TestMode() {
                     size="sm"
                     onClick={() => setInlineEraserMode("stroke")}
                     disabled={!inlineDrawEnabled}
-                    className="h-7 px-2 rounded-lg text-[10px]"
+                    className="h-8 rounded-[0.95rem] px-2.5 text-[10px]"
                   >
                     Cizgi
                   </Button>
                 </>
               )}
-              <input
-                type="range"
-                min={2}
-                max={inlineTool === "eraser" ? 40 : 8}
-                step={1}
-                value={inlineTool === "eraser" ? inlineEraserWidth : inlinePenWidth}
-                onChange={(e) => {
-                  const value = Number(e.target.value);
-                  if (inlineTool === "eraser") setInlineEraserWidth(value);
-                  else setInlinePenWidth(value);
-                }}
-                disabled={!inlineDrawEnabled}
-                className="w-16"
-              />
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  disabled={!inlineDrawEnabled}
+                  className="h-6 w-6 rounded-lg"
+                  onClick={() => {
+                    const value = Math.max(1, (inlineTool === "eraser" ? inlineEraserWidth : inlinePenWidth) - 1);
+                    if (inlineTool === "eraser") setInlineEraserWidth(value);
+                    else setInlinePenWidth(value);
+                  }}
+                >
+                  -
+                </Button>
+                <input
+                  type="range"
+                  min={1}
+                  max={100}
+                  step={1}
+                  value={inlineTool === "eraser" ? inlineEraserWidth : inlinePenWidth}
+                  onChange={(e) => {
+                    const value = Number(e.target.value);
+                    if (inlineTool === "eraser") setInlineEraserWidth(value);
+                    else setInlinePenWidth(value);
+                  }}
+                  disabled={!inlineDrawEnabled}
+                  className="w-20 accent-[hsl(var(--primary))]"
+                />
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  disabled={!inlineDrawEnabled}
+                  className="h-6 w-6 rounded-lg"
+                  onClick={() => {
+                    const value = Math.min(100, (inlineTool === "eraser" ? inlineEraserWidth : inlinePenWidth) + 1);
+                    if (inlineTool === "eraser") setInlineEraserWidth(value);
+                    else setInlinePenWidth(value);
+                  }}
+                >
+                  +
+                </Button>
+              </div>
               <Button
                 variant="ghost"
                 size="icon"
                 disabled={!inlineDrawEnabled}
-                className="h-7 w-7 rounded-lg"
+                className="h-8 w-8 rounded-[0.95rem]"
                 title="Bu sorunun çizimini temizle"
                 onClick={() => {
                   const canvas = inlineCanvasRef.current;
@@ -929,7 +1524,7 @@ export default function TestMode() {
       <div className="flex-1 flex overflow-hidden">
         {/* Question area */}
         <main className="flex-1 overflow-y-auto p-4 flex flex-col items-center">
-          <div className="w-full max-w-3xl">
+          <div className="w-full max-w-5xl">
             <div className="flex items-center gap-2 mb-3">
               <Badge variant="secondary">{currentQuestion.lesson}</Badge>
               {currentQuestion.topic && (
@@ -956,37 +1551,33 @@ export default function TestMode() {
               </span>
             </div>
 
-            <div className="bg-card rounded-2xl border border-border/50 overflow-hidden shadow-lg mb-4">
+            <div className="apple-surface mb-4 overflow-hidden rounded-[1.9rem]">
               {currentQuestion.imageUrl ? (
                 <div
                   ref={inlineImageWrapRef}
-                  className="relative flex items-center justify-center p-4 bg-white/5 min-h-[280px]"
+                  className="relative flex min-h-[320px] items-center justify-center bg-white p-8 border-2 border-white"
                   style={{
                     cursor:
-                      !inlineDrawEnabled
-                        ? "auto"
-                        : inlineTool === "pen"
-                          ? "none"
-                          : "auto",
+                      inlineDrawEnabled ? "none" : "auto",
                   }}
                 >
                   <img
                     src={currentQuestion.imageUrl}
                     alt="Soru"
-                    className="max-w-full object-contain rounded"
-                    style={{ maxHeight: "48vh" }}
+                    className="max-w-[99.5%] max-h-[99.5%] w-auto h-auto object-contain rounded"
                   />
                   {(inlineDrawEnabled || finished) && (
                     <canvas
                       ref={inlineCanvasRef}
                       className={cn("absolute inset-0 touch-none")}
-                      style={{ touchAction: "none" }}
+                      style={{ touchAction: "none", cursor: inlineDrawEnabled ? "none" : "auto" }}
                       onPointerDown={(e) => {
                         if (!inlineDrawEnabled) return;
                         e.preventDefault();
                         (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
                         setIsInlineDrawing(true);
                         isInlineDrawingRef.current = true;
+                        clearInlineSnapTimer();
 
                         const isHardwareEraser = e.button === 5 || (e.buttons & 32) === 32;
                         if (e.pointerType === "pen") {
@@ -1009,6 +1600,7 @@ export default function TestMode() {
                           width: activeTool === "eraser" ? inlineEraserWidth : inlinePenWidth,
                           points: [start],
                         };
+                        inlineRawStrokeRef.current = inlineCurrentStrokeRef.current;
                       }}
                       onPointerMove={(e) => {
                         if (!inlineDrawEnabled) return;
@@ -1025,34 +1617,34 @@ export default function TestMode() {
                         e.preventDefault();
                         const next = point;
                         const last = inlineLastPointRef.current;
-                        const currentStroke = inlineCurrentStrokeRef.current;
                         if (!last) {
                           inlineLastPointRef.current = next;
                           return;
                         }
-                        if (!currentStroke) return;
+                        if (!inlineCurrentStrokeRef.current) return;
+                        const currentStroke = inlineCurrentStrokeRef.current;
                         
                         // Check distance to avoid too many points
                         if (Math.hypot(next.x - last.x, next.y - last.y) < 1) return;
                         
                         currentStroke.points.push(next);
-                        const isAreaEraser =
-                          currentStroke.tool === "eraser" && inlineEraserMode === "area";
-                        if (currentStroke.tool === "pen" || isAreaEraser) {
-                          // Redraw entire canvas with all strokes + current stroke
-                          const canvas = inlineCanvasRef.current;
-                          if (canvas) {
-                            const ctx = canvas.getContext("2d");
-                            if (ctx) {
-                              ctx.clearRect(0, 0, canvas.width, canvas.height);
-                              
-                              // Redraw all existing strokes
-                              const existingStrokes = inlineDrawingsByQuestion[currentQuestion.id] ?? [];
-                              redrawInlineCanvas(ctx, existingStrokes, canvas.width, canvas.height);
-                              
-                              // Draw entire current stroke (not just last segment)
-                              renderInlineStroke(ctx, currentStroke);
-                            }
+                        currentStroke.snapShape = undefined;
+                        inlineRawStrokeRef.current = currentStroke;
+                        inlineCurrentStrokeRef.current = currentStroke;
+                        scheduleInlineSnap();
+                        const canvas = inlineCanvasRef.current;
+                        if (canvas) {
+                          const ctx = canvas.getContext("2d");
+                          if (ctx) {
+                            const existingStrokes = inlineDrawingsByQuestion[currentQuestion.id] ?? [];
+                            redrawInlineCanvas(
+                              ctx,
+                              existingStrokes,
+                              canvas.width,
+                              canvas.height,
+                              currentStroke,
+                              inlineEraserMode,
+                            );
                           }
                         }
                         inlineLastPointRef.current = next;
@@ -1063,6 +1655,7 @@ export default function TestMode() {
                         e.preventDefault();
                         const currentStroke = inlineCurrentStrokeRef.current;
                         if (currentStroke && currentQuestion) {
+                          clearInlineSnapTimer();
                           setInlineDrawingsByQuestion((prev) => {
                             const prevStrokes = prev[currentQuestion.id] ?? [];
                             const nextStrokes =
@@ -1076,20 +1669,22 @@ export default function TestMode() {
                         isInlineDrawingRef.current = false;
                         inlineLastPointRef.current = null;
                         inlineCurrentStrokeRef.current = null;
+                        inlineRawStrokeRef.current = null;
                       }}
                       onPointerCancel={() => {
+                        clearInlineSnapTimer();
                         setIsInlineDrawing(false);
                         isInlineDrawingRef.current = false;
                         inlineLastPointRef.current = null;
                         inlineCurrentStrokeRef.current = null;
+                        inlineRawStrokeRef.current = null;
                       }}
                     />
                   )}
                   {inlineDrawEnabled &&
                     inlineTool === "pen" &&
                     inlineCursorInCanvas &&
-                    inlineCursorPos &&
-                    !isInlineDrawing && (
+                    inlineCursorPos && (
                     <div
                       className="pointer-events-none absolute z-20 rounded-full"
                       style={{
@@ -1106,17 +1701,16 @@ export default function TestMode() {
                   {inlineDrawEnabled &&
                     inlineTool === "eraser" &&
                     inlineCursorInCanvas &&
-                    inlineCursorPos &&
-                    !isInlineDrawing && (
+                    inlineCursorPos && (
                     <div
-                      className="pointer-events-none absolute z-20 rounded-full border-[2.5px] border-orange-400 bg-orange-400/15"
+                      className="pointer-events-none absolute z-20 rounded-full border-[2px] border-sky-500/80 bg-white/35 backdrop-blur-sm"
                       style={{
                         left: inlineCursorPos.x,
                         top: inlineCursorPos.y,
                         width: Math.max(10, Math.min(inlineEraserWidth, 120)),
                         height: Math.max(10, Math.min(inlineEraserWidth, 120)),
                         transform: "translate(-50%, -50%)",
-                        boxShadow: "inset 0 0 0 1px rgba(0,0,0,0.2), 0 0 0 1px rgba(255,255,255,0.35)",
+                        boxShadow: "0 14px 28px -14px rgba(15,23,42,0.45), inset 0 0 0 1px rgba(255,255,255,0.68)",
                       }}
                     />
                   )}
@@ -1193,7 +1787,7 @@ export default function TestMode() {
         </main>
 
         {/* Answer panel */}
-        <aside className="w-64 shrink-0 border-l border-border/50 bg-card/40 backdrop-blur overflow-y-auto hidden md:flex flex-col">
+        <aside className="glass-panel hidden w-80 shrink-0 flex-col overflow-y-auto border-l border-border/50 md:flex">
           <div className="p-3 border-b border-border/40 flex items-center justify-between">
             <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               Cevap Kâğıdı
@@ -1259,7 +1853,7 @@ export default function TestMode() {
                                     if (!readOnly) selectAnswer(q.id, c);
                                   }}
                                   className={cn(
-                                    "w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold border transition-all",
+                                    "w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-bold border transition-all",
                                     readOnly
                                       ? getReviewChoiceClasses(c, userAnswer, q.choice)
                                       : cn(
@@ -1333,7 +1927,7 @@ export default function TestMode() {
             <DialogTitle className="font-display">Çözüm videosu</DialogTitle>
           </DialogHeader>
           {solutionEmbed ? (
-            <div className="aspect-video w-full rounded-xl overflow-hidden bg-black border border-border/40">
+            <div className="aspect-video w-full rounded-xl overflow-hidden bg-foreground/12 border border-border/40">
               <iframe
                 src={solutionEmbed}
                 className="w-full h-full"
@@ -1354,7 +1948,7 @@ export default function TestMode() {
 
       {/* ── Drawing canvas modal — TEMPORARY, not saved to DB ── */}
       {showCanvas && (
-        <div className="fixed inset-0 z-50 bg-black/95">
+        <div className="fixed inset-0 z-50 bg-foreground/20 backdrop-blur-md">
           <DrawingCanvas
             questionId={currentQuestion.id}
             imageUrl={currentQuestion.imageUrl}

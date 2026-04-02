@@ -14,6 +14,8 @@ export type CreateTestInputFilters = {
   source?: CreateTestInputFiltersSource;
   lessons?: string[];
   topic?: string;
+  topics?: string[];
   publisher?: string;
   status?: CreateTestInputFiltersStatus;
 };
+

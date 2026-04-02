@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -95,12 +95,43 @@ export function QuestionFormDialog({ question, trigger, onSaved }: Props) {
   const lesson = watch("lesson");
   
   // Get lessons based on selected category
-  const lessonOptions = getLessonsForCategory(category).map(l => l.name);
+  const lessonOptions = useMemo(() => {
+    return getLessonsForCategory(category).map(l => l.name);
+  }, [category]);
   
   // Get topics based on selected category and lesson
-  const topicOptions = lesson ? getTopicsForLesson(category, lesson) : [];
+  // Special handling for Geometri category to ensure topics are always available
+  const topicOptions = useMemo(() => {
+    if (!lesson) return [];
+    
+    if (category === "Geometri") {
+      return [
+        'Doğruda ve Üçgende Açılar',
+        'Dik Üçgen ve Trigonometrik Bağıntılar',
+        'İkizkenar ve Eşkenar Üçgen',
+        'Üçgende Alan ve Benzerlik',
+        'Üçgende Yardımcı Elemanlar',
+        'Çokgenler ve Dörtgenler',
+        'Özel Dörtgenler',
+        'Çember ve Daire',
+        'Katı Cisimler',
+        'Analitik Geometri',
+        'Çemberin Analitik İncelenmesi'
+      ];
+    }
+    
+    return getTopicsForLesson(category, lesson);
+  }, [category, lesson]);
 
-  // Populate form when editing
+  // Handle category change to auto-set lesson for Geometri
+  useEffect(() => {
+    if (category === "Geometri") {
+      setValue("lesson", "Geometri");
+    } else {
+      setValue("lesson", "");
+    }
+    setValue("topic", ""); // Reset topic when category changes
+  }, [category, setValue]);
   useEffect(() => {
     if (open && isEdit && question) {
       reset({
@@ -183,6 +214,7 @@ export function QuestionFormDialog({ question, trigger, onSaved }: Props) {
           id: question.id,
           data: {
             ...data,
+            source: data.source as any,
             imageUrl,
             choice: data.choice || null,
             solutionUrl: data.solutionUrl?.trim() || null,
@@ -193,6 +225,7 @@ export function QuestionFormDialog({ question, trigger, onSaved }: Props) {
         await createMutation.mutateAsync({
           data: {
             ...data,
+            source: data.source as any,
             imageUrl: imageUrl ?? null,
             choice: data.choice || null,
             solutionUrl: data.solutionUrl?.trim() || null,
@@ -254,9 +287,9 @@ export function QuestionFormDialog({ question, trigger, onSaved }: Props) {
                 <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={onFileSelect} />
               </div>
             ) : (
-              <div className="relative w-full rounded-xl overflow-hidden border border-border/50 bg-black/20 group flex justify-center">
+              <div className="relative w-full rounded-xl overflow-hidden border border-border/50 bg-foreground/10 group flex justify-center">
                 <img src={imagePreview} alt="Önizleme" className="max-h-56 object-contain" />
-                <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                <div className="absolute inset-0 bg-foreground/45 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
                   <Button type="button" variant="destructive" size="sm" onClick={clearImage} className="rounded-xl">
                     <X className="w-4 h-4 mr-2" /> Kaldır
                   </Button>
@@ -273,7 +306,6 @@ export function QuestionFormDialog({ question, trigger, onSaved }: Props) {
                 value={watch("category")}
                 onValueChange={(val) => {
                   setValue("category", val as QuestionCategory);
-                  setValue("lesson", ""); // reset lesson on category change
                 }}
               >
                 <SelectTrigger className="bg-muted/30 border-border/50 rounded-xl">
@@ -296,9 +328,10 @@ export function QuestionFormDialog({ question, trigger, onSaved }: Props) {
                   setValue("lesson", val);
                   setValue("topic", ""); // Reset topic when lesson changes
                 }}
+                disabled={category === "Geometri"}
               >
                 <SelectTrigger className="bg-muted/30 border-border/50 rounded-xl">
-                  <SelectValue placeholder="Ders seçin..." />
+                  <SelectValue placeholder={category === "Geometri" ? "Geometri" : "Ders seçin..."} />
                 </SelectTrigger>
                 <SelectContent>
                   {lessonOptions.map((l) => (
@@ -311,30 +344,25 @@ export function QuestionFormDialog({ question, trigger, onSaved }: Props) {
 
             <div className="space-y-2">
               <Label>Konu</Label>
-              {topicOptions.length > 0 ? (
-                <Select
-                  value={watch("topic") || "NONE"}
-                  onValueChange={(val) => setValue("topic", val === "NONE" ? "" : val)}
-                  disabled={!lesson}
-                >
-                  <SelectTrigger className="bg-muted/30 border-border/50 rounded-xl">
-                    <SelectValue placeholder={lesson ? "Konu seçin..." : "Önce ders seçin"} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="NONE">Konu seçilmedi</SelectItem>
-                    {topicOptions.map((t) => (
+              <Select
+                value={watch("topic") || "NONE"}
+                onValueChange={(val) => setValue("topic", val === "NONE" ? "" : val)}
+                disabled={!lesson && category !== "Geometri"}
+              >
+                <SelectTrigger className="bg-muted/30 border-border/50 rounded-xl">
+                  <SelectValue placeholder={lesson ? "Konu seçin..." : (category === "Geometri" ? "Konu seçin..." : "Önce ders seçin")} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="NONE">Konu seçilmedi</SelectItem>
+                  {topicOptions.length > 0 ? (
+                    topicOptions.map((t) => (
                       <SelectItem key={t} value={t}>{t}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              ) : (
-                <Input 
-                  {...register("topic")} 
-                  placeholder={lesson ? "Konu girin..." : "Önce ders seçin"} 
-                  className="bg-muted/30 border-border/50 rounded-xl"
-                  disabled={!lesson}
-                />
-              )}
+                    ))
+                  ) : lesson ? (
+                    <SelectItem value="_NO_TOPICS_" disabled>Konu bulunamadı</SelectItem>
+                  ) : null}
+                </SelectContent>
+              </Select>
             </div>
 
             <div className="space-y-2">

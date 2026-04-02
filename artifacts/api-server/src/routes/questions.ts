@@ -53,8 +53,16 @@ router.get("/questions", async (req, res) => {
   if (query.topic) conditions.push(ilike(questionsTable.topic!, `%${query.topic}%`));
 
   // Pagination
-  const limit = query.limit ? Math.min(parseInt(query.limit as string), 100) : 20; // max 100
-  const offset = query.offset ? parseInt(query.offset as string) : 0;
+  const rawLimit =
+    typeof req.query.limit === "string"
+      ? Number.parseInt(req.query.limit, 10)
+      : Number.NaN;
+  const rawOffset =
+    typeof req.query.offset === "string"
+      ? Number.parseInt(req.query.offset, 10)
+      : Number.NaN;
+  const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(rawLimit, 1), 100) : 20;
+  const offset = Number.isFinite(rawOffset) ? Math.max(rawOffset, 0) : 0;
 
   // Total count query
   const countResult = await db

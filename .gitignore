@@ -1,13 +1,28 @@
-cat <<EOF > .gitignore
+# Dependencies
 node_modules/
+.pnpm-store/
+
+# Local app/runtime data
 .local/
-.env
-.agents/
-.backups/
+artifacts/api-server/uploads/
 backups/
+.backups/
 agents/
+.agents/
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Build outputs
 dist/
 **/dist/
 *.tsbuildinfo
-artifacts/
-EOF
+.turbo/
+coverage/
+
+# Logs and OS/editor noise
+*.log
+Thumbs.db
+.DS_Store

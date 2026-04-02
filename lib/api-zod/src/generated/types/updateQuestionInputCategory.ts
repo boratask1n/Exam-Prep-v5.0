@@ -12,4 +12,5 @@ export type UpdateQuestionInputCategory =
 export const UpdateQuestionInputCategory = {
   TYT: "TYT",
   AYT: "AYT",
+  Geometri: "Geometri",
 } as const;

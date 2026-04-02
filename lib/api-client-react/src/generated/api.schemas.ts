@@ -27,6 +27,7 @@ export type QuestionCategory =
 export const QuestionCategory = {
   TYT: "TYT",
   AYT: "AYT",
+  Geometri: "Geometri",
 } as const;
 
 export type QuestionSource =
@@ -35,6 +36,7 @@ export type QuestionSource =
 export const QuestionSource = {
   Deneme: "Deneme",
   Banka: "Banka",
+  Fasikül: "Fasikül",
 } as const;
 
 export type QuestionStatus =
@@ -83,6 +85,7 @@ export type CreateQuestionInputCategory =
 export const CreateQuestionInputCategory = {
   TYT: "TYT",
   AYT: "AYT",
+  Geometri: "Geometri",
 } as const;
 
 export type CreateQuestionInputSource =
@@ -135,6 +138,7 @@ export type UpdateQuestionInputCategory =
 export const UpdateQuestionInputCategory = {
   TYT: "TYT",
   AYT: "AYT",
+  Geometri: "Geometri",
 } as const;
 
 export type UpdateQuestionInputSource =
@@ -210,6 +214,7 @@ export type CreateTestInputFiltersCategory =
 export const CreateTestInputFiltersCategory = {
   TYT: "TYT",
   AYT: "AYT",
+  Geometri: "Geometri",
 } as const;
 
 export type CreateTestInputFiltersSource =
@@ -235,6 +240,7 @@ export type CreateTestInputFilters = {
   lessons?: string[];
   topic?: string;
   publisher?: string;
+  topics?: string[];
   status?: CreateTestInputFiltersStatus;
 };
 
@@ -244,6 +250,7 @@ export interface CreateTestInput {
   timeLimitSeconds?: number | null;
   questionIds?: number[];
   filters?: CreateTestInputFilters;
+  distribution?: Record<string, number>;
 }
 
 export interface FilterOptions {
@@ -252,12 +259,177 @@ export interface FilterOptions {
   publishers: string[];
 }
 
+export type TestSolutionStatus =
+  (typeof TestSolutionStatus)[keyof typeof TestSolutionStatus];
+
+export const TestSolutionStatus = {
+  Cozulmedi: "Cozulmedi",
+  DogruCozuldu: "DogruCozuldu",
+  YanlisHocayaSor: "YanlisHocayaSor",
+} as const;
+
+export type TestSolutionInlineDrawingsItemTool =
+  (typeof TestSolutionInlineDrawingsItemTool)[keyof typeof TestSolutionInlineDrawingsItemTool];
+
+export const TestSolutionInlineDrawingsItemTool = {
+  pen: "pen",
+  eraser: "eraser",
+} as const;
+
+export type TestSolutionInlineDrawingsItemPointsItem = {
+  x?: number;
+  y?: number;
+};
+
+export type TestSolutionInlineDrawingsItem = {
+  tool?: TestSolutionInlineDrawingsItemTool;
+  color?: string;
+  width?: number;
+  points?: TestSolutionInlineDrawingsItemPointsItem[];
+};
+
+export interface TestSolution {
+  id: number;
+  testSessionId: number;
+  questionId: number;
+  userAnswer?: string | null;
+  status: TestSolutionStatus;
+  isCompleted: boolean;
+  canvasData?: string | null;
+  inlineDrawings?: TestSolutionInlineDrawingsItem[] | null;
+  tempDrawing?: string | null;
+  currentIndex?: number | null;
+  timer?: number | null;
+  elapsed?: number | null;
+  inlineDrawEnabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type SaveTestSolutionInputStatus =
+  (typeof SaveTestSolutionInputStatus)[keyof typeof SaveTestSolutionInputStatus];
+
+export const SaveTestSolutionInputStatus = {
+  Cozulmedi: "Cozulmedi",
+  DogruCozuldu: "DogruCozuldu",
+  YanlisHocayaSor: "YanlisHocayaSor",
+} as const;
+
+export type SaveTestSolutionInputInlineDrawingsItemTool =
+  (typeof SaveTestSolutionInputInlineDrawingsItemTool)[keyof typeof SaveTestSolutionInputInlineDrawingsItemTool];
+
+export const SaveTestSolutionInputInlineDrawingsItemTool = {
+  pen: "pen",
+  eraser: "eraser",
+} as const;
+
+export type SaveTestSolutionInputInlineDrawingsItemPointsItem = {
+  x?: number;
+  y?: number;
+};
+
+export type SaveTestSolutionInputInlineDrawingsItem = {
+  tool?: SaveTestSolutionInputInlineDrawingsItemTool;
+  color?: string;
+  width?: number;
+  points?: SaveTestSolutionInputInlineDrawingsItemPointsItem[];
+};
+
+export interface SaveTestSolutionInput {
+  userAnswer?: string | null;
+  status?: SaveTestSolutionInputStatus;
+  isCompleted?: boolean;
+  canvasData?: string | null;
+  inlineDrawings?: SaveTestSolutionInputInlineDrawingsItem[] | null;
+  tempDrawing?: string | null;
+  inlineDrawEnabled?: boolean;
+}
+
+export type SaveTestSolutionsInputSolutionsItemStatus =
+  (typeof SaveTestSolutionsInputSolutionsItemStatus)[keyof typeof SaveTestSolutionsInputSolutionsItemStatus];
+
+export const SaveTestSolutionsInputSolutionsItemStatus = {
+  Cozulmedi: "Cozulmedi",
+  DogruCozuldu: "DogruCozuldu",
+  YanlisHocayaSor: "YanlisHocayaSor",
+} as const;
+
+export type SaveTestSolutionsInputSolutionsItemInlineDrawingsItemTool =
+  (typeof SaveTestSolutionsInputSolutionsItemInlineDrawingsItemTool)[keyof typeof SaveTestSolutionsInputSolutionsItemInlineDrawingsItemTool];
+
+export const SaveTestSolutionsInputSolutionsItemInlineDrawingsItemTool = {
+  pen: "pen",
+  eraser: "eraser",
+} as const;
+
+export type SaveTestSolutionsInputSolutionsItemInlineDrawingsItemPointsItem = {
+  x?: number;
+  y?: number;
+};
+
+export type SaveTestSolutionsInputSolutionsItemInlineDrawingsItem = {
+  tool?: SaveTestSolutionsInputSolutionsItemInlineDrawingsItemTool;
+  color?: string;
+  width?: number;
+  points?: SaveTestSolutionsInputSolutionsItemInlineDrawingsItemPointsItem[];
+};
+
+export type SaveTestSolutionsInputSolutionsItem = {
+  questionId?: number;
+  userAnswer?: string | null;
+  status?: SaveTestSolutionsInputSolutionsItemStatus;
+  isCompleted?: boolean;
+  canvasData?: string | null;
+  inlineDrawings?:
+    | SaveTestSolutionsInputSolutionsItemInlineDrawingsItem[]
+    | null;
+  tempDrawing?: string | null;
+  inlineDrawEnabled?: boolean;
+};
+
+export interface SaveTestSolutionsInput {
+  solutions: SaveTestSolutionsInputSolutionsItem[];
+}
+
+export type TestSessionProgressCollapsedLessons = {
+  [key: string]: boolean;
+} | null;
+
+export interface TestSessionProgress {
+  id: number;
+  testSessionId: number;
+  currentIndex: number;
+  timer?: number | null;
+  elapsed: number;
+  isCompleted: boolean;
+  completedAt?: string | null;
+  inlineDrawEnabled: boolean;
+  collapsedLessons?: TestSessionProgressCollapsedLessons;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type SaveTestProgressInputCollapsedLessons = {
+  [key: string]: boolean;
+} | null;
+
+export interface SaveTestProgressInput {
+  currentIndex?: number;
+  timer?: number | null;
+  elapsed?: number;
+  isCompleted?: boolean;
+  inlineDrawEnabled?: boolean;
+  collapsedLessons?: SaveTestProgressInputCollapsedLessons;
+}
+
 export type ListQuestionsParams = {
   category?: ListQuestionsCategory;
   source?: ListQuestionsSource;
   lesson?: string;
   publisher?: string;
   status?: ListQuestionsStatus;
+  limit?: number;
+  offset?: number;
   topic?: string;
 };
 
@@ -267,6 +439,7 @@ export type ListQuestionsCategory =
 export const ListQuestionsCategory = {
   TYT: "TYT",
   AYT: "AYT",
+  Geometri: "Geometri",
 } as const;
 
 export type ListQuestionsSource =
@@ -308,14 +481,4 @@ export type UpdateTestQuestionStatusBody = {
   status: UpdateTestQuestionStatusBodyStatus;
 };
 
-export interface PaginationInfo {
-  total: number;
-  limit: number;
-  offset: number;
-  hasMore: boolean;
-}
 
-export interface ListQuestionsResponse {
-  items: Question[];
-  pagination: PaginationInfo;
-}

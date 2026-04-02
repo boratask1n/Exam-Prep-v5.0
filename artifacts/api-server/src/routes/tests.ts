@@ -1,10 +1,21 @@
 import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
 import { questionsTable, testSessionsTable, testSessionQuestionsTable } from "@workspace/db";
-import { eq, and, inArray, ilike, sql, count } from "drizzle-orm";
+import { eq, and, inArray, ilike, sql, count, or } from "drizzle-orm";
 import { CreateTestBody, UpdateTestBody, UpdateTestQuestionStatusBody } from "@workspace/api-zod";
 
 const router: IRouter = Router();
+
+function buildTopicCondition(topics: string[] | undefined) {
+  if (!topics?.length) return undefined;
+
+  const topicConditions = topics.map((topic) =>
+    ilike(questionsTable.topic!, `%${topic}%`),
+  );
+  return topicConditions.length === 1
+    ? topicConditions[0]
+    : or(...topicConditions);
+}
 
 async function buildTestSessionResponse(id: number) {
   const [session] = await db.select().from(testSessionsTable).where(eq(testSessionsTable.id, id));
@@ -104,7 +115,13 @@ router.post("/tests", async (req, res) => {
     if (filters) {
       if (filters.category) conditions.push(eq(questionsTable.category, filters.category));
       if (filters.source) conditions.push(eq(questionsTable.source, filters.source));
-      if (filters.topic) conditions.push(ilike(questionsTable.topic!, `%${filters.topic}%`));
+      const topics = filters.topics?.length
+        ? filters.topics
+        : filters.topic
+          ? [filters.topic]
+          : [];
+      const topicCondition = buildTopicCondition(topics);
+      if (topicCondition) conditions.push(topicCondition);
       if (filters.publisher) conditions.push(ilike(questionsTable.publisher!, `%${filters.publisher}%`));
       if (filters.status) conditions.push(eq(questionsTable.status, filters.status));
     }
@@ -113,25 +130,50 @@ router.post("/tests", async (req, res) => {
     const lessons = filters?.lessons;
     if (lessons && lessons.length > 0) {
       const lessonConditions = lessons.map((l: string) => ilike(questionsTable.lesson, `%${l}%`));
-      // Use OR across lessons
-      const { or } = await import("drizzle-orm");
       conditions.push(or(...lessonConditions)!);
     }
 
-    const poolQuery = db
-      .select({ id: questionsTable.id, lesson: questionsTable.lesson })
-      .from(questionsTable)
-      .where(conditions.length > 0 ? and(...conditions) : undefined)
-      .orderBy(sql`RANDOM()`);
+    const baseWhere = conditions.length > 0 ? and(...conditions) : undefined;
+    const distributionEntries = Object.entries(body.distribution ?? {}).filter(
+      ([lesson, amount]) => lesson && Number.isFinite(amount) && amount > 0,
+    );
 
-    if (body.count) {
-      poolQuery.limit(body.count);
+    if (distributionEntries.length > 0) {
+      const distributedQuestions = await Promise.all(
+        distributionEntries.map(async ([lesson, amount]) => {
+          const lessonWhere = and(
+            ...(baseWhere ? [baseWhere] : []),
+            ilike(questionsTable.lesson, `%${lesson}%`),
+          );
+
+          return db
+            .select({ id: questionsTable.id, lesson: questionsTable.lesson })
+            .from(questionsTable)
+            .where(lessonWhere)
+            .orderBy(sql`RANDOM()`)
+            .limit(amount);
+        }),
+      );
+
+      questionIds = distributedQuestions
+        .flat()
+        .sort((a, b) => a.lesson.localeCompare(b.lesson))
+        .map((q) => q.id);
+    } else {
+      const poolQuery = db
+        .select({ id: questionsTable.id, lesson: questionsTable.lesson })
+        .from(questionsTable)
+        .where(baseWhere)
+        .orderBy(sql`RANDOM()`);
+
+      if (body.count) {
+        poolQuery.limit(body.count);
+      }
+
+      const pool = await poolQuery;
+      pool.sort((a, b) => a.lesson.localeCompare(b.lesson));
+      questionIds = pool.map((q) => q.id);
     }
-
-    const pool = await poolQuery;
-    // Sort by lesson so grouped questions come together
-    pool.sort((a, b) => a.lesson.localeCompare(b.lesson));
-    questionIds = pool.map((q) => q.id);
   }
 
   const [session] = await db

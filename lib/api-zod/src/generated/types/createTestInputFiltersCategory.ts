@@ -12,4 +12,5 @@ export type CreateTestInputFiltersCategory =
 export const CreateTestInputFiltersCategory = {
   TYT: "TYT",
   AYT: "AYT",
+  Geometri: "Geometri",
 } as const;

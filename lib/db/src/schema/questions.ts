@@ -15,6 +15,7 @@ export const questionsTable = pgTable("questions", {
   /** YouTube veya başka çözüm videosu URL’si */
   solutionUrl: text("solution_url"),
   category: text("category").notNull().default("TYT"),
+  /** Kaynak: Deneme, Banka, Fasikul */
   source: text("source").notNull().default("Banka"),
   status: text("status").notNull().default("Cozulmedi"),
   hasDrawing: boolean("has_drawing").notNull().default(false),

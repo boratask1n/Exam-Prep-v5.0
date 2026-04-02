@@ -12,4 +12,5 @@ export type CreateQuestionInputCategory =
 export const CreateQuestionInputCategory = {
   TYT: "TYT",
   AYT: "AYT",
+  Geometri: "Geometri",
 } as const;

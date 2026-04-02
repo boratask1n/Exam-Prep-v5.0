@@ -351,6 +351,24 @@ function parseDersListesi(): CategoryLessons {
     }
   });
   
+  // TYT Geometri dersine konuları ekle
+  const tytGeometri = result['TYT'].find(l => l.name === 'Geometri');
+  if (tytGeometri) {
+    tytGeometri.topics = [
+      'Doğruda ve Üçgende Açılar',
+      'Dik Üçgen ve Trigonometrik Bağıntılar',
+      'İkizkenar ve Eşkenar Üçgen',
+      'Üçgende Alan ve Benzerlik',
+      'Üçgende Yardımcı Elemanlar',
+      'Çokgenler ve Dörtgenler',
+      'Özel Dörtgenler',
+      'Çember ve Daire',
+      'Katı Cisimler',
+      'Analitik Geometri',
+      'Çemberin Analitik İncelenmesi'
+    ];
+  }
+  
   // AYT dersleri
   const aytExtraLessons = ['Türk Dili ve Edebiyatı', 'Felsefe', 'Tarih', 'Coğrafya'];
   aytExtraLessons.forEach(name => {
@@ -358,6 +376,24 @@ function parseDersListesi(): CategoryLessons {
       result['AYT'].push({ name, topics: [] });
     }
   });
+  
+  // AYT Geometri dersine konuları ekle
+  const aytGeometri = result['AYT'].find(l => l.name === 'Geometri');
+  if (aytGeometri) {
+    aytGeometri.topics = [
+      'Doğruda ve Üçgende Açılar',
+      'Dik Üçgen ve Trigonometrik Bağıntılar',
+      'İkizkenar ve Eşkenar Üçgen',
+      'Üçgende Alan ve Benzerlik',
+      'Üçgende Yardımcı Elemanlar',
+      'Çokgenler ve Dörtgenler',
+      'Özel Dörtgenler',
+      'Çember ve Daire',
+      'Katı Cisimler',
+      'Analitik Geometri',
+      'Çemberin Analitik İncelenmesi'
+    ];
+  }
   
   return result;
 }
@@ -378,6 +414,29 @@ export function getLessonsForCategory(category: string): LessonWithTopics[] {
 }
 
 export function getTopicsForLesson(category: string, lessonName: string): string[] {
+  // Special case: Geometri lesson topics come from Geometri category
+  if (lessonName === "Geometri") {
+    const geometriLessons = getLessonsForCategory("Geometri");
+    const geometriLesson = geometriLessons.find(l => l.name === "Geometri");
+    if (geometriLesson && geometriLesson.topics.length > 0) {
+      return geometriLesson.topics;
+    }
+    // Fallback to hardcoded topics if not found in Geometri category
+    return [
+      'Doğruda ve Üçgende Açılar',
+      'Dik Üçgen ve Trigonometrik Bağıntılar',
+      'İkizkenar ve Eşkenar Üçgen',
+      'Üçgende Alan ve Benzerlik',
+      'Üçgende Yardımcı Elemanlar',
+      'Çokgenler ve Dörtgenler',
+      'Özel Dörtgenler',
+      'Çember ve Daire',
+      'Katı Cisimler',
+      'Analitik Geometri',
+      'Çemberin Analitik İncelenmesi'
+    ];
+  }
+  
   const lessons = getLessonsForCategory(category);
   const lesson = lessons.find(l => l.name === lessonName);
   return lesson?.topics || [];

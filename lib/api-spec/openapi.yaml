@@ -343,6 +343,148 @@ paths:
               schema:
                 $ref: "#/components/schemas/Question"
 
+  /tests/{id}/solutions:
+    get:
+      operationId: getTestSolutions
+      tags: [tests]
+      summary: Get all solutions for a test session
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Test solutions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TestSolution"
+    put:
+      operationId: saveTestSolutions
+      tags: [tests]
+      summary: Save or update test solutions (bulk)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SaveTestSolutionsInput"
+      responses:
+        "200":
+          description: Solutions saved
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TestSolution"
+
+  /tests/{id}/questions/{questionId}/solution:
+    get:
+      operationId: getTestQuestionSolution
+      tags: [tests]
+      summary: Get solution for a specific question in a test
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: questionId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Question solution
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TestSolution"
+        "404":
+          description: Solution not found
+    put:
+      operationId: saveTestQuestionSolution
+      tags: [tests]
+      summary: Save or update solution for a specific question in a test
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: questionId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SaveTestSolutionInput"
+      responses:
+        "200":
+          description: Solution saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TestSolution"
+
+  /tests/{id}/progress:
+    get:
+      operationId: getTestProgress
+      tags: [tests]
+      summary: Get test session progress
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Test progress
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TestSessionProgress"
+    put:
+      operationId: saveTestProgress
+      tags: [tests]
+      summary: Save or update test session progress
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SaveTestProgressInput"
+      responses:
+        "200":
+          description: Progress saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TestSessionProgress"
+
   /filters/options:
     get:
       operationId: getFilterOptions
@@ -647,3 +789,227 @@ components:
         - lessons
         - topics
         - publishers
+
+    TestSolution:
+      type: object
+      properties:
+        id:
+          type: integer
+        testSessionId:
+          type: integer
+        questionId:
+          type: integer
+        userAnswer:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum: [Cozulmedi, DogruCozuldu, YanlisHocayaSor]
+        isCompleted:
+          type: boolean
+        canvasData:
+          type: string
+          nullable: true
+        inlineDrawings:
+          type: array
+          items:
+            type: object
+            properties:
+              tool:
+                type: string
+                enum: [pen, eraser]
+              color:
+                type: string
+              width:
+                type: number
+              points:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    x:
+                      type: number
+                    y:
+                      type: number
+          nullable: true
+        tempDrawing:
+          type: string
+          nullable: true
+        currentIndex:
+          type: integer
+          nullable: true
+        timer:
+          type: integer
+          nullable: true
+        elapsed:
+          type: integer
+          nullable: true
+        inlineDrawEnabled:
+          type: boolean
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+      required:
+        - id
+        - testSessionId
+        - questionId
+        - status
+        - isCompleted
+        - inlineDrawEnabled
+        - createdAt
+        - updatedAt
+
+    SaveTestSolutionInput:
+      type: object
+      properties:
+        userAnswer:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum: [Cozulmedi, DogruCozuldu, YanlisHocayaSor]
+        isCompleted:
+          type: boolean
+        canvasData:
+          type: string
+          nullable: true
+        inlineDrawings:
+          type: array
+          items:
+            type: object
+            properties:
+              tool:
+                type: string
+                enum: [pen, eraser]
+              color:
+                type: string
+              width:
+                type: number
+              points:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    x:
+                      type: number
+                    y:
+                      type: number
+          nullable: true
+        tempDrawing:
+          type: string
+          nullable: true
+        inlineDrawEnabled:
+          type: boolean
+
+    SaveTestSolutionsInput:
+      type: object
+      properties:
+        solutions:
+          type: array
+          items:
+            type: object
+            properties:
+              questionId:
+                type: integer
+              userAnswer:
+                type: string
+                nullable: true
+              status:
+                type: string
+                enum: [Cozulmedi, DogruCozuldu, YanlisHocayaSor]
+              isCompleted:
+                type: boolean
+              canvasData:
+                type: string
+                nullable: true
+              inlineDrawings:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    tool:
+                      type: string
+                      enum: [pen, eraser]
+                    color:
+                      type: string
+                    width:
+                      type: number
+                    points:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          x:
+                            type: number
+                          y:
+                            type: number
+                nullable: true
+              tempDrawing:
+                type: string
+                nullable: true
+              inlineDrawEnabled:
+                type: boolean
+      required:
+        - solutions
+
+    TestSessionProgress:
+      type: object
+      properties:
+        id:
+          type: integer
+        testSessionId:
+          type: integer
+        currentIndex:
+          type: integer
+        timer:
+          type: integer
+          nullable: true
+        elapsed:
+          type: integer
+        isCompleted:
+          type: boolean
+        completedAt:
+          type: string
+          nullable: true
+        inlineDrawEnabled:
+          type: boolean
+        collapsedLessons:
+          type: object
+          additionalProperties:
+            type: boolean
+          nullable: true
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+      required:
+        - id
+        - testSessionId
+        - currentIndex
+        - elapsed
+        - isCompleted
+        - inlineDrawEnabled
+        - createdAt
+        - updatedAt
+
+    SaveTestProgressInput:
+      type: object
+      properties:
+        currentIndex:
+          type: integer
+        timer:
+          type: integer
+          nullable: true
+        elapsed:
+          type: integer
+        isCompleted:
+          type: boolean
+        inlineDrawEnabled:
+          type: boolean
+        collapsedLessons:
+          type: object
+          additionalProperties:
+            type: boolean
+          nullable: true
+

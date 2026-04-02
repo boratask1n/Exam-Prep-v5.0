@@ -26,6 +26,7 @@ interface Stroke {
   points: Pt[];
   /** Sadece kalem; eski kayıtlarda yok → tükenmez */
   penKind?: PenKind;
+  snapShape?: "line";
 }
 type EraserMode = "area" | "stroke";
 
@@ -62,14 +63,14 @@ const PEN_KIND_OPTIONS: { id: PenKind; label: string; short: string }[] = [
 const PAPER_W = 2000;
 const PAPER_H = 2000;
 /** Horizontal inset for the question image — larger = more side margin for drawing beside the image */
-const IMG_SIDE_PAD = 60; // paper units (was 56)
-const IMG_TOP_PAD =20; // paper units
+const IMG_SIDE_PAD = 36; // paper units
+const IMG_TOP_PAD = 20; // paper units
 /** Max image height on paper — keeps photos from dominating on wide / auto-fit zoom */
-const IMG_MAX_HEIGHT = 620; // paper units (biraz küçültüldü)
+const IMG_MAX_HEIGHT = 760; // paper units
 /** Never auto-zoom above 1.0 so large monitors don’t blow up the whole page */
 const MAX_FIT_ZOOM = 1.0;
 
-const MIN_ZOOM = 0.2;
+const MIN_ZOOM = 0.6;
 const MAX_ZOOM = 4.0;
 
 /** 1–100 → kalem çizgi kalınlığı (paper birimi) */
@@ -104,6 +105,310 @@ function mixHex(a: string, b: string, t: number): string {
   const g = Math.round(ag + (bg - ag) * t);
   const b_ = Math.round(ab + (bb - ab) * t);
   return `#${[r, g, b_].map((n) => n.toString(16).padStart(2, "0")).join("")}`;
+}
+
+function notesPaperPalette(theme: string | undefined) {
+  if (theme === "dark") {
+    return {
+      paper: "#15171c",
+      paperEdge: "#23262d",
+      rule: "rgba(148, 163, 184, 0.08)",
+      imageShadow: "rgba(0, 0, 0, 0.34)",
+      imageStroke: "rgba(148, 163, 184, 0.22)",
+      emptyPaper: "#1a1d24",
+    };
+  }
+
+  return {
+    paper: "#fffdf7",
+    paperEdge: "#e8e2d3",
+    rule: "rgba(180, 166, 141, 0.18)",
+    imageShadow: "rgba(148, 163, 184, 0.24)",
+    imageStroke: "rgba(148, 163, 184, 0.28)",
+    emptyPaper: "#fffef9",
+  };
+}
+
+function renderEraserTrail(
+  ctx: CanvasRenderingContext2D,
+  points: Pt[],
+  width: number,
+) {
+  if (points.length < 2) return;
+  const tail = points.slice(Math.max(0, points.length - 18));
+  for (let i = 1; i < tail.length; i++) {
+    const p0 = tail[i - 1];
+    const p1 = tail[i];
+    const progress = i / (tail.length - 1);
+    const taper = 0.42 + progress * 0.92;
+
+    ctx.save();
+    ctx.globalCompositeOperation = "source-over";
+    ctx.strokeStyle = `rgba(98, 106, 120, ${0.18 + progress * 0.42})`;
+    ctx.lineWidth = Math.max(2.5, width * taper);
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.shadowColor = `rgba(71, 85, 105, ${0.16 + progress * 0.18})`;
+    ctx.shadowBlur = 8 + progress * 6;
+    ctx.beginPath();
+    ctx.moveTo(p0.x, p0.y);
+    ctx.lineTo(p1.x, p1.y);
+    ctx.stroke();
+    ctx.restore();
+  }
+}
+
+function renderAreaEraserPreview(
+  ctx: CanvasRenderingContext2D,
+  points: Pt[],
+  width: number,
+) {
+  if (points.length === 0) return;
+
+  const radius = Math.max(8, width / 2);
+  const preview = points.slice(Math.max(0, points.length - 8));
+
+  ctx.save();
+  ctx.globalCompositeOperation = "source-over";
+
+  for (let i = 0; i < preview.length; i++) {
+    const p = preview[i];
+    const progress = (i + 1) / preview.length;
+    ctx.beginPath();
+    ctx.fillStyle = `rgba(59, 130, 246, ${0.08 + progress * 0.1})`;
+    ctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  const last = preview[preview.length - 1];
+  ctx.beginPath();
+  ctx.fillStyle = "rgba(255,255,255,0.42)";
+  ctx.strokeStyle = "rgba(14, 165, 233, 0.9)";
+  ctx.lineWidth = 2;
+  ctx.arc(last.x, last.y, radius, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+  ctx.restore();
+}
+
+function distance(a: Pt, b: Pt) {
+  return Math.hypot(a.x - b.x, a.y - b.y);
+}
+
+function pointToSegmentDistance(point: Pt, start: Pt, end: Pt) {
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  if (dx === 0 && dy === 0) return distance(point, start);
+  const t = Math.max(
+    0,
+    Math.min(1, ((point.x - start.x) * dx + (point.y - start.y) * dy) / (dx * dx + dy * dy)),
+  );
+  return Math.hypot(point.x - (start.x + dx * t), point.y - (start.y + dy * t));
+}
+
+function pathLength(points: Pt[]) {
+  let total = 0;
+  for (let i = 1; i < points.length; i++) total += distance(points[i - 1], points[i]);
+  return total;
+}
+
+function makeLinePoints(start: Pt, end: Pt): Pt[] {
+  return [start, end];
+}
+
+function makeRectPoints(points: Pt[]): Pt[] {
+  const xs = points.map((p) => p.x);
+  const ys = points.map((p) => p.y);
+  const minX = Math.min(...xs);
+  const maxX = Math.max(...xs);
+  const minY = Math.min(...ys);
+  const maxY = Math.max(...ys);
+  const pressure = points[points.length - 1]?.pressure ?? 0.7;
+  return [
+    { x: minX, y: minY, pressure },
+    { x: maxX, y: minY, pressure },
+    { x: maxX, y: maxY, pressure },
+    { x: minX, y: maxY, pressure },
+    { x: minX, y: minY, pressure },
+  ];
+}
+
+function makeCirclePoints(points: Pt[]): Pt[] {
+  const xs = points.map((p) => p.x);
+  const ys = points.map((p) => p.y);
+  const minX = Math.min(...xs);
+  const maxX = Math.max(...xs);
+  const minY = Math.min(...ys);
+  const maxY = Math.max(...ys);
+  const cx = (minX + maxX) / 2;
+  const cy = (minY + maxY) / 2;
+  const rx = Math.max(6, (maxX - minX) / 2);
+  const ry = Math.max(6, (maxY - minY) / 2);
+  const pressure = points[points.length - 1]?.pressure ?? 0.7;
+  const startAngle = Math.atan2(points[0].y - cy, points[0].x - cx);
+  const out: Pt[] = [];
+  for (let i = 0; i <= 32; i++) {
+    const t = startAngle + (Math.PI * 2 * i) / 32;
+    out.push({ x: cx + Math.cos(t) * rx, y: cy + Math.sin(t) * ry, pressure });
+  }
+  return out;
+}
+
+function makePolygonPoints(points: Pt[], pressure: number): Pt[] {
+  const out = points.map((point) => ({ x: point.x, y: point.y, pressure }));
+  if (out.length > 0) out.push({ ...out[0] });
+  return out;
+}
+
+function simplifyPath(points: Pt[], epsilon: number): Pt[] {
+  if (points.length <= 2) return points.slice();
+
+  let maxDistance = 0;
+  let index = 0;
+  const start = points[0];
+  const end = points[points.length - 1];
+
+  for (let i = 1; i < points.length - 1; i++) {
+    const d = pointToSegmentDistance(points[i], start, end);
+    if (d > maxDistance) {
+      maxDistance = d;
+      index = i;
+    }
+  }
+
+  if (maxDistance <= epsilon) return [start, end];
+
+  const left = simplifyPath(points.slice(0, index + 1), epsilon);
+  const right = simplifyPath(points.slice(index), epsilon);
+  return [...left.slice(0, -1), ...right];
+}
+
+function dedupePoints(points: Pt[], minDistance: number) {
+  const out: Pt[] = [];
+  for (const point of points) {
+    if (out.length === 0 || distance(out[out.length - 1], point) > minDistance) {
+      out.push(point);
+    }
+  }
+  return out;
+}
+
+function detectPolygonVertices(points: Pt[], diag: number): Pt[] | null {
+  if (points.length < 6) return null;
+
+  const loop = distance(points[0], points[points.length - 1]) < Math.max(18, diag * 0.16)
+    ? points.slice(0, -1)
+    : points.slice();
+  const simplified = dedupePoints(
+    simplifyPath(loop, Math.max(6, diag * 0.032)),
+    Math.max(6, diag * 0.035),
+  );
+
+  if (simplified.length < 3 || simplified.length > 6) return null;
+
+  const sides: number[] = [];
+  for (let i = 0; i < simplified.length; i++) {
+    const next = simplified[(i + 1) % simplified.length];
+    sides.push(distance(simplified[i], next));
+  }
+
+  if (Math.min(...sides) < diag * 0.08) return null;
+  return simplified;
+}
+
+function normalizePolygonVertices(points: Pt[], diag: number): Pt[] {
+  let normalized = points.slice();
+
+  while (normalized.length > 3) {
+    const sides = normalized.map((point, index) =>
+      distance(point, normalized[(index + 1) % normalized.length]),
+    );
+    const shortest = Math.min(...sides);
+    const longest = Math.max(...sides);
+    const shortIndex = sides.findIndex((side) => side === shortest);
+
+    if (normalized.length > 4 || shortest <= Math.max(diag * 0.12, longest * 0.28)) {
+      normalized = normalized.filter((_, index) => index !== (shortIndex + 1) % normalized.length);
+      continue;
+    }
+
+    break;
+  }
+
+  return normalized;
+}
+
+function polygonInteriorAngles(points: Pt[]) {
+  return points.map((point, index) => {
+    const prev = points[(index - 1 + points.length) % points.length];
+    const next = points[(index + 1) % points.length];
+    const v1x = prev.x - point.x;
+    const v1y = prev.y - point.y;
+    const v2x = next.x - point.x;
+    const v2y = next.y - point.y;
+    const len1 = Math.hypot(v1x, v1y);
+    const len2 = Math.hypot(v2x, v2y);
+    if (len1 === 0 || len2 === 0) return 180;
+    const dot = (v1x * v2x + v1y * v2y) / (len1 * len2);
+    return (Math.acos(Math.max(-1, Math.min(1, dot))) * 180) / Math.PI;
+  });
+}
+
+function smoothStrokePoints(points: Pt[]): Pt[] {
+  if (points.length < 3) return points;
+  if (points.length > 1200) return points;
+
+  const passes = points.length > 260 ? 1 : 2;
+  const alpha = 0.34;
+  let current = points.map((p) => ({ ...p }));
+
+  for (let pass = 0; pass < passes; pass++) {
+    const next = current.map((p) => ({ ...p }));
+    for (let i = 1; i < current.length - 1; i++) {
+      const prev = current[i - 1];
+      const cur = current[i];
+      const after = current[i + 1];
+      const avgX = (prev.x + after.x) / 2;
+      const avgY = (prev.y + after.y) / 2;
+      const avgPressure = (prev.pressure + cur.pressure + after.pressure) / 3;
+      next[i] = {
+        x: cur.x * (1 - alpha) + avgX * alpha,
+        y: cur.y * (1 - alpha) + avgY * alpha,
+        pressure: cur.pressure * (1 - alpha) + avgPressure * alpha,
+      };
+    }
+    current = next;
+  }
+
+  return current;
+}
+
+function maybeSnapStroke(stroke: Stroke): Stroke | null {
+  if (stroke.tool !== "pen" || stroke.points.length < 8) return null;
+
+  const points = stroke.points;
+  const start = points[0];
+  const end = points[points.length - 1];
+  const direct = Math.max(1, distance(start, end));
+  const total = Math.max(direct, pathLength(points));
+  if (direct < 26) return null;
+
+  let maxDeviation = 0;
+  for (const point of points) {
+    const num = Math.abs(
+      (end.y - start.y) * point.x -
+      (end.x - start.x) * point.y +
+      end.x * start.y -
+      end.y * start.x,
+    );
+    maxDeviation = Math.max(maxDeviation, num / direct);
+  }
+
+  if (total / direct < 1.11 && maxDeviation < Math.max(7, stroke.width * 0.22)) {
+    return { ...stroke, points: [start, end], snapShape: "line" };
+  }
+
+  return null;
 }
 
 /** Eski kayıtlardaki piksel kalınlıklarını 1–100 ölçeğe taşır */
@@ -237,7 +542,8 @@ function renderStrokePencil(ctx: CanvasRenderingContext2D, stroke: Stroke, strok
 
 /** Tükenmez / fırça / silgi: yumuşak quadratic eğriler */
 function renderStrokeSmooth(ctx: CanvasRenderingContext2D, stroke: Stroke) {
-  const pts = stroke.points;
+  const pts =
+    stroke.tool === "pen" ? smoothStrokePoints(stroke.points) : stroke.points;
   if (pts.length === 0) return;
 
   // Tek nokta (ör. tek dokunuş silgi) — aşağıdaki prev/last segmenti pts[-2] gerektirir
@@ -334,6 +640,22 @@ function renderStroke(ctx: CanvasRenderingContext2D, stroke: Stroke) {
     return;
   }
 
+  if (stroke.snapShape === "line" && pts.length >= 2) {
+    const pressure = pts.reduce((sum, point) => sum + point.pressure, 0) / pts.length;
+    const w = segmentWidthPx(stroke, pressure, pressure);
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.strokeStyle = strokeStyleForPen(stroke);
+    ctx.globalAlpha = 1;
+    ctx.lineWidth = w;
+    ctx.beginPath();
+    ctx.moveTo(pts[0].x, pts[0].y);
+    ctx.lineTo(pts[pts.length - 1].x, pts[pts.length - 1].y);
+    ctx.stroke();
+    ctx.restore();
+    return;
+  }
+
   if (pts.length === 1) {
     const pr = pts[0].pressure;
     if (kind === "fountain") {
@@ -386,17 +708,105 @@ function renderStroke(ctx: CanvasRenderingContext2D, stroke: Stroke) {
 
 function eraseStrokesByPath(strokes: Stroke[], eraserPath: Pt[], radius: number): Stroke[] {
   if (!eraserPath.length || radius <= 0) return strokes;
-  const hit = (a: Pt, b: Pt) => {
-    const dx = a.x - b.x;
-    const dy = a.y - b.y;
-    return dx * dx + dy * dy <= radius * radius;
+  
+  const r2 = radius * radius;
+  
+  // Nokta-çizgi segmenti mesafe karesi (projection ile)
+  const pointToSegmentDist2 = (p: Pt, a: Pt, b: Pt): number => {
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const len2 = dx * dx + dy * dy;
+    
+    if (len2 === 0) {
+      // a ve b aynı nokta
+      const ddx = p.x - a.x;
+      const ddy = p.y - a.y;
+      return ddx * ddx + ddy * ddy;
+    }
+    
+    // Projection faktörü [0, 1] aralığında
+    let t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2;
+    t = Math.max(0, Math.min(1, t));
+    
+    const projX = a.x + t * dx;
+    const projY = a.y + t * dy;
+    const ddx = p.x - projX;
+    const ddy = p.y - projY;
+    return ddx * ddx + ddy * ddy;
   };
+  
+  // İki çizgi segmenti kesişiyor mu (orientasyon testi)
+  const segmentsIntersect = (a1: Pt, a2: Pt, b1: Pt, b2: Pt): boolean => {
+    const ccw = (A: Pt, B: Pt, C: Pt) => (C.y - A.y) * (B.x - A.x) - (B.y - A.y) * (C.x - A.x);
+    
+    const d1 = ccw(b1, b2, a1);
+    const d2 = ccw(b1, b2, a2);
+    const d3 = ccw(a1, a2, b1);
+    const d4 = ccw(a1, a2, b2);
+    
+    // Genel kesişim durumu
+    if (((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0))) {
+      return true;
+    }
+    
+    // Doğrusal (collinear) durumlar - bounding box kontrolü
+    const onSegment = (s1: Pt, s2: Pt, p: Pt): boolean => {
+      return p.x <= Math.max(s1.x, s2.x) + 0.001 && p.x >= Math.min(s1.x, s2.x) - 0.001 &&
+             p.y <= Math.max(s1.y, s2.y) + 0.001 && p.y >= Math.min(s1.y, s2.y) - 0.001;
+    };
+    
+    if (Math.abs(d1) < 0.001 && onSegment(b1, b2, a1)) return true;
+    if (Math.abs(d2) < 0.001 && onSegment(b1, b2, a2)) return true;
+    if (Math.abs(d3) < 0.001 && onSegment(a1, a2, b1)) return true;
+    if (Math.abs(d4) < 0.001 && onSegment(a1, a2, b2)) return true;
+    
+    return false;
+  };
+  
+  // Silgi yolunu segmentlere ayır
+  const eraserSegments: [Pt, Pt][] = [];
+  for (let i = 1; i < eraserPath.length; i++) {
+    eraserSegments.push([eraserPath[i - 1], eraserPath[i]]);
+  }
+  
   return strokes.filter((stroke) => {
     if (stroke.tool === "eraser") return true;
-    for (const sp of stroke.points)
-      for (const ep of eraserPath)
-        if (hit(sp, ep)) return false;
-    return true;
+    if (stroke.points.length === 0) return true;
+    
+    // Çizgi segmentlerini oluştur
+    const strokeSegments: [Pt, Pt][] = [];
+    for (let i = 1; i < stroke.points.length; i++) {
+      strokeSegments.push([stroke.points[i - 1], stroke.points[i]]);
+    }
+    
+    // Tüm kombinasyonları kontrol et
+    for (const [sp1, sp2] of strokeSegments) {
+      for (const [ep1, ep2] of eraserSegments) {
+        // 1. Segment kesişimi kontrolü
+        if (segmentsIntersect(sp1, sp2, ep1, ep2)) {
+          return false; // Sil
+        }
+        
+        // 2. Nokta-segment mesafe kontrolü (çizgi noktaları ile silgi segmenti)
+        if (pointToSegmentDist2(sp1, ep1, ep2) <= r2) return false;
+        if (pointToSegmentDist2(sp2, ep1, ep2) <= r2) return false;
+        
+        // 3. Nokta-segment mesafe kontrolü (silgi noktaları ile çizgi segmenti)
+        if (pointToSegmentDist2(ep1, sp1, sp2) <= r2) return false;
+        if (pointToSegmentDist2(ep2, sp1, sp2) <= r2) return false;
+      }
+    }
+    
+    // 4. Noktadan noktaya mesafe kontrolü (orijinal davranış)
+    for (const sp of stroke.points) {
+      for (const ep of eraserPath) {
+        const dx = sp.x - ep.x;
+        const dy = sp.y - ep.y;
+        if (dx * dx + dy * dy <= r2) return false;
+      }
+    }
+    
+    return true; // Tut
   });
 }
 
@@ -419,6 +829,7 @@ export function DrawingCanvas({
   // Canvas & refs — overlay uses two stacked layers so eraser (destination-out) never punches through paper/image
   const overlayBaseCanvasRef = useRef<HTMLCanvasElement>(null);
   const overlayStrokeCanvasRef = useRef<HTMLCanvasElement>(null);
+  const overlayPaperRef = useRef<HTMLDivElement>(null);
   const boardCanvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null); // separate mode board container
   const scrollViewRef = useRef<HTMLDivElement>(null); // overlay mode scroll container
@@ -450,10 +861,10 @@ export function DrawingCanvas({
   const [color, setColor] = useState(COLORS[0].hex);
   const [penKind, setPenKind] = useState<PenKind>("ballpoint");
   /** 1–100 kalem kalınlığı */
-  const [penWidth, setPenWidth] = useState(35);
+  const [penWidth, setPenWidth] = useState(10);
   /** 1–100 silgi kalınlığı */
   const [eraserWidth, setEraserWidth] = useState(35);
-  const [eraserMode, setEraserMode] = useState<EraserMode>("area");
+  const [eraserMode, setEraserMode] = useState<EraserMode>("stroke");
 
   // Strokes
   const [overlayStrokes, setOverlayStrokes] = useState<Stroke[]>([]);
@@ -558,16 +969,34 @@ export function DrawingCanvas({
     ctxBase.setTransform(z * dpr, 0, 0, z * dpr, 0, 0);
     ctxBase.clearRect(0, 0, PAPER_W, PAPER_H);
 
-    ctxBase.fillStyle = currentTheme === "dark" ? "#0f0f1a" : "#e8eaf0";
+    const palette = notesPaperPalette(currentTheme);
+    ctxBase.fillStyle = palette.paper;
     ctxBase.fillRect(0, 0, PAPER_W, PAPER_H);
+
+    ctxBase.save();
+    ctxBase.strokeStyle = palette.rule;
+    ctxBase.lineWidth = 1;
+    for (let y = 96; y < PAPER_H; y += 92) {
+      ctxBase.beginPath();
+      ctxBase.moveTo(44, y);
+      ctxBase.lineTo(PAPER_W - 44, y);
+      ctxBase.stroke();
+    }
+    ctxBase.restore();
+
+    ctxBase.save();
+    ctxBase.strokeStyle = palette.paperEdge;
+    ctxBase.lineWidth = 3;
+    ctxBase.strokeRect(1.5, 1.5, PAPER_W - 3, PAPER_H - 3);
+    ctxBase.restore();
 
     const { x: imgX, y: imgY, w: imgW, h: imgH } = imgLayoutRef.current;
 
     if (imgRef.current && imgLoadedRef.current && imgW > 0) {
       ctxBase.save();
-      ctxBase.shadowColor = "rgba(0,0,0,0.25)";
-      ctxBase.shadowBlur = 12;
-      ctxBase.fillStyle = "#ffffff";
+      ctxBase.shadowColor = palette.imageShadow;
+      ctxBase.shadowBlur = 18;
+      ctxBase.fillStyle = palette.emptyPaper;
       ctxBase.fillRect(imgX, imgY, imgW, imgH);
       ctxBase.restore();
 
@@ -575,12 +1004,12 @@ export function DrawingCanvas({
 
       ctxBase.save();
       ctxBase.globalAlpha = 0.18;
-      ctxBase.strokeStyle = "#64748b";
+      ctxBase.strokeStyle = palette.imageStroke;
       ctxBase.lineWidth = 1;
       ctxBase.strokeRect(imgX, imgY, imgW, imgH);
       ctxBase.restore();
     } else if (!imageUrl) {
-      ctxBase.fillStyle = "#ffffff";
+      ctxBase.fillStyle = palette.emptyPaper;
       ctxBase.fillRect(0, 0, PAPER_W, PAPER_H);
     }
 
@@ -589,8 +1018,16 @@ export function DrawingCanvas({
     ctxStroke.clearRect(0, 0, PAPER_W, PAPER_H);
     for (const s of overlayStrokesRef.current) renderStroke(ctxStroke, s);
     const cs = currentStrokeRef.current;
-    if (cs) renderStroke(ctxStroke, cs);
-  }, [currentTheme, imageUrl]);
+    if (cs) {
+      if (cs.tool === "eraser" && eraserMode === "stroke") {
+        renderEraserTrail(ctxStroke, cs.points, segmentWidthPx(cs, 0.8, 0.8));
+      }
+      if (cs.tool === "eraser" && eraserMode === "area") {
+        renderAreaEraserPreview(ctxStroke, cs.points, segmentWidthPx(cs, 0.8, 0.8));
+      }
+      renderStroke(ctxStroke, cs);
+    }
+  }, [currentTheme, imageUrl, eraserMode]);
 
   // ── Compute fit zoom (fit paper width into viewport, cap so huge screens stay readable) ──
   const computeFitZoom = useCallback(() => {
@@ -601,6 +1038,20 @@ export function DrawingCanvas({
     return Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, z));
   }, []);
 
+  const centerOverlayOnPaperPoint = useCallback((paperX: number, paperY: number, targetZoom: number) => {
+    const sv = scrollViewRef.current;
+    const paper = overlayPaperRef.current;
+    if (!sv || !paper) return;
+
+    const targetLeft = paper.offsetLeft + paperX * targetZoom - sv.clientWidth / 2;
+    const targetTop = paper.offsetTop + paperY * targetZoom - sv.clientHeight / 2;
+    const maxScrollLeft = Math.max(0, sv.scrollWidth - sv.clientWidth);
+    const maxScrollTop = Math.max(0, sv.scrollHeight - sv.clientHeight);
+
+    sv.scrollLeft = Math.max(0, Math.min(maxScrollLeft, targetLeft));
+    sv.scrollTop = Math.max(0, Math.min(maxScrollTop, targetTop));
+  }, []);
+
   // ── Apply a new zoom, keeping the scroll center stable ──
   const applyZoom = useCallback((newZoom: number, anchorCssX?: number, anchorCssY?: number) => {
     const sv = scrollViewRef.current;
@@ -608,6 +1059,8 @@ export function DrawingCanvas({
     const oldZoom = zoomRef.current;
     const clamped = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, newZoom));
     if (Math.abs(clamped - oldZoom) < 0.001) return;
+
+    const hasExplicitAnchor = anchorCssX !== undefined || anchorCssY !== undefined;
 
     // Default anchor: center of the visible viewport
     const ax = anchorCssX ?? sv.clientWidth / 2;
@@ -622,11 +1075,18 @@ export function DrawingCanvas({
 
     requestAnimationFrame(() => {
       if (!scrollViewRef.current) return;
-      scrollViewRef.current.scrollLeft = paperX * clamped - ax;
-      scrollViewRef.current.scrollTop = paperY * clamped - ay;
+      const { x, y, w, h } = imgLayoutRef.current;
+      const hasQuestionImage = imgLoadedRef.current && w > 0 && h > 0;
+
+      if (!hasExplicitAnchor && hasQuestionImage) {
+        centerOverlayOnPaperPoint(x + w / 2, y + h / 2, clamped);
+      } else {
+        scrollViewRef.current.scrollLeft = paperX * clamped - ax;
+        scrollViewRef.current.scrollTop = paperY * clamped - ay;
+      }
       renderOverlay();
     });
-  }, [renderOverlay]);
+  }, [centerOverlayOnPaperPoint, renderOverlay]);
 
   // ── Setup overlay canvas: initial zoom + respond to resize ──
   useEffect(() => {
@@ -641,7 +1101,13 @@ export function DrawingCanvas({
       const fit = computeFitZoom();
       zoomRef.current = fit;
       setZoom(fit);
-      renderOverlay();
+      requestAnimationFrame(() => {
+        const { x, y, w, h } = imgLayoutRef.current;
+        if (imgLoadedRef.current && w > 0 && h > 0) {
+          centerOverlayOnPaperPoint(x + w / 2, y + h / 2, fit);
+        }
+        renderOverlay();
+      });
     };
 
     const ro = new ResizeObserver(() => {
@@ -651,7 +1117,7 @@ export function DrawingCanvas({
     ro.observe(sv);
     init();
     return () => ro.disconnect();
-  }, [mode, updateImgLayout, renderOverlay, computeFitZoom]);
+  }, [mode, updateImgLayout, renderOverlay, computeFitZoom, centerOverlayOnPaperPoint]);
 
   // ── Reset zoom to fit when leaving / re-entering overlay mode ──
   useEffect(() => {
@@ -721,8 +1187,16 @@ export function DrawingCanvas({
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, canvas.width / dpr, canvas.height / dpr);
     for (const s of boardStrokes) renderStroke(ctx, s);
-    if (currentStroke) renderStroke(ctx, currentStroke);
-  }, [mode, boardStrokes, currentStroke]);
+    if (currentStroke) {
+      if (currentStroke.tool === "eraser" && eraserMode === "stroke") {
+        renderEraserTrail(ctx, currentStroke.points, segmentWidthPx(currentStroke, 0.8, 0.8));
+      }
+      if (currentStroke.tool === "eraser" && eraserMode === "area") {
+        renderAreaEraserPreview(ctx, currentStroke.points, segmentWidthPx(currentStroke, 0.8, 0.8));
+      }
+      renderStroke(ctx, currentStroke);
+    }
+  }, [mode, boardStrokes, currentStroke, eraserMode]);
 
   // ─────────────────────────────────────────────────────────────────
   // INPUT: Coordinate mapping → paper coordinates
@@ -763,6 +1237,26 @@ export function DrawingCanvas({
   // POINTER EVENT HANDLERS
   // ─────────────────────────────────────────────────────────────────
   const isDrawingRef = useRef(false);
+  const rawStrokeRef = useRef<Stroke | null>(null);
+  const snapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearSnapTimer = useCallback(() => {
+    if (snapTimerRef.current) {
+      clearTimeout(snapTimerRef.current);
+      snapTimerRef.current = null;
+    }
+  }, []);
+
+  const scheduleSnapPreview = useCallback(() => {
+    clearSnapTimer();
+    snapTimerRef.current = setTimeout(() => {
+      if (!isDrawingRef.current || !rawStrokeRef.current) return;
+      const snapped = maybeSnapStroke(rawStrokeRef.current);
+      if (!snapped) return;
+      currentStrokeRef.current = snapped;
+      setCurrentStroke(snapped);
+    }, 360);
+  }, [clearSnapTimer]);
 
   const onPointerDown = useCallback((e: React.PointerEvent) => {
     const isHardwareEraser = e.button === 5 || (e.buttons & 32) === 32;
@@ -783,6 +1277,7 @@ export function DrawingCanvas({
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
 
     isDrawingRef.current = true;
+    clearSnapTimer();
 
     const pt = getXY(e);
     const stroke: Stroke = {
@@ -794,7 +1289,8 @@ export function DrawingCanvas({
     };
     setCurrentStroke(stroke);
     currentStrokeRef.current = stroke;
-  }, [getXY, color, penWidth, eraserWidth, tool, penKind]);
+    rawStrokeRef.current = stroke;
+  }, [clearSnapTimer, getXY, color, penWidth, eraserWidth, tool, penKind]);
 
   const onPointerMove = useCallback((e: React.PointerEvent) => {
     const isHardwareEraser = e.button === 5 || (e.buttons & 32) === 32;
@@ -812,27 +1308,31 @@ export function DrawingCanvas({
     const pt = getXY(e);
     setCurrentStroke((prev) => {
       if (!prev) return prev;
-      const last = prev.points[prev.points.length - 1];
+      const baseStroke = rawStrokeRef.current ?? prev;
+      const last = baseStroke.points[baseStroke.points.length - 1];
       if (Math.hypot(pt.x - last.x, pt.y - last.y) < 0.5) return prev;
-      const updated = { ...prev, points: [...prev.points, pt] };
+      const updated = { ...baseStroke, points: [...baseStroke.points, pt], snapShape: undefined };
+      rawStrokeRef.current = updated;
       currentStrokeRef.current = updated;
+      scheduleSnapPreview();
 
       if (modeRef.current === "separate") {
         const canvas = boardCanvasRef.current;
-        if (canvas && (prev.tool === "pen" || (prev.tool === "eraser" && eraserMode === "area"))) {
+        if (canvas && (updated.tool === "pen" || (updated.tool === "eraser" && eraserMode === "area"))) {
           const ctx = canvas.getContext("2d")!;
           const dpr = window.devicePixelRatio || 1;
           ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-          renderStroke(ctx, { ...prev, points: [last, pt] });
+          renderStroke(ctx, { ...updated, points: [last, pt] });
         }
       }
       return updated;
     });
-  }, [getXY, eraserMode]);
+  }, [getXY, eraserMode, scheduleSnapPreview]);
 
   const onPointerUp = useCallback((e: React.PointerEvent) => {
     e.preventDefault();
     isDrawingRef.current = false;
+    clearSnapTimer();
     setCurrentStroke((prev) => {
       if (!prev) return prev;
       if (modeRef.current === "overlay") overlayDirtyRef.current = true;
@@ -846,9 +1346,10 @@ export function DrawingCanvas({
         else setBoardStrokes((s) => [...s, prev]);
       }
       currentStrokeRef.current = null;
+      rawStrokeRef.current = null;
       return null;
     });
-  }, [eraserMode]);
+  }, [clearSnapTimer, eraserMode]);
 
   const pointerHandlers = {
     onPointerDown,
@@ -860,6 +1361,7 @@ export function DrawingCanvas({
   // Özel imleç: küçük kağıt div'inde pointerleave titremesi yerine global pointermove + rect (tolerans)
   useEffect(() => {
     const EDGE_PAD = 8;
+    const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
     const syncCursor = (e: PointerEvent) => {
       if (modeRef.current === "overlay") {
@@ -871,16 +1373,17 @@ export function DrawingCanvas({
           e.clientX <= rect.right + EDGE_PAD &&
           e.clientY >= rect.top - EDGE_PAD &&
           e.clientY <= rect.bottom + EDGE_PAD;
-        if (!inBounds) {
+        if (!inBounds && !currentStrokeRef.current) {
           setCursorInCanvas(false);
           setCursorPos(null);
           return;
         }
+        const localX = (e.clientX - rect.left) / zoomRef.current;
+        const localY = (e.clientY - rect.top) / zoomRef.current;
         setCursorInCanvas(true);
-        const z = zoomRef.current;
         setCursorPos({
-          x: (e.clientX - rect.left) / z,
-          y: (e.clientY - rect.top) / z,
+          x: clamp(localX, 0, PAPER_W),
+          y: clamp(localY, 0, PAPER_H),
         });
         return;
       }
@@ -893,15 +1396,15 @@ export function DrawingCanvas({
         e.clientX <= rect.right + EDGE_PAD &&
         e.clientY >= rect.top - EDGE_PAD &&
         e.clientY <= rect.bottom + EDGE_PAD;
-      if (!inBounds) {
+      if (!inBounds && !currentStrokeRef.current) {
         setCursorInCanvas(false);
         setCursorPos(null);
         return;
       }
       setCursorInCanvas(true);
       setCursorPos({
-        x: e.clientX - rect.left,
-        y: e.clientY - rect.top,
+        x: clamp(e.clientX - rect.left, 0, rect.width),
+        y: clamp(e.clientY - rect.top, 0, rect.height),
       });
     };
 
@@ -1011,9 +1514,9 @@ export function DrawingCanvas({
     ),
   );
 
-  const DotCursor = tool === "pen" && cursorInCanvas && cursorPos && !currentStroke ? (
+  const DotCursor = tool === "pen" && cursorInCanvas && cursorPos ? (
     <div
-      className="absolute pointer-events-none z-[55] rounded-full"
+      className="absolute pointer-events-none z-[55] rounded-full border border-white/70"
       style={{
         left: mode === "overlay" ? cursorPos.x * zoom : cursorPos.x,
         top: mode === "overlay" ? cursorPos.y * zoom : cursorPos.y,
@@ -1021,7 +1524,7 @@ export function DrawingCanvas({
         height: penCursorPx,
         transform: "translate(-50%, -50%)",
         backgroundColor: color,
-        boxShadow: "0 0 0 1px rgba(255,255,255,0.5), 0 0 0 2px rgba(0,0,0,0.3)",
+        boxShadow: "0 10px 24px -10px rgba(15,23,42,0.45), 0 0 0 2px rgba(255,255,255,0.45)",
       }}
     />
   ) : null;
@@ -1031,16 +1534,16 @@ export function DrawingCanvas({
       ? Math.max(10, Math.min(eraserScaleToWidth(eraserWidth) * zoom, 160))
       : Math.max(10, Math.min(eraserScaleToWidth(eraserWidth), 160));
 
-  const EraserCursor = tool === "eraser" && cursorInCanvas && cursorPos && !currentStroke ? (
+  const EraserCursor = tool === "eraser" && cursorInCanvas && cursorPos ? (
     <div
-      className="absolute pointer-events-none z-[55] rounded-full border-[2.5px] border-orange-400 bg-orange-400/15"
+      className="absolute pointer-events-none z-[55] rounded-full border-[2px] border-sky-500/80 bg-white/35 backdrop-blur-sm"
       style={{
         left: mode === "overlay" ? cursorPos.x * zoom : cursorPos.x,
         top: mode === "overlay" ? cursorPos.y * zoom : cursorPos.y,
         width: eraserRingPx,
         height: eraserRingPx,
         transform: "translate(-50%, -50%)",
-        boxShadow: "inset 0 0 0 1px rgba(0,0,0,0.2), 0 0 0 1px rgba(255,255,255,0.35)",
+        boxShadow: "0 14px 28px -14px rgba(15,23,42,0.45), inset 0 0 0 1px rgba(255,255,255,0.68)",
       }}
     />
   ) : null;
@@ -1051,15 +1554,15 @@ export function DrawingCanvas({
   const Toolbar = (
     <>
       {showPanel && (
-        <div className="flex flex-nowrap items-center gap-4 px-4 py-2 bg-[#16213e]/80 border-b border-white/10 shrink-0 backdrop-blur overflow-x-auto">
+        <div className="glass-panel flex flex-nowrap items-center gap-3 border-b border-border/60 px-4 py-3 shrink-0 overflow-x-auto">
           {/* Pen / Eraser */}
-          <div className="flex items-center gap-1 bg-white/5 rounded-xl p-1 shrink-0">
+          <div className="flex items-center gap-1 rounded-[1.4rem] border border-border/60 bg-card/80 p-1 shrink-0">
             <button
               onClick={() => setTool("pen")}
               title="Kalem (P)"
               className={cn(
-                "p-2 rounded-lg transition-all",
-                tool === "pen" ? "bg-primary text-white shadow-lg" : "text-white/50 hover:text-white hover:bg-white/10"
+                "rounded-[1rem] p-2.5 transition-all",
+                tool === "pen" ? "bg-primary text-primary-foreground shadow-[0_12px_30px_-18px_hsl(var(--primary)/0.65)]" : "text-muted-foreground hover:text-foreground hover:bg-foreground/[0.05]"
               )}
             >
               <Pen className="w-4 h-4" />
@@ -1068,8 +1571,8 @@ export function DrawingCanvas({
               onClick={() => setTool("eraser")}
               title="Silgi (E)"
               className={cn(
-                "p-2 rounded-lg transition-all",
-                tool === "eraser" ? "bg-orange-500 text-white shadow-lg" : "text-white/50 hover:text-white hover:bg-white/10"
+                "rounded-[1rem] p-2.5 transition-all",
+                tool === "eraser" ? "bg-destructive text-destructive-foreground shadow-[0_12px_30px_-18px_hsl(var(--destructive)/0.5)]" : "text-muted-foreground hover:text-foreground hover:bg-foreground/[0.05]"
               )}
             >
               <Eraser className="w-4 h-4" />
@@ -1078,13 +1581,13 @@ export function DrawingCanvas({
               <div className="flex items-center gap-1 ml-1">
                 <button
                   onClick={() => setEraserMode("area")}
-                  className={cn("px-2 py-1 rounded-md text-[10px] transition-all", eraserMode === "area" ? "bg-orange-500 text-white" : "text-white/60 hover:bg-white/10")}
+                  className={cn("px-2 py-1 rounded-md text-[10px] transition-all", eraserMode === "area" ? "bg-destructive text-destructive-foreground" : "text-muted-foreground hover:bg-foreground/[0.05]")}
                 >
                   Alan
                 </button>
                 <button
                   onClick={() => setEraserMode("stroke")}
-                  className={cn("px-2 py-1 rounded-md text-[10px] transition-all", eraserMode === "stroke" ? "bg-orange-500 text-white" : "text-white/60 hover:bg-white/10")}
+                  className={cn("px-2 py-1 rounded-md text-[10px] transition-all", eraserMode === "stroke" ? "bg-destructive text-destructive-foreground" : "text-muted-foreground hover:bg-foreground/[0.05]")}
                 >
                   Çizgi
                 </button>
@@ -1094,7 +1597,7 @@ export function DrawingCanvas({
 
           {/* Kalem türleri */}
           {tool === "pen" && (
-            <div className="flex items-center gap-0.5 bg-white/5 rounded-xl p-1 shrink-0 border border-white/5">
+            <div className="flex items-center gap-1 rounded-[1.4rem] border border-border/60 bg-card/80 p-1 shrink-0">
               {PEN_KIND_OPTIONS.map(({ id, label, short }) => (
                 <button
                   key={id}
@@ -1102,8 +1605,8 @@ export function DrawingCanvas({
                   title={label}
                   onClick={() => setPenKind(id)}
                   className={cn(
-                    "flex items-center gap-1 px-2 py-1.5 rounded-lg text-[10px] font-medium transition-all whitespace-nowrap",
-                    penKind === id ? "bg-primary text-white shadow" : "text-white/55 hover:text-white hover:bg-white/10",
+                    "flex items-center gap-1 px-3 py-2 rounded-[1rem] text-[10px] font-medium transition-all whitespace-nowrap",
+                    penKind === id ? "bg-primary text-primary-foreground shadow-[0_12px_30px_-18px_hsl(var(--primary)/0.65)]" : "text-muted-foreground hover:text-foreground hover:bg-foreground/[0.05]",
                   )}
                 >
                   {id === "ballpoint" && <Pen className="w-3 h-3 shrink-0" />}
@@ -1117,7 +1620,7 @@ export function DrawingCanvas({
           )}
 
           {/* Colors */}
-          <div className="flex items-center gap-1.5 shrink-0">
+          <div className="flex items-center gap-2 rounded-[1.4rem] border border-border/60 bg-card/80 px-2 py-1.5 shrink-0">
             {COLORS.map((c) => (
               <button
                 key={c.hex}
@@ -1125,8 +1628,8 @@ export function DrawingCanvas({
                 title={c.name}
                 style={{ backgroundColor: c.hex }}
                 className={cn(
-                  "w-5 h-5 rounded-full border-2 transition-all hover:scale-110",
-                  tool === "pen" && color === c.hex ? "border-white scale-110 shadow-md" : "border-transparent"
+                  "h-6 w-6 rounded-full border-2 transition-all hover:scale-110",
+                  tool === "pen" && color === c.hex ? "border-foreground scale-[1.14] shadow-[0_10px_18px_-10px_rgba(15,23,42,0.45)]" : "border-white/70"
                 )}
               />
             ))}
@@ -1134,21 +1637,45 @@ export function DrawingCanvas({
 
           {/* Kalınlık 1–100 */}
           {tool === "pen" && (
-            <div className="flex items-center gap-2 min-w-[140px] max-w-[220px] shrink-0">
-              <span className="text-[10px] text-white/40 w-7 tabular-nums">{penWidth}</span>
+            <div className="flex items-center gap-2 min-w-[180px] max-w-[260px] shrink-0">
+              <span className="w-7 tabular-nums text-[10px] text-muted-foreground">{penWidth}</span>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6 rounded-lg"
+                onClick={() => setPenWidth(Math.max(1, penWidth - 1))}
+              >
+                -
+              </Button>
               <Slider
                 min={1}
-                max={100}
+                max={18}
                 step={1}
                 value={[penWidth]}
                 onValueChange={(v) => setPenWidth(v[0] ?? 35)}
                 className="flex-1"
               />
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6 rounded-lg"
+                onClick={() => setPenWidth(Math.min(18, penWidth + 1))}
+              >
+                +
+              </Button>
             </div>
           )}
           {tool === "eraser" && (
-            <div className="flex items-center gap-2 min-w-[140px] max-w-[220px] shrink-0">
-              <span className="text-[10px] text-white/40 w-7 tabular-nums">{eraserWidth}</span>
+            <div className="flex items-center gap-2 min-w-[180px] max-w-[260px] shrink-0">
+              <span className="w-7 tabular-nums text-[10px] text-muted-foreground">{eraserWidth}</span>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6 rounded-lg"
+                onClick={() => setEraserWidth(Math.max(1, eraserWidth - 1))}
+              >
+                -
+              </Button>
               <Slider
                 min={1}
                 max={100}
@@ -1157,17 +1684,25 @@ export function DrawingCanvas({
                 onValueChange={(v) => setEraserWidth(v[0] ?? 35)}
                 className="flex-1"
               />
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6 rounded-lg"
+                onClick={() => setEraserWidth(Math.min(100, eraserWidth + 1))}
+              >
+                +
+              </Button>
             </div>
           )}
 
           {/* Separate mode image scale */}
           {mode === "separate" && imageUrl && (
-            <div className="flex items-center gap-1 bg-white/5 rounded-xl p-1 shrink-0">
+            <div className="flex items-center gap-1 rounded-[1.4rem] border border-border/60 bg-card/80 p-1 shrink-0">
               {[1, 1.15, 1.3, 1.5].map((z) => (
                 <button
                   key={z}
                   onClick={() => setSeparateImageScale(z)}
-                  className={cn("px-2 py-1 rounded-md text-[10px] transition-all", Math.abs(separateImageScale - z) < 0.01 ? "bg-blue-600 text-white" : "text-white/60 hover:bg-white/10")}
+                  className={cn("px-2 py-1 rounded-md text-[10px] transition-all", Math.abs(separateImageScale - z) < 0.01 ? "bg-secondary text-secondary-foreground" : "text-muted-foreground hover:bg-foreground/[0.05]")}
                 >
                   {Math.round(z * 100)}%
                 </button>
@@ -1177,22 +1712,22 @@ export function DrawingCanvas({
 
           {/* Zoom controls — overlay mode only */}
           {mode === "overlay" && (
-            <div className="flex items-center gap-0.5 bg-white/5 rounded-xl p-1 shrink-0">
+            <div className="flex items-center gap-0.5 rounded-[1.4rem] border border-border/60 bg-card/80 p-1 shrink-0">
               <button
                 onClick={() => applyZoom(zoom / 1.25)}
                 title="Uzaklaş (Ctrl −)"
-                className="p-1.5 rounded-lg text-white/60 hover:text-white hover:bg-white/10 transition-all disabled:opacity-30"
+                className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-foreground/[0.05] transition-all disabled:opacity-30"
                 disabled={zoom <= MIN_ZOOM}
               >
                 <ZoomOut className="w-3.5 h-3.5" />
               </button>
-              <span className="text-white/50 text-[11px] w-10 text-center select-none tabular-nums">
+              <span className="w-10 select-none text-center tabular-nums text-[11px] text-muted-foreground">
                 {Math.round(zoom * 100)}%
               </span>
               <button
                 onClick={() => applyZoom(zoom * 1.25)}
                 title="Yaklaş (Ctrl +)"
-                className="p-1.5 rounded-lg text-white/60 hover:text-white hover:bg-white/10 transition-all disabled:opacity-30"
+                className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-foreground/[0.05] transition-all disabled:opacity-30"
                 disabled={zoom >= MAX_ZOOM}
               >
                 <ZoomIn className="w-3.5 h-3.5" />
@@ -1200,7 +1735,7 @@ export function DrawingCanvas({
               <button
                 onClick={() => applyZoom(computeFitZoom())}
                 title="Sayfaya sığdır (Ctrl 0)"
-                className="p-1.5 rounded-lg text-white/60 hover:text-white hover:bg-white/10 transition-all"
+                className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-foreground/[0.05] transition-all"
               >
                 <Maximize2 className="w-3.5 h-3.5" />
               </button>
@@ -1221,7 +1756,7 @@ export function DrawingCanvas({
               }}
               disabled={activeStrokes.length === 0 && undoHistory.length === 0}
               title="Geri Al (Ctrl+Z)"
-              className="flex items-center gap-1 px-2.5 py-1.5 text-white/60 hover:text-white hover:bg-white/10 rounded-lg text-xs transition-all disabled:opacity-30"
+              className="flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs text-muted-foreground transition-all hover:bg-foreground/[0.05] hover:text-foreground disabled:opacity-30"
             >
               <Undo2 className="w-3.5 h-3.5" /> Geri Al
             </button>
@@ -1234,13 +1769,13 @@ export function DrawingCanvas({
                 }
               }}
               disabled={activeStrokes.length === 0}
-              className="flex items-center gap-1 px-2.5 py-1.5 text-red-400/80 hover:text-red-400 hover:bg-red-500/10 rounded-lg text-xs transition-all disabled:opacity-30"
+              className="flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs text-destructive/80 transition-all hover:bg-destructive/10 hover:text-destructive disabled:opacity-30"
             >
               <Trash2 className="w-3.5 h-3.5" /> Temizle
             </button>
           </div>
 
-          <div className="text-[10px] text-white/20 hidden lg:block">
+          <div className="hidden text-[10px] text-muted-foreground/80 lg:block">
             Zoom: Ctrl + tekerlek · Kaydır: tekerlek / çubuk (Ctrl olmadan)
           </div>
         </div>
@@ -1269,24 +1804,24 @@ export function DrawingCanvas({
         />
       )}
 
-      <div className="flex flex-col w-full h-full bg-[#1a1a2e] select-none overflow-hidden">
+      <div className="flex h-full w-full flex-col overflow-hidden bg-background select-none">
         {/* Top bar */}
-        <div className="flex flex-nowrap items-center gap-3 px-4 py-2 bg-[#16213e] border-b border-white/10 z-10 shrink-0 overflow-x-auto">
+        <div className="glass-panel z-10 flex flex-nowrap items-center gap-3 border-b border-border/60 px-4 py-2 shrink-0 overflow-x-auto">
           <button
             onClick={handleClose}
-            className="text-white/50 hover:text-white text-sm font-medium transition-colors px-2 py-1 rounded-lg hover:bg-white/10 shrink-0"
+            className="shrink-0 rounded-lg px-2 py-1 text-sm font-medium text-muted-foreground transition-colors hover:bg-foreground/[0.05] hover:text-foreground"
           >
             ← Kapat
           </button>
 
           {imageUrl && (
-            <div className="flex items-center bg-white/5 rounded-xl p-0.5 gap-0.5 border border-white/10 shrink-0">
+            <div className="flex items-center gap-0.5 rounded-[1.4rem] border border-border/60 bg-card/82 p-0.5 shrink-0">
               <button
                 onClick={() => setMode("overlay")}
                 title="Resim üzerinde çiz"
                 className={cn(
-                  "flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all",
-                  mode === "overlay" ? "bg-primary text-white shadow" : "text-white/50 hover:text-white hover:bg-white/10"
+                  "flex items-center gap-1.5 px-3 py-2 rounded-[1rem] text-xs font-medium transition-all",
+                  mode === "overlay" ? "bg-primary text-primary-foreground shadow-[0_12px_30px_-18px_hsl(var(--primary)/0.65)]" : "text-muted-foreground hover:text-foreground hover:bg-foreground/[0.05]"
                 )}
               >
                 <ImageIcon className="w-3.5 h-3.5" />
@@ -1296,8 +1831,8 @@ export function DrawingCanvas({
                 onClick={() => setMode("separate")}
                 title="Müsvedde — çizimler kaydedilmez"
                 className={cn(
-                  "flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all",
-                  mode === "separate" ? "bg-blue-600 text-white shadow" : "text-white/50 hover:text-white hover:bg-white/10"
+                  "flex items-center gap-1.5 px-3 py-2 rounded-[1rem] text-xs font-medium transition-all",
+                  mode === "separate" ? "bg-secondary text-secondary-foreground shadow-[0_12px_30px_-22px_rgba(15,23,42,0.35)]" : "text-muted-foreground hover:text-foreground hover:bg-foreground/[0.05]"
                 )}
               >
                 <PenLine className="w-3.5 h-3.5" />
@@ -1307,7 +1842,7 @@ export function DrawingCanvas({
           )}
 
           {imageUrl && (
-            <div className="flex items-center gap-2 text-[10px] text-white/30 shrink-0">
+            <div className="flex items-center gap-2 text-[10px] text-muted-foreground shrink-0">
               <span title="Kayıtlı çizim (resim üstü)">
                 <ImageIcon className="w-3 h-3 inline mr-0.5" />{overlayStrokes.length}
               </span>
@@ -1323,7 +1858,7 @@ export function DrawingCanvas({
               size="sm"
               onClick={handleDbSave}
               disabled={isSaving}
-              className="rounded-xl gap-2 bg-primary/90 hover:bg-primary shrink-0"
+              className="shrink-0 gap-2 rounded-full"
             >
               <Save className="w-4 h-4" />
               {isSaving ? "Kaydediliyor…" : "Kaydet"}
@@ -1331,7 +1866,7 @@ export function DrawingCanvas({
           )}
           <button
             onClick={() => setShowPanel((p) => !p)}
-            className="text-white/50 hover:text-white p-1.5 rounded-lg hover:bg-white/10 transition-colors shrink-0"
+            className="shrink-0 rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-foreground/[0.05] hover:text-foreground"
             title="Araç çubuğunu gizle/göster"
           >
             {showPanel ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
@@ -1339,7 +1874,7 @@ export function DrawingCanvas({
         </div>
 
         {/* Toolbar */}
-        <div className="z-20 bg-[#1a1a2e] shrink-0">
+        <div className="z-20 shrink-0 bg-background">
           {Toolbar}
         </div>
 
@@ -1347,11 +1882,12 @@ export function DrawingCanvas({
         {mode === "overlay" ? (
           <div
             ref={scrollViewRef}
-            className="flex-1 overflow-auto min-h-0 bg-[#1a1a2e]"
+            className="min-h-0 flex-1 overflow-auto bg-background"
             style={{ position: "relative", overscrollBehavior: "contain" }}
           >
-            <div className="flex min-w-full min-h-full justify-center items-start box-border p-2">
+            <div className="flex min-w-full min-h-full justify-center items-start box-border p-6">
               <div
+                ref={overlayPaperRef}
                 style={{
                   position: "relative",
                   width: PAPER_W * zoom,
@@ -1359,6 +1895,7 @@ export function DrawingCanvas({
                   flexShrink: 0,
                   cursor: tool === "pen" || tool === "eraser" ? "none" : "crosshair",
                   touchAction: "none",
+                  filter: "drop-shadow(0 32px 48px rgba(15, 23, 42, 0.12))",
                 }}
                 {...pointerHandlers}
               >
@@ -1381,14 +1918,14 @@ export function DrawingCanvas({
                   className="absolute inset-0 flex items-center justify-center pointer-events-none"
                   style={{ top: 0, left: 0, width: "100%", height: "100%" }}
                 >
-                  <div className="text-white/30 text-sm">Yükleniyor…</div>
+                  <div className="text-sm text-muted-foreground">Yükleniyor…</div>
                 </div>
               )}
 
               {/* Image position label */}
               {imgLoaded && imageUrl && (
                 <div
-                  className="absolute pointer-events-none text-[10px] text-white/25 font-medium"
+                  className="absolute pointer-events-none text-[10px] font-medium text-muted-foreground/80"
                   style={{
                     left: imgLayoutRef.current.x * zoom,
                     top: (imgLayoutRef.current.y + imgLayoutRef.current.h + 6) * zoom,
@@ -1400,7 +1937,7 @@ export function DrawingCanvas({
 
               {!imageUrl && (
                 <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                  <p className="text-white/20 text-sm">Çizmeye başla</p>
+                  <p className="text-sm text-muted-foreground">Çizmeye başla</p>
                 </div>
               )}
               </div>
@@ -1411,7 +1948,7 @@ export function DrawingCanvas({
           <div ref={splitWrapRef} className="flex flex-1 overflow-hidden">
             {imageUrl && (
               <div
-                className="flex items-start justify-center p-4 border-r border-border/40 bg-muted/30 overflow-auto shrink-0"
+                className="flex items-start justify-center overflow-auto border-r border-border/40 bg-secondary/35 p-5 shrink-0"
                 style={{ width: `${separateImagePanelPct}%` }}
               >
                 <img
@@ -1428,20 +1965,20 @@ export function DrawingCanvas({
             )}
             {imageUrl && (
               <div
-                className="w-2 shrink-0 cursor-col-resize bg-border/50 hover:bg-primary/40 transition-colors"
+                className="w-2 shrink-0 cursor-col-resize bg-border/50 hover:bg-sky-400/50 transition-colors"
                 onMouseDown={(e) => { e.preventDefault(); setIsResizingSplit(true); }}
                 title="Soru alanını daralt/genişlet"
               />
             )}
             <div
               ref={containerRef}
-              className="flex-1 relative overflow-hidden bg-background"
+              className="relative flex-1 overflow-hidden rounded-l-[1.5rem] bg-card/55"
               style={{ cursor: tool === "pen" || tool === "eraser" ? "none" : "auto" }}
             >
               <div
                 className="absolute inset-0 pointer-events-none opacity-[0.04]"
                 style={{
-                  backgroundImage: `linear-gradient(rgba(255,255,255,0.8) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.8) 1px, transparent 1px)`,
+                  backgroundImage: `linear-gradient(rgba(148,163,184,0.16) 1px, transparent 1px), linear-gradient(90deg, rgba(148,163,184,0.16) 1px, transparent 1px)`,
                   backgroundSize: "40px 40px",
                 }}
               />
@@ -1455,8 +1992,8 @@ export function DrawingCanvas({
               {EraserCursor}
               {activeStrokes.length === 0 && (
                 <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                  <Pen className="w-10 h-10 text-white/10 mb-2" />
-                  <p className="text-white/20 text-sm text-center px-4">
+                  <Pen className="mb-2 h-10 w-10 text-muted-foreground/30" />
+                  <p className="px-4 text-center text-sm text-muted-foreground">
                     {noSave ? "Geçici müsvedde — kayıt yok" : "Müsvedde — kapatınca silinir, kaydedilmez"}
                   </p>
                 </div>
@@ -1488,3 +2025,4 @@ export function DrawingCanvas({
     </>
   );
 }
+
