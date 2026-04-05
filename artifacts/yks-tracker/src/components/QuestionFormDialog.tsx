@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { PlusCircle, UploadCloud, X, Pencil } from "lucide-react";
+import { PlusCircle, UploadCloud, X } from "lucide-react";
 import {
   useCreateQuestion,
   useUpdateQuestion,
@@ -21,6 +21,10 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
 import { getLessonsForCategory, getTopicsForLesson } from "@/lib/lessonTopics";
+
+const OPTION_LABELS = ["A", "B", "C", "D", "E"] as const;
+type OptionLabel = (typeof OPTION_LABELS)[number];
+type OptionItem = { label: OptionLabel; text: string };
 
 const formSchema = z.object({
   lesson: z.string().min(1, "Ders adı zorunludur"),
@@ -52,6 +56,7 @@ interface QuestionForEdit {
   testName?: string | null;
   testNo?: string | null;
   solutionUrl?: string | null;
+  options?: Array<{ label: string; text: string }> | null;
   choice?: string | null;
   category: string;
   source: string;
@@ -59,12 +64,13 @@ interface QuestionForEdit {
 }
 
 interface Props {
-  /** If provided, the dialog opens in edit mode */
   question?: QuestionForEdit;
-  /** Custom trigger element (overrides default) */
   trigger?: React.ReactNode;
-  /** Called after successful save */
   onSaved?: () => void;
+}
+
+function emptyOptionTexts(): Record<OptionLabel, string> {
+  return { A: "", B: "", C: "", D: "", E: "" };
 }
 
 export function QuestionFormDialog({ question, trigger, onSaved }: Props) {
@@ -73,6 +79,8 @@ export function QuestionFormDialog({ question, trigger, onSaved }: Props) {
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [keepExistingImage, setKeepExistingImage] = useState(true);
+  const [useManualChoices, setUseManualChoices] = useState(false);
+  const [optionTexts, setOptionTexts] = useState<Record<OptionLabel, string>>(emptyOptionTexts());
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const { toast } = useToast();
@@ -81,7 +89,14 @@ export function QuestionFormDialog({ question, trigger, onSaved }: Props) {
   const updateMutation = useUpdateQuestion();
   const uploadMutation = useUploadQuestionImage();
 
-  const { register, handleSubmit, setValue, watch, reset, formState: { errors } } = useForm<FormValues>({
+  const {
+    register,
+    handleSubmit,
+    setValue,
+    watch,
+    reset,
+    formState: { errors },
+  } = useForm<FormValues>({
     resolver: zodResolver(formSchema),
     defaultValues: {
       category: QuestionCategory.TYT,
@@ -93,45 +108,42 @@ export function QuestionFormDialog({ question, trigger, onSaved }: Props) {
 
   const category = watch("category");
   const lesson = watch("lesson");
-  
-  // Get lessons based on selected category
-  const lessonOptions = useMemo(() => {
-    return getLessonsForCategory(category).map(l => l.name);
-  }, [category]);
-  
-  // Get topics based on selected category and lesson
-  // Special handling for Geometri category to ensure topics are always available
+
+  const lessonOptions = useMemo(() => getLessonsForCategory(category).map((l) => l.name), [category]);
   const topicOptions = useMemo(() => {
     if (!lesson) return [];
-    
     if (category === "Geometri") {
       return [
-        'Doğruda ve Üçgende Açılar',
-        'Dik Üçgen ve Trigonometrik Bağıntılar',
-        'İkizkenar ve Eşkenar Üçgen',
-        'Üçgende Alan ve Benzerlik',
-        'Üçgende Yardımcı Elemanlar',
-        'Çokgenler ve Dörtgenler',
-        'Özel Dörtgenler',
-        'Çember ve Daire',
-        'Katı Cisimler',
-        'Analitik Geometri',
-        'Çemberin Analitik İncelenmesi'
+        "Doğruda ve Üçgende Açılar",
+        "Dik Üçgen ve Trigonometrik Bağıntılar",
+        "İkizkenar ve Eşkenar Üçgen",
+        "Üçgende Alan ve Benzerlik",
+        "Üçgende Yardımcı Elemanlar",
+        "Çokgenler ve Dörtgenler",
+        "Özel Dörtgenler",
+        "Çember ve Daire",
+        "Katı Cisimler",
+        "Analitik Geometri",
+        "Çemberin Analitik İncelenmesi",
       ];
     }
-    
     return getTopicsForLesson(category, lesson);
   }, [category, lesson]);
 
-  // Handle category change to auto-set lesson for Geometri
+  const manualChoiceLabels = useMemo(() => {
+    if (!useManualChoices) return OPTION_LABELS;
+    return OPTION_LABELS.filter((label) => optionTexts[label].trim().length > 0);
+  }, [optionTexts, useManualChoices]);
+
   useEffect(() => {
     if (category === "Geometri") {
       setValue("lesson", "Geometri");
     } else {
       setValue("lesson", "");
     }
-    setValue("topic", ""); // Reset topic when category changes
+    setValue("topic", "");
   }, [category, setValue]);
+
   useEffect(() => {
     if (open && isEdit && question) {
       reset({
@@ -145,11 +157,28 @@ export function QuestionFormDialog({ question, trigger, onSaved }: Props) {
         source: question.source as QuestionSource,
         status: question.status as QuestionStatus,
         choice: (question.choice as QuestionChoice) ?? undefined,
-        solutionUrl: (question as { solutionUrl?: string | null }).solutionUrl ?? "",
+        solutionUrl: question.solutionUrl ?? "",
       });
+
       if (question.imageUrl) {
         setImagePreview(question.imageUrl);
         setKeepExistingImage(true);
+      } else {
+        setImagePreview(null);
+        setKeepExistingImage(false);
+      }
+
+      if (question.options && question.options.length > 0) {
+        const next = emptyOptionTexts();
+        for (const option of question.options) {
+          const label = (option.label || "").toUpperCase() as OptionLabel;
+          if (OPTION_LABELS.includes(label)) next[label] = option.text ?? "";
+        }
+        setOptionTexts(next);
+        setUseManualChoices(true);
+      } else {
+        setOptionTexts(emptyOptionTexts());
+        setUseManualChoices(false);
       }
     } else if (open && !isEdit) {
       reset({
@@ -160,8 +189,10 @@ export function QuestionFormDialog({ question, trigger, onSaved }: Props) {
       });
       setImagePreview(null);
       setImageFile(null);
+      setUseManualChoices(false);
+      setOptionTexts(emptyOptionTexts());
     }
-  }, [open]);
+  }, [isEdit, open, question, reset]);
 
   const onFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -175,17 +206,15 @@ export function QuestionFormDialog({ question, trigger, onSaved }: Props) {
 
   const handlePaste = (e: React.ClipboardEvent) => {
     for (let i = 0; i < e.clipboardData.items.length; i++) {
-      if (e.clipboardData.items[i].type.indexOf("image") !== -1) {
-        const file = e.clipboardData.items[i].getAsFile();
-        if (file) {
-          setImageFile(file);
-          setKeepExistingImage(false);
-          const reader = new FileReader();
-          reader.onload = (ev) => setImagePreview(ev.target?.result as string);
-          reader.readAsDataURL(file);
-        }
-        break;
-      }
+      if (!e.clipboardData.items[i].type.includes("image")) continue;
+      const file = e.clipboardData.items[i].getAsFile();
+      if (!file) continue;
+      setImageFile(file);
+      setKeepExistingImage(false);
+      const reader = new FileReader();
+      reader.onload = (ev) => setImagePreview(ev.target?.result as string);
+      reader.readAsDataURL(file);
+      break;
     }
   };
 
@@ -198,39 +227,43 @@ export function QuestionFormDialog({ question, trigger, onSaved }: Props) {
   const onSubmit = async (data: FormValues) => {
     try {
       let imageUrl: string | null | undefined = undefined;
+      const manualOptions: OptionItem[] | null = useManualChoices
+        ? OPTION_LABELS.map((label) => ({ label, text: optionTexts[label].trim() })).filter((item) => item.text.length > 0)
+        : null;
+
+      if (useManualChoices && (!manualOptions || manualOptions.length < 2)) {
+        toast({
+          title: "En az 2 şık girin",
+          description: "Manuel şık modunda en az iki şık metni doldurmalısın.",
+          variant: "destructive",
+        });
+        return;
+      }
 
       if (imageFile && imagePreview && !keepExistingImage) {
         const base64Data = imagePreview.split(",")[1];
         const res = await uploadMutation.mutateAsync({ data: { imageData: base64Data, mimeType: imageFile.type } });
         imageUrl = res.url;
       } else if (!keepExistingImage && !imageFile) {
-        imageUrl = null; // cleared
+        imageUrl = null;
       } else if (isEdit && keepExistingImage) {
         imageUrl = question?.imageUrl ?? null;
       }
 
+      const payload = {
+        ...data,
+        source: data.source as any,
+        imageUrl: isEdit ? imageUrl : imageUrl ?? null,
+        options: manualOptions,
+        choice: data.choice || null,
+        solutionUrl: data.solutionUrl?.trim() || null,
+      };
+
       if (isEdit && question) {
-        await updateMutation.mutateAsync({
-          id: question.id,
-          data: {
-            ...data,
-            source: data.source as any,
-            imageUrl,
-            choice: data.choice || null,
-            solutionUrl: data.solutionUrl?.trim() || null,
-          },
-        });
+        await updateMutation.mutateAsync({ id: question.id, data: payload });
         toast({ title: "Soru güncellendi" });
       } else {
-        await createMutation.mutateAsync({
-          data: {
-            ...data,
-            source: data.source as any,
-            imageUrl: imageUrl ?? null,
-            choice: data.choice || null,
-            solutionUrl: data.solutionUrl?.trim() || null,
-          },
-        });
+        await createMutation.mutateAsync({ data: payload });
         toast({ title: "Soru havuza eklendi" });
       }
 
@@ -241,6 +274,8 @@ export function QuestionFormDialog({ question, trigger, onSaved }: Props) {
       reset();
       setImagePreview(null);
       setImageFile(null);
+      setUseManualChoices(false);
+      setOptionTexts(emptyOptionTexts());
     } catch {
       toast({ title: "Hata", description: "İşlem sırasında bir hata oluştu.", variant: "destructive" });
     }
@@ -258,22 +293,16 @@ export function QuestionFormDialog({ question, trigger, onSaved }: Props) {
           </Button>
         )}
       </DialogTrigger>
-      <DialogContent
-        className="max-w-2xl max-h-[90vh] overflow-y-auto bg-card border-border/50 shadow-2xl rounded-2xl"
-        onPaste={handlePaste}
-      >
+
+      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto bg-card border-border/50 shadow-2xl rounded-2xl" onPaste={handlePaste}>
         <DialogHeader>
-          <DialogTitle className="text-2xl font-display">
-            {isEdit ? "Soruyu Düzenle" : "Yeni Soru Ekle"}
-          </DialogTitle>
+          <DialogTitle className="text-2xl font-display">{isEdit ? "Soruyu Düzenle" : "Yeni Soru Ekle"}</DialogTitle>
         </DialogHeader>
 
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-5 mt-4">
-          {/* Image Upload */}
           <div className="space-y-2">
             <Label>
-              Soru Görseli{" "}
-              <span className="text-muted-foreground text-xs">(Sürükle bırak veya Ctrl+V ile yapıştır)</span>
+              Soru Görseli <span className="text-muted-foreground text-xs">(Sürükle bırak veya Ctrl+V ile yapıştır)</span>
             </Label>
             {!imagePreview ? (
               <div
@@ -299,34 +328,29 @@ export function QuestionFormDialog({ question, trigger, onSaved }: Props) {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* Category first so lesson list updates */}
             <div className="space-y-2">
               <Label>Kategori *</Label>
-              <Select
-                value={watch("category")}
-                onValueChange={(val) => {
-                  setValue("category", val as QuestionCategory);
-                }}
-              >
+              <Select value={watch("category")} onValueChange={(val) => setValue("category", val as QuestionCategory)}>
                 <SelectTrigger className="bg-muted/30 border-border/50 rounded-xl">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   {Object.values(QuestionCategory).map((c) => (
-                    <SelectItem key={c} value={c}>{c}</SelectItem>
+                    <SelectItem key={c} value={c}>
+                      {c}
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
 
-            {/* Lesson as listbox */}
             <div className="space-y-2">
               <Label>Ders *</Label>
-              <Select 
-                value={watch("lesson") || ""} 
+              <Select
+                value={watch("lesson") || ""}
                 onValueChange={(val) => {
                   setValue("lesson", val);
-                  setValue("topic", ""); // Reset topic when lesson changes
+                  setValue("topic", "");
                 }}
                 disabled={category === "Geometri"}
               >
@@ -335,7 +359,9 @@ export function QuestionFormDialog({ question, trigger, onSaved }: Props) {
                 </SelectTrigger>
                 <SelectContent>
                   {lessonOptions.map((l) => (
-                    <SelectItem key={l} value={l}>{l}</SelectItem>
+                    <SelectItem key={l} value={l}>
+                      {l}
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -350,17 +376,21 @@ export function QuestionFormDialog({ question, trigger, onSaved }: Props) {
                 disabled={!lesson && category !== "Geometri"}
               >
                 <SelectTrigger className="bg-muted/30 border-border/50 rounded-xl">
-                  <SelectValue placeholder={lesson ? "Konu seçin..." : (category === "Geometri" ? "Konu seçin..." : "Önce ders seçin")} />
+                  <SelectValue placeholder={lesson ? "Konu seçin..." : category === "Geometri" ? "Konu seçin..." : "Önce ders seçin"} />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="NONE">Konu seçilmedi</SelectItem>
-                  {topicOptions.length > 0 ? (
-                    topicOptions.map((t) => (
-                      <SelectItem key={t} value={t}>{t}</SelectItem>
-                    ))
-                  ) : lesson ? (
-                    <SelectItem value="_NO_TOPICS_" disabled>Konu bulunamadı</SelectItem>
-                  ) : null}
+                  {topicOptions.length > 0
+                    ? topicOptions.map((t) => (
+                        <SelectItem key={t} value={t}>
+                          {t}
+                        </SelectItem>
+                      ))
+                    : lesson && (
+                        <SelectItem value="_NO_TOPICS_" disabled>
+                          Konu bulunamadı
+                        </SelectItem>
+                      )}
                 </SelectContent>
               </Select>
             </div>
@@ -373,7 +403,9 @@ export function QuestionFormDialog({ question, trigger, onSaved }: Props) {
                 </SelectTrigger>
                 <SelectContent>
                   {Object.values(QuestionSource).map((s) => (
-                    <SelectItem key={s} value={s}>{s}</SelectItem>
+                    <SelectItem key={s} value={s}>
+                      {s}
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -386,17 +418,16 @@ export function QuestionFormDialog({ question, trigger, onSaved }: Props) {
 
             <div className="space-y-2">
               <Label>Doğru Şık</Label>
-              <Select
-                value={watch("choice") || "NONE"}
-                onValueChange={(val) => setValue("choice", val === "NONE" ? null : (val as QuestionChoice))}
-              >
+              <Select value={watch("choice") || "NONE"} onValueChange={(val) => setValue("choice", val === "NONE" ? null : (val as QuestionChoice))}>
                 <SelectTrigger className="bg-muted/30 border-border/50 rounded-xl">
                   <SelectValue placeholder="Belirtilmedi" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="NONE">Belirtilmedi</SelectItem>
-                  {["A", "B", "C", "D", "E"].map((c) => (
-                    <SelectItem key={c} value={c}>{c}</SelectItem>
+                  {(useManualChoices ? manualChoiceLabels : OPTION_LABELS).map((c) => (
+                    <SelectItem key={c} value={c}>
+                      {c}
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -427,30 +458,43 @@ export function QuestionFormDialog({ question, trigger, onSaved }: Props) {
             </div>
           </div>
 
-          {/* Description */}
+          <div className="space-y-3 rounded-xl border border-border/50 bg-muted/20 p-3">
+            <label className="flex items-center gap-2 text-sm font-medium text-foreground">
+              <input
+                type="checkbox"
+                className="h-4 w-4 rounded border-border/70"
+                checked={useManualChoices}
+                onChange={(e) => setUseManualChoices(e.target.checked)}
+              />
+              Şıkları kendim gireceğim
+            </label>
+            {useManualChoices && (
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                {OPTION_LABELS.map((label) => (
+                  <div key={label} className="space-y-1">
+                    <Label className="text-xs">{label} Şıkkı</Label>
+                    <Input
+                      value={optionTexts[label]}
+                      onChange={(e) => setOptionTexts((prev) => ({ ...prev, [label]: e.target.value }))}
+                      placeholder={`${label} şık metni`}
+                      className="bg-muted/30 border-border/50 rounded-xl"
+                    />
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
           <div className="space-y-2">
             <Label>Açıklama / Notlar</Label>
-            <Textarea
-              {...register("description")}
-              placeholder="Bu soru hakkında notlarınız..."
-              className="bg-muted/30 border-border/50 rounded-xl resize-none min-h-[80px]"
-            />
+            <Textarea {...register("description")} placeholder="Bu soru hakkında notlarınız..." className="bg-muted/30 border-border/50 rounded-xl resize-none min-h-[80px]" />
           </div>
 
           <div className="space-y-2">
             <Label>Çözüm videosu (YouTube linki)</Label>
-            <Input
-              {...register("solutionUrl")}
-              type="url"
-              placeholder="https://www.youtube.com/watch?v=..."
-              className="bg-muted/30 border-border/50 rounded-xl"
-            />
-            {errors.solutionUrl && (
-              <p className="text-destructive text-xs">{errors.solutionUrl.message}</p>
-            )}
-            <p className="text-[11px] text-muted-foreground">
-              Test modunda bu soru için “Çözüm videosu” ile izlenebilir.
-            </p>
+            <Input {...register("solutionUrl")} type="url" placeholder="https://www.youtube.com/watch?v=..." className="bg-muted/30 border-border/50 rounded-xl" />
+            {errors.solutionUrl && <p className="text-destructive text-xs">{errors.solutionUrl.message}</p>}
+            <p className="text-[11px] text-muted-foreground">Test modunda bu soru için “Çözüm videosu” ile izlenebilir.</p>
           </div>
 
           <div className="pt-4 flex justify-end gap-3 border-t border-border/50">

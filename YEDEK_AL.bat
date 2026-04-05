@@ -2,124 +2,103 @@
 setlocal enabledelayedexpansion
 cd /d "%~dp0"
 
-echo.
-echo ============================================
-echo  YKS Exam Prep - Veritabani Yedek Alma
-echo ============================================
-echo.
-
-REM .env dosyasindan DATABASE_URL oku
-set "ENV_FILE=.env"
-set "DATABASE_URL="
-set "DB_NAME=exam_prep"
-set "DB_USER=postgres"
 set "DB_HOST=localhost"
 set "DB_PORT=5432"
-
-if not exist "%ENV_FILE%" (
-    echo [UYARI] .env dosyasi bulunamadi, varsayilan ayarlar kullanilacak.
-) else (
-    REM PowerShell ile URL parse et
-    for /f "usebackq delims=" %%a in (`powershell -NoProfile -Command "$url = (Get-Content '%ENV_FILE%' | Select-String '^DATABASE_URL=') -replace 'DATABASE_URL=',''; if ($url -match 'postgresql://([^:]+):[^@]+@([^:]+):([^/]+)/(.+)') { Write-Host ('{0}|{1}|{2}|{3}' -f $matches[1],$matches[2],$matches[3],$matches[4]) }"`) do (
-        for /f "tokens=1,2,3,4 delims=|" %%b in ("%%a") do (
-            set "DB_USER=%%b"
-            set "DB_HOST=%%c"
-            set "DB_PORT=%%d"
-            set "DB_NAME=%%e"
-        )
-    )
-)
-
+set "DB_NAME=exam_prep"
+set "DB_USER=postgres"
+set "DB_PASS=postgres"
 set "DOCKER_CONTAINER=exam-prep-postgres"
-set "USE_DOCKER=0"
 
-docker ps --format "{{.Names}}" | findstr /i /c:"%DOCKER_CONTAINER%" >nul 2>&1
-if %ERRORLEVEL% == 0 (
-    set "USE_DOCKER=1"
-    echo [BILGI] Docker konteyneri bulundu: %DOCKER_CONTAINER%
-) else (
-    echo [BILGI] Docker konteyneri bulunamadi, psql kullanilacak.
+if exist ".env" (
+  for /f "usebackq delims=" %%A in (`powershell -NoProfile -Command "$line=(Get-Content '.env' | Select-String '^DATABASE_URL=' | Select-Object -First 1).Line; if($line){$u=$line -replace '^DATABASE_URL=',''; try{$x=[uri]$u; $pw=''; if($x.UserInfo -match '^[^:]+:(.+)$'){$pw=$matches[1]}; Write-Output ($x.Host+'|'+$x.Port+'|'+$x.AbsolutePath.TrimStart('/')+'|'+$x.UserInfo.Split(':')[0]+'|'+$pw)}catch{}}"`) do (
+    for /f "tokens=1,2,3,4,5 delims=|" %%B in ("%%A") do (
+      if not "%%B"=="" set "DB_HOST=%%B"
+      if not "%%C"=="" set "DB_PORT=%%C"
+      if not "%%D"=="" set "DB_NAME=%%D"
+      if not "%%E"=="" set "DB_USER=%%E"
+      if not "%%F"=="" set "DB_PASS=%%F"
+    )
+  )
 )
 
 if not exist "backups" mkdir "backups"
-
 for /f "usebackq delims=" %%T in (`powershell -NoProfile -Command "Get-Date -Format 'yyyyMMdd-HHmmss'"`) do set "TS=%%T"
-set "BACKUP_FILE=backups\exam_prep_%TS%.sql"
+set "BACKUP_NAME=backup-%TS%"
+set "BACKUP_DIR=backups\%BACKUP_NAME%"
+set "DUMP_FILE=%BACKUP_DIR%\database.sql"
+set "UPLOADS_SRC=artifacts\api-server\uploads"
+set "UPLOADS_DST=%BACKUP_DIR%\uploads"
+
+mkdir "%BACKUP_DIR%" >nul 2>nul
 
 echo.
-echo Yedekleme Bilgileri:
-echo   - Veritabani: %DB_NAME%
-echo   - Host: %DB_HOST%
-echo   - Port: %DB_PORT%
-echo   - Kullanici: %DB_USER%
-echo   - Hedef: %BACKUP_FILE%
+echo ============================================
+echo  Veritabani Yedekleme
+echo ============================================
+echo Yedek klasoru: %BACKUP_DIR%
 echo.
 
-echo [1/2] Veritabani baglantisi kontrol ediliyor...
-
-if "%USE_DOCKER%"=="1" (
-    docker exec %DOCKER_CONTAINER% pg_isready -U %DB_USER% >nul 2>nul
-    if errorlevel 1 (
-        echo [HATA] Docker veritabani konteyneri hazir degil.
-        pause
-        exit /b 1
-    )
+docker ps --format "{{.Names}}" | findstr /i /c:"%DOCKER_CONTAINER%" >nul 2>nul
+if not errorlevel 1 (
+  echo [1/3] Docker uzerinden DB dump aliniyor...
+  docker exec "%DOCKER_CONTAINER%" pg_dump -U "%DB_USER%" -d "%DB_NAME%" --clean --if-exists > "%DUMP_FILE%"
 ) else (
-    set "PGPASSWORD="
-    for /f "tokens=*" %%a in ('findstr /B "DATABASE_URL=" "%ENV_FILE%"') do (
-        set "url=%%a"
-        for /f "delims=:@" %%p in ("!url!") do (
-            set "temp=%%p"
-            for /f "delims=" %%q in ("!temp:*:=!") do (
-                if not "%%q"=="" set "PGPASSWORD=%%q"
-            )
-        )
-    )
-    
-    pg_isready -h %DB_HOST% -p %DB_PORT% -U %DB_USER% >nul 2>nul
-    if errorlevel 1 (
-        echo [HATA] Veritabanina baglanilamadi.
-        pause
-        exit /b 1
-    )
-)
-
-echo [2/2] Yedek aliniyor...
-
-if "%USE_DOCKER%"=="1" (
-    docker exec %DOCKER_CONTAINER% pg_dump -U %DB_USER% -d %DB_NAME% --clean --if-exists > "%BACKUP_FILE%"
-) else (
-    if defined PGPASSWORD (
-        pg_dump -h %DB_HOST% -p %DB_PORT% -U %DB_USER% -d %DB_NAME% --clean --if-exists > "%BACKUP_FILE%"
-    ) else (
-        pg_dump -h %DB_HOST% -p %DB_PORT% -U %DB_USER% -d %DB_NAME% --clean --if-exists -W > "%BACKUP_FILE%"
-    )
+  where pg_dump >nul 2>nul
+  if errorlevel 1 (
+    echo [HATA] Ne Docker konteyneri acik ne de pg_dump bulundu.
+    rd /s /q "%BACKUP_DIR%" >nul 2>nul
+    pause
+    exit /b 1
+  )
+  echo [1/3] Lokal pg_dump ile DB dump aliniyor...
+  set "PGPASSWORD=%DB_PASS%"
+  pg_dump -h "%DB_HOST%" -p "%DB_PORT%" -U "%DB_USER%" -d "%DB_NAME%" --clean --if-exists > "%DUMP_FILE%"
 )
 
 if errorlevel 1 (
-    echo [HATA] Yedek alma basarisiz.
-    if exist "%BACKUP_FILE%" del "%BACKUP_FILE%"
-    pause
-    exit /b 1
+  echo [HATA] Veritabani yedegi olusturulamadi.
+  rd /s /q "%BACKUP_DIR%" >nul 2>nul
+  pause
+  exit /b 1
 )
 
-for %%I in ("%BACKUP_FILE%") do set "SIZE=%%~zI"
-if %SIZE% lss 100 (
-    echo [HATA] Yedek dosyasi cok kucuk, hata olabilir.
-    del "%BACKUP_FILE%"
-    pause
-    exit /b 1
+for %%I in ("%DUMP_FILE%") do set "DUMP_SIZE=%%~zI"
+if "%DUMP_SIZE%"=="" set "DUMP_SIZE=0"
+if %DUMP_SIZE% LSS 100 (
+  echo [HATA] Dump dosyasi cok kucuk, islem iptal edildi.
+  rd /s /q "%BACKUP_DIR%" >nul 2>nul
+  pause
+  exit /b 1
 )
+
+echo [2/3] Uploads klasoru yedekleniyor...
+if exist "%UPLOADS_SRC%" (
+  mkdir "%UPLOADS_DST%" >nul 2>nul
+  robocopy "%UPLOADS_SRC%" "%UPLOADS_DST%" /E /R:1 /W:1 /NFL /NDL /NJH /NJS >nul
+  if errorlevel 8 (
+    echo [UYARI] Uploads klasoru yedeklenirken bir hata olustu.
+  )
+) else (
+  echo [BILGI] Uploads klasoru bulunamadi, atlandi.
+)
+
+echo [3/3] Metadata yaziliyor...
+(
+  echo {
+  echo   "name": "%BACKUP_NAME%",
+  echo   "createdAt": "%DATE% %TIME%",
+  echo   "dbName": "%DB_NAME%",
+  echo   "dbHost": "%DB_HOST%",
+  echo   "dumpFile": "database.sql"
+  echo }
+) > "%BACKUP_DIR%\metadata.json"
 
 echo.
 echo ============================================
-echo  Yedekleme Basarili!
+echo  YEDEK TAMAMLANDI
 echo ============================================
-echo.
-echo Yedek dosyasi: %BACKUP_FILE%
-echo Boyut: %SIZE% bytes
-echo.
-echo Son 5 yedek:
-dir /b /o-d "backups\*.sql" 2>nul | findstr /n "." | findstr "^[1-5]:"
+echo Klasor: %BACKUP_DIR%
+echo Dump:   %DUMP_FILE%
+echo Boyut:  %DUMP_SIZE% bytes
 echo.
 pause

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+﻿import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useRoute, useLocation } from "wouter";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -51,7 +51,7 @@ import {
 } from "@/lib/testSessionDbStorage";
 import { getYoutubeEmbedSrc } from "@/lib/youtubeEmbed";
 
-// ─── Types ────────────────────────────────────────────────────────────────────
+// Types
 type QStatus = "Cozulmedi" | "DogruCozuldu" | "YanlisHocayaSor";
 interface Question {
   id: number;
@@ -59,6 +59,7 @@ interface Question {
   topic?: string | null;
   category: string;
   choice?: string | null;
+  options?: Array<{ label: string; text: string }> | string | null;
   imageUrl?: string | null;
   status: string;
   description?: string | null;
@@ -369,8 +370,45 @@ interface TestDraftV1 {
   inlineDrawEnabled: boolean;
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-const CHOICES = ["A", "B", "C", "D", "E"];
+// Helpers
+const CHOICES = ["A", "B", "C", "D", "E"] as const;
+
+function getQuestionChoiceLabels(question: Question | undefined): string[] {
+  const options = normalizeQuestionOptions(question?.options);
+  if (!options || options.length === 0) return [...CHOICES];
+  const labels = options
+    .map((option) => (option.label || "").toUpperCase())
+    .filter((label) => CHOICES.includes(label as (typeof CHOICES)[number]));
+  return labels.length > 0 ? labels : [...CHOICES];
+}
+
+function getOptionText(question: Question | undefined, label: string): string | null {
+  const options = normalizeQuestionOptions(question?.options);
+  if (!options || options.length === 0) return null;
+  const found = options.find((option) => option.label?.toUpperCase() === label.toUpperCase());
+  return found?.text?.trim() || null;
+}
+
+function normalizeQuestionOptions(
+  raw: Question["options"],
+): Array<{ label: string; text: string }> {
+  if (!raw) return [];
+  let parsed: unknown = raw;
+  if (typeof raw === "string") {
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      return [];
+    }
+  }
+  if (!Array.isArray(parsed)) return [];
+  return parsed
+    .map((item) => ({
+      label: String((item as any)?.label ?? "").toUpperCase(),
+      text: String((item as any)?.text ?? ""),
+    }))
+    .filter((item) => item.label.length > 0 && item.text.trim().length > 0);
+}
 
 /** Gözden geçirme: işaretlenen doğru/yanlış, doğru şık her zaman görünür */
 function getReviewChoiceClasses(
@@ -400,6 +438,10 @@ function formatTime(seconds: number): string {
   if (h > 0)
     return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
   return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
 }
 
 function groupByLesson(questions: Question[]): LessonGroup[] {
@@ -502,11 +544,18 @@ function eraseInlineStrokesByPath(
   });
 }
 
-// ─── Main Component ───────────────────────────────────────────────────────────
+// Main Component
 export default function TestMode() {
   const [, params] = useRoute("/tests/:id");
   const [, setLocation] = useLocation();
   const testId = params?.id ? parseInt(params.id) : 0;
+  const allowCompletedReview = useMemo(() => {
+    try {
+      return new URLSearchParams(window.location.search).get("review") === "1";
+    } catch {
+      return false;
+    }
+  }, []);
 
   const { data: test, isLoading } = useGetTest(testId);
   const statusMutation = useUpdateTestQuestionStatus();
@@ -514,15 +563,15 @@ export default function TestMode() {
   const queryClient = useQueryClient();
   const sessionCompleted = !!(test as { completedAt?: string | null } | undefined)?.completedAt;
 
-  // ── Database Storage for Sync ──
+  // Database Storage for Sync
   const { storage } = useTestSessionStorage(testId);
 
   const questions: Question[] = (test?.questions as any) ?? [];
 
-  // ── State ──
+  // State
   const [currentIndex, setCurrentIndex] = useState(0);
   const [showCanvas, setShowCanvas] = useState(false);
-  // Selected answers: questionId → choice letter
+  // Selected answers: questionId -> choice letter
   const [answers, setAnswers] = useState<Record<number, string>>({});
   // Manual status overrides after result
   const [manualStatuses, setManualStatuses] = useState<Record<number, QStatus>>({});
@@ -531,7 +580,7 @@ export default function TestMode() {
   const [reviewViewMode, setReviewViewMode] = useState<"summary" | "kontrol">("summary");
   const [showSolutionDialog, setShowSolutionDialog] = useState(false);
   const [collapsedLessons, setCollapsedLessons] = useState<Record<string, boolean>>({});
-  // Temporary drawings (not saved to DB): questionId → canvasData JSON string
+  // Temporary drawings (not saved to DB): questionId -> canvasData JSON string
   const [tempDrawings, setTempDrawings] = useState<Record<number, string>>({});
   const [inlineDrawEnabled, setInlineDrawEnabled] = useState(false);
   const [inlineTool, setInlineTool] = useState<"pen" | "eraser">("pen");
@@ -550,12 +599,29 @@ export default function TestMode() {
   const inlineCurrentStrokeRef = useRef<InlineStroke | null>(null);
   const inlineRawStrokeRef = useRef<InlineStroke | null>(null);
   const inlineSnapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [imageNaturalSizes, setImageNaturalSizes] = useState<Record<number, { width: number; height: number }>>({});
+  const [viewportSize, setViewportSize] = useState({
+    width: typeof window !== "undefined" ? window.innerWidth : 1366,
+    height: typeof window !== "undefined" ? window.innerHeight : 768,
+  });
 
   const groups = groupByLesson(questions);
   const currentQuestion = questions[currentIndex];
+  const currentImageNaturalSize = currentQuestion ? imageNaturalSizes[currentQuestion.id] : undefined;
   const currentInlineStrokes = currentQuestion
     ? inlineDrawingsByQuestion[currentQuestion.id] ?? []
     : [];
+
+  const handleTempCanvasSave = useCallback((data: string) => {
+    if (!currentQuestion) return;
+    setTempDrawings((prev) => {
+      if (prev[currentQuestion.id] === data) return prev;
+      return {
+        ...prev,
+        [currentQuestion.id]: data,
+      };
+    });
+  }, [currentQuestion]);
 
   const clearInlineSnapTimer = useCallback(() => {
     if (inlineSnapTimerRef.current) {
@@ -587,7 +653,7 @@ export default function TestMode() {
     }, 360);
   }, [clearInlineSnapTimer, currentQuestion, inlineDrawingsByQuestion, inlineEraserMode]);
 
-  // ── Timer ──
+  // Timer
   const timeLimitSeconds: number | null = (test as any)?.timeLimitSeconds ?? null;
   const [elapsed, setElapsed] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -598,7 +664,7 @@ export default function TestMode() {
   const progressPersistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reviewPersistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [showExitDialog, setShowExitDialog] = useState(false);
-  /** Taslak okunana kadar kaydetme — boş state ile üzerine yazmayı önler */
+  /** Taslak okunana kadar kaydetme - boş state ile üzerine yazmayı önler */
   const [draftReady, setDraftReady] = useState(false);
 
 
@@ -609,6 +675,14 @@ export default function TestMode() {
     setFinished(false);
     setReviewViewMode("summary");
   }, [testId]);
+
+  useEffect(() => {
+    const onResize = () => {
+      setViewportSize({ width: window.innerWidth, height: window.innerHeight });
+    };
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
 
   const handleFinish = useCallback(
     async (_forced = false) => {
@@ -649,14 +723,19 @@ export default function TestMode() {
             }
           })
         );
-
         try {
           await updateTestMutation.mutateAsync({
             id: testId,
             data: { completedAt: new Date().toISOString() },
           });
         } catch {
-          /* Sunucu hatas� � yine de yerel g�zden ge�irme kayd� tutulur */
+          /* Sunucu hatasi - yine de yerel gozden gecirme kaydi tutulur */
+        }
+
+        try {
+          await fetch(`/api/tests/${testId}/finalize`, { method: "POST" });
+        } catch {
+          /* finalize endpoint basarisiz olsa da test kapanisi devam etmeli */
         }
 
         const snapshot: TestReviewSnapshotV1 = {
@@ -705,6 +784,7 @@ export default function TestMode() {
         await queryClient.invalidateQueries({ queryKey: getListTestsQueryKey() });
         await queryClient.invalidateQueries({ queryKey: getGetTestQueryKey(testId) });
         setFinished(true);
+        setLocation(`/tests/${testId}/result`);
       } catch (error) {
         finishRef.current = false;
         console.error("Failed to finish test:", error);
@@ -753,81 +833,52 @@ export default function TestMode() {
     draftHydratedRef.current = true;
 
     if (sessionCompleted) {
-      let loadedFromLocalReview = false;
-      try {
-        const raw = localStorage.getItem(testReviewKey(testId));
-        if (raw) {
-          const r = JSON.parse(raw) as TestReviewSnapshotV1;
-          if (r.version === 1) {
-            loadedFromLocalReview = true;
-            setAnswers((r.answers ?? {}) as Record<number, string>);
-            setManualStatuses((r.manualStatuses ?? {}) as Record<number, QStatus>);
-            setCurrentIndex(Math.min(Math.max(0, r.currentIndex ?? 0), questions.length - 1));
-            setTempDrawings((r.tempDrawings ?? {}) as Record<number, string>);
-            setInlineDrawingsByQuestion(
-              (r.inlineDrawingsByQuestion ?? {}) as Record<number, InlineStroke[]>
-            );
-            setElapsed(Math.max(0, r.elapsed ?? 0));
-            if (r.collapsedLessons) setCollapsedLessons(r.collapsedLessons);
-            setInlineDrawEnabled(false);
-          }
-        }
-      } catch {
-        /* ignore */
-      }
-
-      if (!loadedFromLocalReview) {
-        const loadCompletedFromDatabase = async () => {
-          try {
-            const [solutions, progress] = await Promise.all([
-              storage.loadSolutions(),
-              storage.loadProgress(),
-            ]);
-
-            const dbAnswers: Record<number, string> = {};
-            const dbManualStatuses: Record<number, QStatus> = {};
-            const dbTempDrawings: Record<number, string> = {};
-            const dbInlineDrawings: Record<number, InlineStroke[]> = {};
-
-            solutions.forEach((solution) => {
-              if (solution.userAnswer) {
-                dbAnswers[solution.questionId] = solution.userAnswer;
-              }
-              dbManualStatuses[solution.questionId] = (solution.status as QStatus) || "Cozulmedi";
-              if (solution.tempDrawing) {
-                dbTempDrawings[solution.questionId] = solution.tempDrawing;
-              }
-              if (solution.inlineDrawings) {
-                dbInlineDrawings[solution.questionId] = solution.inlineDrawings as InlineStroke[];
-              }
-            });
-
-            setAnswers(dbAnswers);
-            setManualStatuses(dbManualStatuses);
-            setTempDrawings(dbTempDrawings);
-            setInlineDrawingsByQuestion(dbInlineDrawings);
-
-            if (progress) {
-              setCurrentIndex(Math.min(Math.max(0, progress.currentIndex ?? 0), questions.length - 1));
-              setElapsed(Math.max(0, progress.elapsed ?? 0));
-              if (progress.collapsedLessons) setCollapsedLessons(progress.collapsedLessons);
-            }
-          } catch (error) {
-            console.error("Failed to load completed test from database:", error);
-          } finally {
-            setFinished(true);
-            setReviewViewMode("summary");
-            setDraftReady(true);
-          }
-        };
-
-        void loadCompletedFromDatabase();
+      if (!allowCompletedReview) {
+        setLocation(`/tests/${testId}/result`);
+        setDraftReady(true);
         return;
       }
 
-      setFinished(true);
-      setReviewViewMode("summary");
-      setDraftReady(true);
+      const loadCompletedForReview = async () => {
+        try {
+          const [solutions, progress] = await Promise.all([
+            storage.loadSolutions(),
+            storage.loadProgress(),
+          ]);
+
+          const dbAnswers: Record<number, string> = {};
+          const dbManualStatuses: Record<number, QStatus> = {};
+          const dbTempDrawings: Record<number, string> = {};
+          const dbInlineDrawings: Record<number, InlineStroke[]> = {};
+
+          solutions.forEach((solution) => {
+            if (solution.userAnswer) dbAnswers[solution.questionId] = solution.userAnswer;
+            dbManualStatuses[solution.questionId] = (solution.status as QStatus) || "Cozulmedi";
+            if (solution.tempDrawing) dbTempDrawings[solution.questionId] = solution.tempDrawing;
+            if (solution.inlineDrawings) dbInlineDrawings[solution.questionId] = solution.inlineDrawings as InlineStroke[];
+          });
+
+          setAnswers(dbAnswers);
+          setManualStatuses(dbManualStatuses);
+          setTempDrawings(dbTempDrawings);
+          setInlineDrawingsByQuestion(dbInlineDrawings);
+
+          if (progress) {
+            setCurrentIndex(Math.min(Math.max(0, progress.currentIndex ?? 0), questions.length - 1));
+            setElapsed(Math.max(0, progress.elapsed ?? 0));
+            if (progress.collapsedLessons) setCollapsedLessons(progress.collapsedLessons);
+          }
+        } catch (error) {
+          console.error("Failed to load completed review data:", error);
+        } finally {
+          setInlineDrawEnabled(false);
+          setFinished(true);
+          setReviewViewMode("kontrol");
+          setDraftReady(true);
+        }
+      };
+
+      void loadCompletedForReview();
       return;
     }
 
@@ -912,7 +963,7 @@ export default function TestMode() {
     void loadFromDatabase().finally(() => {
       setDraftReady(true);
     });
-  }, [test?.id, testId, questions.length, sessionCompleted]);
+  }, [test?.id, testId, questions.length, sessionCompleted, allowCompletedReview]);
 
   // Taslak kaydet (test bitene kadar; tamamlanmış testte taslak yok)
   useEffect(() => {
@@ -1042,7 +1093,7 @@ export default function TestMode() {
     collapsedLessons,
   ]);
 
-  // ── Derived ──
+  // Derived
   // Cevap seçimi için readOnly - kontrol modunda cevaplar değiştirilemez
   const readOnly = finished && reviewViewMode === "kontrol";
   // Çizim için ayrı kontrol - kontrol modunda da çizim yapılabilir
@@ -1158,7 +1209,7 @@ export default function TestMode() {
     remaining !== null ? formatTime(Math.max(0, remaining)) : formatTime(elapsed);
   const timerIsWarning = remaining !== null && remaining <= 60;
 
-  // ── Loading / Empty ──
+  // Loading / Empty
   if (isLoading) {
     return (
       <div className="h-screen w-full flex items-center justify-center">
@@ -1183,7 +1234,7 @@ export default function TestMode() {
     );
   }
 
-  // ── Sonuç özeti (bitiş veya tamamlanmış teste giriş) ──
+  // Sonuç özeti (bitiş veya tamamlanmış teste giriş)
   if (finished && reviewViewMode === "summary") {
     const correct = questions.filter(
       (q) => (manualStatuses[q.id] ?? q.status) === "DogruCozuldu"
@@ -1314,9 +1365,33 @@ export default function TestMode() {
     );
   }
 
-  // ── Test Screen (çözüm veya gözden geçirme / kontrol) ──
+  // Test Screen (çözüm veya gözden geçirme / kontrol)
   const answeredCount = Object.keys(answers).length;
   const solutionEmbed = getYoutubeEmbedSrc(currentQuestion?.solutionUrl);
+  const hasManualOptionTexts = normalizeQuestionOptions(currentQuestion?.options).length > 0;
+  const adaptiveImageFrameStyle = (() => {
+    if (!currentQuestion?.imageUrl) {
+      return { width: "100%", minHeight: "320px", maxHeight: "72vh" };
+    }
+
+    // Frame is screen-driven; image inside keeps its own natural size.
+    const frameMaxWidth = Math.max(
+      320,
+      viewportSize.width - (viewportSize.width >= 1024 ? 440 : 28),
+    );
+    const frameHeight = clamp(
+      viewportSize.width >= 1024 ? viewportSize.height - 250 : viewportSize.height - 320,
+      340,
+      860,
+    );
+
+    return {
+      width: "100%",
+      maxWidth: `${Math.round(frameMaxWidth)}px`,
+      height: `${Math.round(frameHeight)}px`,
+      minHeight: "340px",
+    };
+  })();
 
   return (
     <div className="flex flex-col h-screen bg-background">
@@ -1429,7 +1504,7 @@ export default function TestMode() {
                     disabled={!inlineDrawEnabled}
                     className="h-8 rounded-[0.95rem] px-2.5 text-[10px]"
                   >
-                    Cizgi
+                    Çizgi
                   </Button>
                 </>
               )}
@@ -1555,8 +1630,9 @@ export default function TestMode() {
               {currentQuestion.imageUrl ? (
                 <div
                   ref={inlineImageWrapRef}
-                  className="relative flex min-h-[320px] items-center justify-center bg-white p-8 border-2 border-white"
+                  className="relative mx-auto flex items-start justify-center bg-white p-4 sm:p-6 border-2 border-white rounded-[1.4rem]"
                   style={{
+                    ...adaptiveImageFrameStyle,
                     cursor:
                       inlineDrawEnabled ? "none" : "auto",
                   }}
@@ -1564,7 +1640,22 @@ export default function TestMode() {
                   <img
                     src={currentQuestion.imageUrl}
                     alt="Soru"
-                    className="max-w-[99.5%] max-h-[99.5%] w-auto h-auto object-contain rounded"
+                    className="max-w-full max-h-full object-contain rounded"
+                    style={{
+                      width: currentImageNaturalSize ? `${currentImageNaturalSize.width}px` : "auto",
+                      height: currentImageNaturalSize ? `${currentImageNaturalSize.height}px` : "auto",
+                    }}
+                    onLoad={(event) => {
+                      if (!currentQuestion?.id) return;
+                      const target = event.currentTarget;
+                      const naturalWidth = target.naturalWidth || target.width;
+                      const naturalHeight = target.naturalHeight || target.height;
+                      if (naturalWidth <= 0 || naturalHeight <= 0) return;
+                      setImageNaturalSizes((prev) => ({
+                        ...prev,
+                        [currentQuestion.id]: { width: naturalWidth, height: naturalHeight },
+                      }));
+                    }}
                   />
                   {(inlineDrawEnabled || finished) && (
                     <canvas
@@ -1727,30 +1818,59 @@ export default function TestMode() {
               )}
             </div>
 
-            {/* Choice bubbles */}
-            <div className="flex items-center justify-center gap-3 mb-4 flex-wrap">
-              {CHOICES.map((c) => {
-                const selected = answers[currentQuestion.id] === c;
-                return (
-                  <button
-                    key={c}
-                    type="button"
-                    disabled={readOnly}
-                    onClick={() => selectAnswer(currentQuestion.id, c)}
-                    className={cn(
-                      "w-12 h-12 rounded-full font-bold text-lg border-2 transition-all duration-150",
-                      readOnly
-                        ? getReviewChoiceClasses(c, answers[currentQuestion.id], currentQuestion.choice)
-                        : selected
-                          ? "bg-primary border-primary text-primary-foreground shadow-lg scale-110"
-                          : "bg-background border-border/60 text-foreground hover:border-primary/60 hover:scale-105"
-                    )}
-                  >
-                    {c}
-                  </button>
-                );
-              })}
-            </div>
+            {/* Choice bubbles (hidden when manual option texts are present) */}
+            {!hasManualOptionTexts && (
+              <div className="flex items-center justify-center gap-3 mb-4 flex-wrap">
+                {getQuestionChoiceLabels(currentQuestion).map((c) => {
+                  const selected = answers[currentQuestion.id] === c;
+                  return (
+                    <button
+                      key={c}
+                      type="button"
+                      disabled={readOnly}
+                      onClick={() => selectAnswer(currentQuestion.id, c)}
+                      className={cn(
+                        "w-12 h-12 rounded-full font-bold text-lg border-2 transition-all duration-150",
+                        readOnly
+                          ? getReviewChoiceClasses(c, answers[currentQuestion.id], currentQuestion.choice)
+                          : selected
+                            ? "bg-primary border-primary text-primary-foreground shadow-lg scale-110"
+                            : "bg-background border-border/60 text-foreground hover:border-primary/60 hover:scale-105"
+                      )}
+                    >
+                      {c}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            {normalizeQuestionOptions(currentQuestion.options).length > 0 && (
+              <div className="mb-4 space-y-2 rounded-xl border border-border/40 bg-card/35 p-3">
+                {getQuestionChoiceLabels(currentQuestion).map((label) => {
+                  const optionText = getOptionText(currentQuestion, label);
+                  if (!optionText) return null;
+                  const selected = answers[currentQuestion.id] === label;
+                  return (
+                    <button
+                      key={`text-${label}`}
+                      type="button"
+                      disabled={readOnly}
+                      onClick={() => selectAnswer(currentQuestion.id, label)}
+                      className={cn(
+                        "w-full rounded-lg border px-3 py-2 text-left text-sm transition-colors",
+                        selected
+                          ? "border-primary bg-primary/12 text-foreground"
+                          : "border-border/50 bg-background/40 text-muted-foreground hover:border-primary/40",
+                      )}
+                    >
+                      <span className="font-semibold text-foreground">{label}) </span>
+                      {optionText}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
 
             {/* Navigation */}
             <div className="flex justify-between items-center">
@@ -1760,7 +1880,7 @@ export default function TestMode() {
                 disabled={currentIndex === 0}
                 className="rounded-xl"
               >
-                ← Önceki
+                ‹ Önceki
               </Button>
               {readOnly && (
                 <Button
@@ -1780,7 +1900,7 @@ export default function TestMode() {
                 disabled={currentIndex === questions.length - 1}
                 className="rounded-xl"
               >
-                Sonraki →
+                Sonraki ›
               </Button>
             </div>
           </div>
@@ -1790,7 +1910,7 @@ export default function TestMode() {
         <aside className="glass-panel hidden w-80 shrink-0 flex-col overflow-y-auto border-l border-border/50 md:flex">
           <div className="p-3 border-b border-border/40 flex items-center justify-between">
             <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              Cevap Kâğıdı
+              Cevap Kağıdı
             </span>
             <span className="text-xs text-primary font-bold">
               {answeredCount}/{questions.length}
@@ -1841,7 +1961,7 @@ export default function TestMode() {
                             {index + 1}
                           </span>
                           <div className="flex gap-0.5">
-                            {CHOICES.map((c) => {
+                            {getQuestionChoiceLabels(q).map((c) => {
                               const sel = userAnswer === c;
                               return (
                                 <span
@@ -1894,7 +2014,7 @@ export default function TestMode() {
       <AlertDialog open={showExitDialog} onOpenChange={setShowExitDialog}>
         <AlertDialogContent className="rounded-2xl border-border/60">
           <AlertDialogHeader>
-            <AlertDialogTitle className="font-display">Testten çık</AlertDialogTitle>
+            <AlertDialogTitle className="font-display">Testten Çık</AlertDialogTitle>
             <AlertDialogDescription className="text-left text-muted-foreground leading-relaxed">
               <strong className="text-foreground font-medium">Sonra devam et</strong> dersen işaretlediğin şıklar ve çizimler bu cihazda test bitene kadar saklanır.
               <br />
@@ -1946,7 +2066,7 @@ export default function TestMode() {
         </DialogContent>
       </Dialog>
 
-      {/* ── Drawing canvas modal — TEMPORARY, not saved to DB ── */}
+      {/* Drawing canvas modal — TEMPORARY, not saved to DB */}
       {showCanvas && (
         <div className="fixed inset-0 z-50 bg-foreground/20 backdrop-blur-md">
           <DrawingCanvas
@@ -1954,12 +2074,7 @@ export default function TestMode() {
             imageUrl={currentQuestion.imageUrl}
             initialData={tempDrawings[currentQuestion.id]}
             noSave={true}
-            onTempSave={(data) => {
-              setTempDrawings((prev) => ({
-                ...prev,
-                [currentQuestion.id]: data,
-              }));
-            }}
+            onTempSave={handleTempCanvasSave}
             onClose={() => setShowCanvas(false)}
           />
         </div>
@@ -1967,3 +2082,8 @@ export default function TestMode() {
     </div>
   );
 }
+
+
+
+
+

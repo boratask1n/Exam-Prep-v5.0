@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+﻿import { useEffect, useMemo, useState } from "react";
 import { Link } from "wouter";
 import {
   useListTests,
@@ -33,6 +33,14 @@ import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import { getTopicsForLesson } from "@/lib/lessonTopics";
+import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from "@/components/ui/pagination";
 
 const TYT_LESSONS = ["Türkçe", "Matematik", "Geometri", "Fizik", "Kimya", "Biyoloji", "Din Kültürü", "Felsefe", "Tarih", "Coğrafya"];
 const AYT_LESSONS = ["Matematik", "Geometri", "Fizik", "Kimya", "Biyoloji", "Türk Dili ve Edebiyatı", "Tarih", "Coğrafya", "Felsefe"];
@@ -89,6 +97,9 @@ export default function Tests() {
   // Silme onay dialog state
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [testToDelete, setTestToDelete] = useState<number | null>(null);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
+  const testsPerPage = 6;
 
   useEffect(() => {
     let cancelled = false;
@@ -354,6 +365,32 @@ export default function Tests() {
     setDeleteDialogOpen(false);
     setTestToDelete(null);
   };
+  const filteredTests = useMemo(() => {
+    const query = searchTerm.trim().toLocaleLowerCase("tr-TR");
+    const items = tests ?? [];
+    return items.filter((test) => {
+      if (!query) return true;
+      return test.name.toLocaleLowerCase("tr-TR").includes(query);
+    });
+  }, [searchTerm, tests]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, tests]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredTests.length / testsPerPage));
+  const safeCurrentPage = Math.min(currentPage, totalPages);
+  const paginatedTests = useMemo(() => {
+    const start = (safeCurrentPage - 1) * testsPerPage;
+    return filteredTests.slice(start, start + testsPerPage);
+  }, [filteredTests, safeCurrentPage]);
+
+  const visiblePageNumbers = useMemo(() => {
+    const start = Math.max(1, safeCurrentPage - 2);
+    const end = Math.min(totalPages, start + 4);
+    const adjustedStart = Math.max(1, end - 4);
+    return Array.from({ length: end - adjustedStart + 1 }, (_, index) => adjustedStart + index);
+  }, [safeCurrentPage, totalPages]);
 
   return (
     <div className="h-full flex flex-col p-6 max-w-6xl mx-auto w-full">
@@ -699,7 +736,13 @@ export default function Tests() {
         </Dialog>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 pb-20">
+
+      <div className="mb-6 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div className="w-full md:max-w-sm">
+          <Input value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} placeholder="Test ara..." className="rounded-xl" />
+        </div>
+        <p className="text-sm text-muted-foreground">{filteredTests.length} test bulundu</p>
+      </div>      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 pb-10">
         {isLoading ? (
           <div className="col-span-full py-20 flex justify-center">
             <div className="animate-spin h-10 w-10 border-b-2 border-primary rounded-full" />
@@ -711,7 +754,7 @@ export default function Tests() {
             <p className="text-muted-foreground mt-2">Sağ üstten yeni bir test oluşturarak çalışmaya başla.</p>
           </div>
         ) : (
-          tests.map((test: TestSession) => {
+          paginatedTests.map((test: TestSession) => {
             const pct = test.questionCount > 0 ? Math.round((test.completedCount / test.questionCount) * 100) : 0;
             const completedAt = (test as { completedAt?: string | null }).completedAt;
             const hasDraft = hasTestDraft(test.id) || !!remoteDrafts[test.id];
@@ -773,6 +816,54 @@ export default function Tests() {
         )}
       </div>
 
+
+      {filteredTests.length > 0 ? (
+        <div className="flex flex-col items-center gap-3 pb-10">
+          <p className="text-sm text-muted-foreground">
+            {(safeCurrentPage - 1) * testsPerPage + 1} - {Math.min(safeCurrentPage * testsPerPage, filteredTests.length)} / {filteredTests.length} test gösteriliyor
+          </p>
+          {totalPages > 1 ? (
+            <Pagination>
+              <PaginationContent>
+                <PaginationItem>
+                  <PaginationPrevious
+                    href="#"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      if (safeCurrentPage > 1) setCurrentPage(safeCurrentPage - 1);
+                    }}
+                    className={safeCurrentPage <= 1 ? "pointer-events-none opacity-50" : ""}
+                  />
+                </PaginationItem>
+                {visiblePageNumbers.map((pageNumber) => (
+                  <PaginationItem key={pageNumber}>
+                    <PaginationLink
+                      href="#"
+                      isActive={pageNumber === safeCurrentPage}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        setCurrentPage(pageNumber);
+                      }}
+                    >
+                      {pageNumber}
+                    </PaginationLink>
+                  </PaginationItem>
+                ))}
+                <PaginationItem>
+                  <PaginationNext
+                    href="#"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      if (safeCurrentPage < totalPages) setCurrentPage(safeCurrentPage + 1);
+                    }}
+                    className={safeCurrentPage >= totalPages ? "pointer-events-none opacity-50" : ""}
+                  />
+                </PaginationItem>
+              </PaginationContent>
+            </Pagination>
+          ) : null}
+        </div>
+      ) : null}
       {/* Delete Confirmation Dialog */}
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
         <AlertDialogContent className="bg-card border-border/50 rounded-2xl">
@@ -801,3 +892,7 @@ export default function Tests() {
     </div>
   );
 }
+
+
+
+

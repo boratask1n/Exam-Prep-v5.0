@@ -2,124 +2,92 @@
 setlocal enabledelayedexpansion
 cd /d "%~dp0"
 
-echo ==========================================
-echo   VERITABANI TEMIZLEME ARACI
-echo ==========================================
-echo.
-
-REM .env dosyasindan DATABASE_URL oku
-set "ENV_FILE=.env"
-set "DATABASE_URL="
-set "DB_NAME=exam_prep"
-set "DB_USER=postgres"
 set "DB_HOST=localhost"
 set "DB_PORT=5432"
-
-if not exist "%ENV_FILE%" (
-    echo [UYARI] .env dosyasi bulunamadi, varsayilan ayarlar kullanilacak.
-) else (
-    REM PowerShell ile URL parse et
-    for /f "usebackq delims=" %%a in (`powershell -NoProfile -Command "$url = (Get-Content '%ENV_FILE%' | Select-String '^DATABASE_URL=') -replace 'DATABASE_URL=',''; if ($url -match 'postgresql://([^:]+):[^@]+@([^:]+):([^/]+)/(.+)') { Write-Host ('{0}|{1}|{2}|{3}' -f $matches[1],$matches[2],$matches[3],$matches[4]) }"`) do (
-        for /f "tokens=1,2,3,4 delims=|" %%b in ("%%a") do (
-            set "DB_USER=%%b"
-            set "DB_HOST=%%c"
-            set "DB_PORT=%%d"
-            set "DB_NAME=%%e"
-        )
-    )
-)
-
+set "DB_NAME=exam_prep"
+set "DB_USER=postgres"
+set "DB_PASS=postgres"
 set "DOCKER_CONTAINER=exam-prep-postgres"
-set "USE_DOCKER=0"
+set "UPLOADS_DIR=artifacts\api-server\uploads"
 
-docker ps --format "{{.Names}}" | findstr /i /c:"%DOCKER_CONTAINER%" >nul 2>&1
-if %ERRORLEVEL% == 0 (
-    set "USE_DOCKER=1"
-    echo [BILGI] Docker konteyneri bulundu: %DOCKER_CONTAINER%
-) else (
-    echo [BILGI] Docker konteyneri bulunamadi, psql kullanilacak.
-)
-echo.
-echo ==========================================
-echo   UYARI: BU ISLEM GERI ALINAMAZ!
-echo ==========================================
-echo.
-echo Asagidaki tum tablolardaki veriler silinecek:
-echo   - drawings (Cizimler)
-echo   - test_session_questions (Test soru iliskileri)
-echo   - test_sessions (Test oturumlari)
-echo   - questions (Sorular)
-echo.
-echo Veritabani: %DB_NAME%
-echo Host: %DB_HOST%
-echo Port: %DB_PORT%
-echo.
-
-set /p CONFIRM="Tum verileri silmek istediginize emin misiniz? (EVET/HAYIR): "
-if /I not "%CONFIRM%"=="EVET" (
-    echo.
-    echo [BILGI] Islem iptal edildi. Veritabani degismedi.
-    pause
-    exit /b 0
-)
-
-echo.
-echo [ISLEM] Veritabani temizleniyor...
-echo.
-
-REM SQL komutlarini gecici dosyaya yaz
-set "TEMP_SQL=%TEMP%\db_reset_%RANDOM%.sql"
-(
-echo -- Foreign key sirasina gore tablolari temizle
-echo TRUNCATE TABLE drawings CASCADE;
-echo TRUNCATE TABLE test_session_questions CASCADE;
-echo TRUNCATE TABLE test_sessions CASCADE;
-echo TRUNCATE TABLE questions CASCADE;
-echo.
-echo -- Sequence'leri sifirla
-echo ALTER SEQUENCE IF EXISTS drawings_id_seq RESTART WITH 1;
-echo ALTER SEQUENCE IF EXISTS test_session_questions_id_seq RESTART WITH 1;
-echo ALTER SEQUENCE IF EXISTS test_sessions_id_seq RESTART WITH 1;
-echo ALTER SEQUENCE IF EXISTS questions_id_seq RESTART WITH 1;
-) > "%TEMP_SQL%"
-
-REM SQL komutlarini calistir
-echo [BILGI] SQL komutlari calistiriliyor...
-
-if "%USE_DOCKER%"=="1" (
-    echo [BILGI] Docker ile calistiriliyor...
-    docker exec -i %DOCKER_CONTAINER% psql -U %DB_USER% -d %DB_NAME% < "%TEMP_SQL%"
-) else (
-    echo [BILGI] psql ile calistiriliyor...
-    set "PGPASSWORD="
-    for /f "usebackq delims=" %%p in (`powershell -NoProfile -Command "$url = (Get-Content '%ENV_FILE%' | Select-String '^DATABASE_URL=') -replace 'DATABASE_URL=',''; if ($url -match 'postgresql://[^:]+:([^@]+)@') { $matches[1] } else { '' }"`) do set "PGPASSWORD=%%p"
-    
-    if defined PGPASSWORD (
-        psql -h %DB_HOST% -p %DB_PORT% -U %DB_USER% -d %DB_NAME% -f "%TEMP_SQL%"
-    ) else (
-        psql -h %DB_HOST% -p %DB_PORT% -U %DB_USER% -d %DB_NAME% -W -f "%TEMP_SQL%"
+if exist ".env" (
+  for /f "usebackq delims=" %%A in (`powershell -NoProfile -Command "$line=(Get-Content '.env' | Select-String '^DATABASE_URL=' | Select-Object -First 1).Line; if($line){$u=$line -replace '^DATABASE_URL=',''; try{$x=[uri]$u; $pw=''; if($x.UserInfo -match '^[^:]+:(.+)$'){$pw=$matches[1]}; Write-Output ($x.Host+'|'+$x.Port+'|'+$x.AbsolutePath.TrimStart('/')+'|'+$x.UserInfo.Split(':')[0]+'|'+$pw)}catch{}}"`) do (
+    for /f "tokens=1,2,3,4,5 delims=|" %%B in ("%%A") do (
+      if not "%%B"=="" set "DB_HOST=%%B"
+      if not "%%C"=="" set "DB_PORT=%%C"
+      if not "%%D"=="" set "DB_NAME=%%D"
+      if not "%%E"=="" set "DB_USER=%%E"
+      if not "%%F"=="" set "DB_PASS=%%F"
     )
+  )
 )
 
-if %ERRORLEVEL% neq 0 (
-    echo.
-    echo [HATA] Veritabani temizlenirken hata olustu!
-    echo.
-    del /q "%TEMP_SQL%" 2>nul
+echo.
+echo ============================================
+echo  Veritabani Temizleme (Tum Veriler)
+echo ============================================
+echo.
+echo Silinecek tablolar:
+echo   - drawings
+echo   - test_session_progress
+echo   - test_solutions
+echo   - test_session_questions
+echo   - test_sessions
+echo   - test_result_topic_stats
+echo   - test_result_summaries
+echo   - notes
+echo   - questions
+echo   - uploads klasoru
+echo.
+
+set /p TAKE_BACKUP=Temizlemeden once yedek almak ister misiniz? (E/H): 
+if /I "%TAKE_BACKUP%"=="E" (
+  call "%~dp0YEDEK_AL.bat"
+  if errorlevel 1 (
+    echo [HATA] Yedek alma basarisiz. Temizleme islemi durduruldu.
     pause
     exit /b 1
+  )
 )
 
-REM Gecici dosyayi temizle
-del /q "%TEMP_SQL%" 2>nul
+echo.
+set /p CONFIRM=Devam etmek icin EVET yazin: 
+if /I not "%CONFIRM%"=="EVET" (
+  echo Islem iptal edildi.
+  pause
+  exit /b 0
+)
+
+set "SQL=TRUNCATE TABLE test_result_topic_stats, test_result_summaries, test_session_progress, test_solutions, test_session_questions, test_sessions, drawings, notes, questions RESTART IDENTITY CASCADE;"
+
+docker ps --format "{{.Names}}" | findstr /i /c:"%DOCKER_CONTAINER%" >nul 2>nul
+if not errorlevel 1 (
+  echo [1/2] Docker uzerinden veritabani temizleniyor...
+  docker exec -i "%DOCKER_CONTAINER%" psql -U "%DB_USER%" -d "%DB_NAME%" -c "%SQL%" >nul
+) else (
+  where psql >nul 2>nul
+  if errorlevel 1 (
+    echo [HATA] Ne Docker konteyneri acik ne de psql bulundu.
+    pause
+    exit /b 1
+  )
+  echo [1/2] Lokal psql ile veritabani temizleniyor...
+  set "PGPASSWORD=%DB_PASS%"
+  psql -h "%DB_HOST%" -p "%DB_PORT%" -U "%DB_USER%" -d "%DB_NAME%" -c "%SQL%" >nul
+)
+
+if errorlevel 1 (
+  echo [HATA] Veritabani temizlenemedi.
+  pause
+  exit /b 1
+)
+
+echo [2/2] Uploads klasoru temizleniyor...
+if exist "%UPLOADS_DIR%" (
+  rmdir /s /q "%UPLOADS_DIR%" >nul 2>nul
+)
+mkdir "%UPLOADS_DIR%" >nul 2>nul
 
 echo.
-echo ==========================================
-echo   [BASARILI] Veritabani temizlendi!
-echo ==========================================
-echo.
-echo - Tum tablolar bosaltildi
-echo - ID sequence'leri sifirlandi
-echo - Tablo yapilari korundu
-echo.
+echo Tamamlandi. Veritabani verileri sifirlandi.
 pause

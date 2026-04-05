@@ -41,6 +41,20 @@ function serializeQuestion(q: typeof questionsTable.$inferSelect) {
   };
 }
 
+function normalizeOptions(
+  raw: Array<{ label: string; text: string }> | null | undefined,
+) {
+  if (!raw || raw.length === 0) return null;
+  const normalized = raw
+    .map((option) => ({
+      label: (option.label ?? "").trim().toUpperCase(),
+      text: (option.text ?? "").trim(),
+    }))
+    .filter((option) => option.label.length > 0 && option.text.length > 0)
+    .slice(0, 5);
+  return normalized.length > 0 ? normalized : null;
+}
+
 router.get("/questions", async (req, res) => {
   const query = ListQuestionsQueryParams.parse(req.query);
   const conditions = [];
@@ -111,7 +125,7 @@ router.get("/uploads/:filename", (req, res) => {
 });
 
 router.post("/questions", async (req, res) => {
-  const body = CreateQuestionBody.parse(req.body);
+  const body = CreateQuestionBody.parse(req.body) as any;
   const [question] = await db
     .insert(questionsTable)
     .values({
@@ -122,13 +136,14 @@ router.post("/questions", async (req, res) => {
       publisher: body.publisher ?? null,
       testName: body.testName ?? null,
       testNo: body.testNo ?? null,
+      options: normalizeOptions(body.options ?? null),
       choice: body.choice ?? null,
       solutionUrl: body.solutionUrl ?? null,
       category: body.category ?? "TYT",
       source: body.source ?? "Banka",
       status: body.status ?? "Cozulmedi",
       hasDrawing: false,
-    })
+    } as any)
     .returning();
 
   res.status(201).json(serializeQuestion(question));
@@ -143,7 +158,7 @@ router.get("/questions/:id", async (req, res) => {
 
 router.patch("/questions/:id", async (req, res) => {
   const id = parseInt(req.params.id);
-  const body = UpdateQuestionBody.parse(req.body);
+  const body = UpdateQuestionBody.parse(req.body) as any;
 
   // Mevcut soruyu getir - eski resmi silmek için
   const [existing] = await db.select().from(questionsTable).where(eq(questionsTable.id, id));
@@ -157,6 +172,7 @@ router.patch("/questions/:id", async (req, res) => {
   if (body.publisher !== undefined) updateData.publisher = body.publisher;
   if (body.testName !== undefined) updateData.testName = body.testName;
   if (body.testNo !== undefined) updateData.testNo = body.testNo;
+  if (body.options !== undefined) updateData.options = normalizeOptions(body.options);
   if (body.choice !== undefined) updateData.choice = body.choice;
   if (body.category !== undefined) updateData.category = body.category;
   if (body.source !== undefined) updateData.source = body.source;

@@ -13,7 +13,9 @@ agents/
 # Environment files
 .env
 .env.*
+.env_postgres
 !.env.example
+!.env_postgres.example
 
 # Build outputs
 dist/

@@ -1,12 +1,10 @@
 @echo off
 setlocal enabledelayedexpansion
 cd /d "%~dp0"
-set "LAN_IP="
-
 
 echo.
 echo ============================================
-echo  Exam-Prep Baslatma
+echo  Exam-Prep Ilk Kurulum
 echo ============================================
 echo.
 
@@ -29,7 +27,7 @@ if not exist ".env" (
     copy /y ".env.example" ".env" >nul
     echo [BILGI] .env olusturuldu.
   ) else (
-    echo [HATA] .env ve .env.example bulunamadi.
+    echo [HATA] .env.example bulunamadi.
     pause
     exit /b 1
   )
@@ -40,13 +38,13 @@ if not exist ".env_postgres" (
     copy /y ".env_postgres.example" ".env_postgres" >nul
     echo [BILGI] .env_postgres olusturuldu.
   ) else (
-    echo [HATA] .env_postgres ve .env_postgres.example bulunamadi.
+    echo [HATA] .env_postgres.example bulunamadi.
     pause
     exit /b 1
   )
 )
 
-echo [1/5] Bagimliliklar kontrol ediliyor...
+echo [1/6] Bagimliliklar yukleniyor...
 call pnpm install
 if errorlevel 1 (
   echo [HATA] pnpm install basarisiz.
@@ -54,15 +52,15 @@ if errorlevel 1 (
   exit /b 1
 )
 
-echo [2/5] PostgreSQL baslatiliyor...
+echo [2/6] PostgreSQL baslatiliyor...
 docker compose up -d postgres
 if errorlevel 1 (
-  echo [HATA] Docker PostgreSQL baslatilamadi.
+  echo [HATA] PostgreSQL baslatilamadi.
   pause
   exit /b 1
 )
 
-echo [3/5] PostgreSQL hazir olmasi bekleniyor...
+echo [3/6] PostgreSQL hazir olmasi bekleniyor...
 set "_pg_wait=0"
 :wait_pg
 for /f "delims=" %%S in ('docker inspect -f "{{.State.Health.Status}}" exam-prep-postgres 2^>nul') do set "PG_HEALTH=%%S"
@@ -70,7 +68,6 @@ if /i "!PG_HEALTH!"=="healthy" goto pg_ready
 set /a _pg_wait+=1
 if !_pg_wait! GEQ 60 (
   echo [HATA] PostgreSQL healthy durumuna gecmedi.
-  echo Docker Desktop ve konteyner durumunu kontrol edin.
   pause
   exit /b 1
 )
@@ -78,25 +75,43 @@ timeout /t 2 /nobreak >nul
 goto wait_pg
 :pg_ready
 
-echo [4/5] Veritabani semasi guncelleniyor...
+echo [4/6] Veritabani semasi uygulanuyor...
 call pnpm --filter @workspace/db run push
 if errorlevel 1 (
-  echo [HATA] Veritabani semasi uygulanamadi.
+  echo [HATA] Schema push basarisiz.
   pause
   exit /b 1
 )
 
-echo [5/5] API ve Web aciliyor...
-start "Exam-Prep API" cmd /k "cd /d ""%~dp0"" && pnpm --filter @workspace/api-server run dev"
-start "Exam-Prep Web" cmd /k "cd /d ""%~dp0"" && pnpm --filter @workspace/yks-tracker run dev -- --port 24486 --strictPort"
+echo [5/6] Tip kontrolu calistiriliyor...
+call pnpm typecheck
+if errorlevel 1 (
+  echo [HATA] Typecheck basarisiz.
+  pause
+  exit /b 1
+)
 
-for /f "usebackq delims=" %%I in (`powershell -NoProfile -Command "$ip = Get-NetIPAddress -AddressFamily IPv4 ^| Where-Object { $_.IPAddress -ne '127.0.0.1' -and $_.IPAddress -notlike '169.254.*' -and $_.InterfaceAlias -notlike '*WSL*' -and $_.InterfaceAlias -notlike '*vEthernet*' } ^| Select-Object -First 1 -ExpandProperty IPAddress; if (-not $ip) { $ip = '127.0.0.1' }; Write-Output $ip"`) do set "LAN_IP=%%I"
+echo [6/6] Uretim build'leri hazirlaniyor...
+call pnpm --filter @workspace/api-server run build
+if errorlevel 1 (
+  echo [HATA] API build basarisiz.
+  pause
+  exit /b 1
+)
+
+call pnpm --filter @workspace/yks-tracker run build
+if errorlevel 1 (
+  echo [HATA] Web build basarisiz.
+  pause
+  exit /b 1
+)
 
 echo.
-echo Tamamlandi.
-echo Web: http://localhost:24486
-echo Web (ag): http://%LAN_IP%:24486
-echo API: http://localhost:8080/api/health
-echo API (ag): http://%LAN_IP%:8080/api/health
+echo ============================================
+echo  Kurulum Tamamlandi
+echo ============================================
+echo Sonraki adim:
+echo   BASLAT.bat  -> uygulamayi calistirir
+echo   DURDUR.bat  -> uygulamayi kapatir
 echo.
 pause

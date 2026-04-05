@@ -1,4 +1,4 @@
-import { pgTable, serial, text, timestamp, boolean } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, timestamp, boolean, jsonb } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -11,6 +11,7 @@ export const questionsTable = pgTable("questions", {
   publisher: text("publisher"),
   testName: text("test_name"),
   testNo: text("test_no"),
+  options: jsonb("options").$type<Array<{ label: string; text: string }>>(),
   choice: text("choice"),
   /** YouTube veya başka çözüm videosu URL’si */
   solutionUrl: text("solution_url"),

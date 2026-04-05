@@ -1,8 +1,14 @@
 import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
-import { questionsTable, testSessionsTable, testSessionQuestionsTable } from "@workspace/db";
+import {
+  questionsTable,
+  testResultSummariesTable,
+  testSessionsTable,
+  testSessionQuestionsTable,
+} from "@workspace/db";
 import { eq, and, inArray, ilike, sql, count, or } from "drizzle-orm";
 import { CreateTestBody, UpdateTestBody, UpdateTestQuestionStatusBody } from "@workspace/api-zod";
+import { finalizeTestResult } from "../services/testResultService";
 
 const router: IRouter = Router();
 
@@ -134,6 +140,9 @@ router.post("/tests", async (req, res) => {
     }
 
     const baseWhere = conditions.length > 0 ? and(...conditions) : undefined;
+    const requestedCount =
+      body.count ??
+      Object.values(body.distribution ?? {}).reduce((sum, value) => sum + (Number.isFinite(value) ? value : 0), 0);
     const distributionEntries = Object.entries(body.distribution ?? {}).filter(
       ([lesson, amount]) => lesson && Number.isFinite(amount) && amount > 0,
     );
@@ -174,6 +183,52 @@ router.post("/tests", async (req, res) => {
       pool.sort((a, b) => a.lesson.localeCompare(b.lesson));
       questionIds = pool.map((q) => q.id);
     }
+
+    // If we could not reach requested count, fill with all remaining matching questions.
+    // Also relax only "status" filter as last resort so AI-generated tests are not empty.
+    if (requestedCount > 0 && questionIds.length < requestedCount) {
+      const fallbackConditions = [];
+      if (filters) {
+        if (filters.category) fallbackConditions.push(eq(questionsTable.category, filters.category));
+        if (filters.source) fallbackConditions.push(eq(questionsTable.source, filters.source));
+        const topics = filters.topics?.length
+          ? filters.topics
+          : filters.topic
+            ? [filters.topic]
+            : [];
+        const topicCondition = buildTopicCondition(topics);
+        if (topicCondition) fallbackConditions.push(topicCondition);
+        if (filters.publisher) fallbackConditions.push(ilike(questionsTable.publisher!, `%${filters.publisher}%`));
+      }
+      const fallbackLessons = filters?.lessons;
+      if (fallbackLessons && fallbackLessons.length > 0) {
+        const lessonConditions = fallbackLessons.map((l: string) => ilike(questionsTable.lesson, `%${l}%`));
+        fallbackConditions.push(or(...lessonConditions)!);
+      }
+
+      const fallbackWhere = fallbackConditions.length > 0 ? and(...fallbackConditions) : undefined;
+      const fallbackPool = await db
+        .select({ id: questionsTable.id, lesson: questionsTable.lesson })
+        .from(questionsTable)
+        .where(fallbackWhere)
+        .orderBy(sql`RANDOM()`);
+
+      const existing = new Set(questionIds);
+      for (const q of fallbackPool) {
+        if (existing.has(q.id)) continue;
+        questionIds.push(q.id);
+        existing.add(q.id);
+        if (questionIds.length >= requestedCount) break;
+      }
+    }
+  }
+
+  if (questionIds.length === 0) {
+    res.status(400).json({
+      error: "Filtrelere uygun soru bulunamadı",
+      code: "NO_QUESTIONS_MATCHED",
+    });
+    return;
   }
 
   const [session] = await db
@@ -191,7 +246,7 @@ router.post("/tests", async (req, res) => {
     );
   }
 
-  res.status(201).json({
+  return res.status(201).json({
     id: session.id,
     name: session.name,
     timeLimitSeconds: session.timeLimitSeconds ?? null,
@@ -237,6 +292,15 @@ router.patch("/tests/:id", async (req, res) => {
     res.status(404).json({ error: "Not found" });
     return;
   }
+
+  if (body.completedAt) {
+    try {
+      await finalizeTestResult(id);
+    } catch (error) {
+      console.error("Error finalizing analytics snapshot on test completion:", error);
+    }
+  }
+
   res.json(data);
 });
 
@@ -244,6 +308,17 @@ router.delete("/tests/:id", async (req, res) => {
   const id = parseInt(req.params.id);
   await db.delete(testSessionsTable).where(eq(testSessionsTable.id, id));
   res.status(204).send();
+});
+
+router.delete("/tests/:id/analytics", async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    await db.delete(testResultSummariesTable).where(eq(testResultSummariesTable.testSessionId, id));
+    res.status(204).send();
+  } catch (error) {
+    console.error("Failed to delete analytics snapshot:", error);
+    res.status(500).json({ error: "Failed to delete analytics snapshot" });
+  }
 });
 
 router.patch("/tests/:id/questions/:questionId/status", async (req, res) => {

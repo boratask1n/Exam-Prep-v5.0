@@ -1,204 +1,205 @@
 # Exam-Prep
 
-Exam-Prep; soru havuzu, test oluşturma, test çözme, çizim araçları ve test oturumu takibi içeren yerel bir çalışma uygulamasıdır.
+Exam-Prep, YKS calisma surecini tek yerde toplamak icin gelistirilmis yerel bir uygulamadir. Soru havuzu, test olusturma ve cozme, analiz ekranlari, AI destekli oneriler, notlar ve cizim araclarini ayni proje icinde birlestirir.
 
-## Yerel Kurulum
+## Neler Var
 
-Bu proje bilgisayarınızda ve aynı ağdaki cihazlarda çalışabilir.
+- Soru havuzu ve filtreli test olusturma
+- Test modu, sonuc ekrani ve cozum / kontrol akisi
+- Analiz merkezi ve grafikler
+- Gemini destekli analiz onerileri ve AI test onerileri
+- TYT / AYT bazli sticky note sistemi
+- Not ve soru uzerinde cizim
+- PostgreSQL tabanli kalici veri saklama
 
-### Gereksinimler
+## Klasor Yapisi
+
+- `artifacts/yks-tracker`: React + Vite web uygulamasi
+- `artifacts/api-server`: Express API
+- `lib/db`: Drizzle schema ve veritabani komutlari
+- `lib/api-zod`, `lib/api-client-react`: ortak API tipleri
+- `backups`: veritabani yedekleri
+
+## Gereksinimler
 
 - Node.js
 - `pnpm`
 - Docker Desktop
 
-### Docker Desktop (Windows)
+## Ortam Dosyalari
 
-`BASLAT.bat` veritabanı için Docker kullanır. Docker kurulu değilse:
+Ilk acilista `BASLAT.bat` eksik dosyalari otomatik olusturur.
 
-1. [Docker Desktop for Windows](https://docs.docker.com/desktop/setup/install/windows-install/) indirip kurun.
-2. Kurulum WSL 2 isterse etkinleştirin.
-3. Docker Desktop uygulamasını açın ve tamamen hazır olmasını bekleyin.
-4. Doğrulamak için PowerShell veya `cmd` içinde şu komutları çalıştırın:
+- `.env.example` -> `.env`
+- `.env_postgres.example` -> `.env_postgres`
 
-```powershell
-docker version
-docker compose version
+Temel degiskenler:
+
+```env
+DATABASE_URL=postgresql://<db_user>:<db_password>@<db_host>:5432/<db_name>
+API_PORT=8080
+WEB_PORT=24486
+API_URL=http://localhost:8080
+GEMINI_API_KEY=
+GEMINI_MODEL=gemini-1.5-flash
 ```
 
-Sadece veritabanını elle başlatmak isterseniz:
+Gemini kullanmak istemiyorsan `GEMINI_API_KEY` bos kalabilir. Bu durumda AI tarafinda sadece yerel / kural tabanli fallback davranislari gorunur.
+
+## Hizli Baslat
+
+Windows uzerinde en kolay yol:
 
 ```powershell
-docker compose up -d
+.\KURULUM.bat
+.\BASLAT.bat
 ```
 
-## Hızlı Başlat
+Ilk kez clone alan bir kullanici icin onerilen akis:
 
-1. `BASLAT.bat` dosyasını çalıştırın.
-2. Açılan API ve Web pencerelerini kapatmayın.
-3. Tarayıcıdan uygulamayı açın:
-   - Bu bilgisayardan: `http://localhost:24486`
-   - Aynı ağdan: `http://<LAN_IP>:24486`
+```powershell
+git clone <repo-url>
+cd Exam-Prep
+.\KURULUM.bat
+.\BASLAT.bat
+```
+
+Bu script:
+
+- gerekli `.env` dosyalarini orneklerden olusturur
+- bagimliliklari kurar
+- PostgreSQL konteynerini baslatir
+- schema push uygular
+- typecheck ve production build alir
+
+`BASLAT.bat` ise:
+
+- bagimliliklari kontrol eder
+- PostgreSQL konteynerini baslatir
+- schema push uygular
+- API ve web uygulamasini ayri pencerelerde acir
+
+Acilan adresler:
+
+- Web: `http://localhost:24486`
+- API saglik kontrolu: `http://localhost:8080/api/health`
 
 ## Durdurma
 
-Uygulamayı kapatmak için:
-
 ```powershell
-DURDUR.bat
+.\DURDUR.bat
 ```
 
-## Veri Kalıcılığı
+Bu script acik API / web pencerelerini kapatir ve PostgreSQL konteynerini durdurur.
 
-- Veriler PostgreSQL Docker volume içinde saklanır.
-- Normal kapatıp açmada veriler silinmez.
-- `docker compose down -v` komutunu çalıştırmayın; volume silinir.
+## Veritabani ve Bakim Scriptleri
 
-## Yedek Alma ve Geri Yükleme
-
-### Node.js Scriptleri
-
-- Veritabanı yedeği almak:
+### Yedek alma
 
 ```powershell
-node artifacts/yks-tracker/scripts/backup-db.cjs [isim]
+.\YEDEK_AL.bat
 ```
 
-- Yedekten geri yüklemek:
+- PostgreSQL dump alir
+- `artifacts/api-server/uploads` klasorunu da yedekler
+- yedekleri `backups/backup-YYYYMMDD-HHMMSS` altina yazar
+
+### Yedekten geri yukleme
 
 ```powershell
-node artifacts/yks-tracker/scripts/restore-db.cjs <yedek-adi>
+.\YEDEKTEN_GERI_YUKLE.bat
 ```
 
-- Veritabanını sıfırlamak:
+- secilen dump dosyasini geri yukler
+- mevcut `uploads` klasorunu temizleyip yedekteki dosyalari geri kopyalar
+
+### Veritabanini temizleme
 
 ```powershell
-node artifacts/yks-tracker/scripts/reset-db.cjs [--force]
+.\VERITABANI_TEMIZLE.bat
 ```
 
-- Soru import etmek:
+- testler, sorular, notlar, cizimler ve analiz tablolari sifirlanir
+- `artifacts/api-server/uploads` klasoru de temizlenir
+- istenirse once otomatik yedek alir
+
+### DB arayuzleri
 
 ```powershell
-node artifacts/yks-tracker/scripts/import-sorular.cjs [--dry-run] [--limit N]
+.\DB_AC.bat
 ```
 
-### BAT Scriptleri
+Bu script pgAdmin veya DBeaver acmak icin baglanti bilgilerini hazirlar.
 
-- `YEDEK_AL.bat`
-- `YEDEKTEN_GERI_YUKLE.bat`
-- `VERITABANI_TEMIZLE.bat`
+## Manuel Gelistirme Komutlari
 
-Yedekler `backups/` klasörüne yazılır.
+Tum repo icin tip kontrolu:
 
-## Özellikler
+```powershell
+pnpm typecheck
+```
 
-### Soru Havuzu
+API build:
 
-- Sayfalama ile performanslı yükleme
-- Lazy loading ile resimlerin görünür oldukça yüklenmesi
-- Gelişmiş filtreleme:
-  - Kategori
-  - Ders
-  - Konu
-  - Durum
-  - Kaynak
-- Filtrelenmiş sorularla test oluşturma
+```powershell
+pnpm --filter @workspace/api-server run build
+```
 
-### Test Oluşturma
+Web build:
 
-- Akıllı test kurucu
-- Çoklu ders ve çoklu konu seçimi
-- İstenilen soru sayısıyla test üretme
-- Opsiyonel süre limiti
-- Test oturumu ve ilerleme takibi
+```powershell
+pnpm --filter @workspace/yks-tracker run build
+```
 
-### Çizim Araçları
+Schema push:
 
-- Soru resmi üstüne çizim
-- Kalem ve silgi
-- Renk seçimi
-- Çözüm tahtası
-- Test bitene kadar çizimleri koruma
-- Kontrol modunda çizimlere devam etme
+```powershell
+pnpm --filter @workspace/db run push
+```
 
-### Test Akışı
+## Kullanima Hazirlik Notlari
 
-1. Test başlatılır.
-2. Sorular çözülür.
-3. İlerleme ve cevaplar kaydedilir.
-4. Test bitirilir.
-5. Sonuçlar görüntülenir.
-6. Kontrol modunda sorular tekrar incelenir.
+- Docker konteyner adi: `exam-prep-postgres`
+- Web portu: `24486`
+- API portu: `8080`
+- Uygulama yerel agda da acilabilir
+- Kalici veriler Docker volume icinde saklanir
 
-## Kontrol Modu
+## Git ve Temizlik
 
-- Test sonrası açılır.
-- Çizimler korunur.
-- Çözüm videoları erişilebilir.
-- Cevaplar görüntülenir, sonuçlar incelenir.
-
-## Güvenli GitHub Kullanımı
-
-Bu projede aşağıdaki dosya ve klasörler GitHub'a gönderilmez:
+Repoda su dosyalar git'e gonderilmez:
 
 - `.env`
+- `.env_postgres`
+- `node_modules/`
 - `.pnpm-store/`
 - `backups/`
 - `artifacts/api-server/uploads/`
 - `dist/`
+- `*.log`
 - `*.tsbuildinfo`
 
-Örnek ortam değişkenleri için sadece `.env.example` dosyası repoda tutulur.
+Ornek ortam dosyalari repoda tutulur:
 
-## Branch ile Çalışma Yöntemi
+- `.env.example`
+- `.env_postgres.example`
 
-Ana branch üzerinde doğrudan çalışmak yerine yeni özellik veya düzeltme için branch açmak daha güvenlidir.
+GitHub'a yuklenen surumde:
 
-### Yeni branch açma
+- kullaniciya ozel `.env` dosyalari yoktur
+- lokal veritabani dump / backup dosyalari yoktur
+- `uploads` klasorundeki lokal dosyalar yoktur
+- node_modules ve runtime loglari yoktur
 
-```powershell
-git checkout -b codex/ozellik-adi
-```
+Bu nedenle taze clone sonrasi `KURULUM.bat` calistirmak gerekir.
 
-Örnek:
+## Onerilen Akis
 
-```powershell
-git checkout -b codex/test-akisi-duzeltme
-```
-
-### Değişiklikleri kaydetme
-
-```powershell
-git status
-git add .
-git commit -m "feat: test akisi duzeltmeleri"
-```
-
-### Branch'i GitHub'a gönderme
-
-```powershell
-git push -u origin codex/ozellik-adi
-```
-
-### Çalışma önerisi
-
-1. `main` branch'i temiz bırakın.
-2. Her iş için yeni branch açın.
-3. İş bitince branch'i GitHub'a gönderin.
-4. Gerekirse GitHub üzerinden Pull Request açın.
-5. Onaydan sonra `main` ile birleştirin.
-
-## Hızlı Git Akışı
-
-Kısa kullanım:
-
-```powershell
-git checkout -b codex/yeni-is
-git add .
-git commit -m "feat: degisiklik aciklamasi"
-git push -u origin codex/yeni-is
-```
+1. `BASLAT.bat` ile projeyi ac
+2. uygulamayi test et
+3. gerekiyorsa `YEDEK_AL.bat` ile yedek al
+4. gelistirme sonunda `DURDUR.bat` ile kapat
 
 ## Not
 
-Yerel çalışma sırasında oluşan runtime dosyaları, yedekler ve yüklenen görseller repo dışında tutulacak şekilde ayarlanmıştır. Böylece GitHub tarafı daha temiz, güvenli ve paylaşılabilir kalır.
+Bu README mevcut proje yapisina gore guncellendi. Eski path veya artik kullanilmayan script referanslari kaldirildi.

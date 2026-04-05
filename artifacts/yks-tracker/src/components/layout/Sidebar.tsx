@@ -1,5 +1,5 @@
-import { Link, useLocation } from "wouter";
-import { PenTool, LayoutGrid, BookOpen, Sun, Moon } from "lucide-react";
+﻿import { Link, useLocation } from "wouter";
+import { PenTool, LayoutGrid, BookOpen, Sun, Moon, FolderKanban, BarChart3, NotebookPen } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useEffect, useState } from "react";
 
@@ -29,8 +29,12 @@ export function Sidebar({ children }: { children: React.ReactNode }) {
   }, []);
 
   const navItems = [
-    { href: "/", icon: LayoutGrid, label: "Soru Havuzu" },
-    { href: "/tests", icon: BookOpen, label: "Testlerim ve Olustur" },
+    { href: "/", icon: LayoutGrid, label: "Analiz" },
+    { href: "/analysis/charts", icon: BarChart3, label: "Grafikler" },
+    { href: "/pool", icon: FolderKanban, label: "Soru Havuzu" },
+    { href: "/notes/tyt", icon: NotebookPen, label: "Notlar TYT" },
+    { href: "/notes/ayt", icon: NotebookPen, label: "Notlar AYT" },
+    { href: "/tests", icon: BookOpen, label: "Testlerim ve Oluştur" },
   ];
 
   return (
@@ -123,3 +127,4 @@ export function Sidebar({ children }: { children: React.ReactNode }) {
     </div>
   );
 }
+

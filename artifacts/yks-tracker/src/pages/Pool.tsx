@@ -239,6 +239,7 @@ export default function Pool() {
             <SelectItem value="Deneme">Deneme</SelectItem>
             <SelectItem value="Banka">Soru Bankası</SelectItem>
             <SelectItem value="Fasikül">Fasikül</SelectItem>
+            <SelectItem value="Ders Kitabı">Ders Kitabı</SelectItem>
           </SelectContent>
         </Select>
 

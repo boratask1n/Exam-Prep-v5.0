@@ -2,152 +2,110 @@
 setlocal enabledelayedexpansion
 cd /d "%~dp0"
 
-echo.
-echo ============================================
-echo  YKS Exam Prep - Yedekten Geri Yukleme
-echo ============================================
-echo.
-
-REM .env dosyasindan DATABASE_URL oku
-set "ENV_FILE=.env"
-set "DATABASE_URL="
-set "DB_NAME=exam_prep"
-set "DB_USER=postgres"
 set "DB_HOST=localhost"
 set "DB_PORT=5432"
-
-if not exist "%ENV_FILE%" (
-    echo [UYARI] .env dosyasi bulunamadi, varsayilan ayarlar kullanilacak.
-) else (
-    REM PowerShell ile URL parse et
-    for /f "usebackq delims=" %%a in (`powershell -NoProfile -Command "$url = (Get-Content '%ENV_FILE%' | Select-String '^DATABASE_URL=') -replace 'DATABASE_URL=',''; if ($url -match 'postgresql://([^:]+):[^@]+@([^:]+):([^/]+)/(.+)') { Write-Host ('{0}|{1}|{2}|{3}' -f $matches[1],$matches[2],$matches[3],$matches[4]) }"`) do (
-        for /f "tokens=1,2,3,4 delims=|" %%b in ("%%a") do (
-            set "DB_USER=%%b"
-            set "DB_HOST=%%c"
-            set "DB_PORT=%%d"
-            set "DB_NAME=%%e"
-        )
-    )
-)
-
+set "DB_NAME=exam_prep"
+set "DB_USER=postgres"
+set "DB_PASS=postgres"
 set "DOCKER_CONTAINER=exam-prep-postgres"
-set "USE_DOCKER=0"
+set "UPLOADS_DST=artifacts\api-server\uploads"
 
-docker ps --format "{{.Names}}" | findstr /i /c:"%DOCKER_CONTAINER%" >nul 2>&1
-if %ERRORLEVEL% == 0 (
-    set "USE_DOCKER=1"
-    echo [BILGI] Docker konteyneri bulundu: %DOCKER_CONTAINER%
-) else (
-    echo [BILGI] Docker konteyneri bulunamadi, psql kullanilacak.
+if exist ".env" (
+  for /f "usebackq delims=" %%A in (`powershell -NoProfile -Command "$line=(Get-Content '.env' | Select-String '^DATABASE_URL=' | Select-Object -First 1).Line; if($line){$u=$line -replace '^DATABASE_URL=',''; try{$x=[uri]$u; $pw=''; if($x.UserInfo -match '^[^:]+:(.+)$'){$pw=$matches[1]}; Write-Output ($x.Host+'|'+$x.Port+'|'+$x.AbsolutePath.TrimStart('/')+'|'+$x.UserInfo.Split(':')[0]+'|'+$pw)}catch{}}"`) do (
+    for /f "tokens=1,2,3,4,5 delims=|" %%B in ("%%A") do (
+      if not "%%B"=="" set "DB_HOST=%%B"
+      if not "%%C"=="" set "DB_PORT=%%C"
+      if not "%%D"=="" set "DB_NAME=%%D"
+      if not "%%E"=="" set "DB_USER=%%E"
+      if not "%%F"=="" set "DB_PASS=%%F"
+    )
+  )
 )
 
 echo.
+echo ============================================
+echo  Yedekten Geri Yukleme
+echo ============================================
+echo.
+
+if not exist "backups" (
+  echo [HATA] backups klasoru bulunamadi.
+  pause
+  exit /b 1
+)
+
 echo Mevcut yedekler:
-dir /b /o-d "backups\*.sql" 2>nul
-if %ERRORLEVEL% neq 0 (
-    echo [HATA] backups klasorunde yedek dosyasi bulunamadi.
-    pause
-    exit /b 1
+for /f "delims=" %%D in ('dir /b /ad /o-d "backups"') do echo   %%D
+echo.
+
+set /p BACKUP_NAME=Geri yuklemek istediginiz yedek klasorunu yazin: 
+if "%BACKUP_NAME%"=="" (
+  echo [HATA] Yedek adi bos olamaz.
+  pause
+  exit /b 1
+)
+
+set "BACKUP_DIR=backups\%BACKUP_NAME%"
+set "DUMP_FILE=%BACKUP_DIR%\database.sql"
+set "UPLOADS_SRC=%BACKUP_DIR%\uploads"
+
+if not exist "%DUMP_FILE%" (
+  echo [HATA] Dump dosyasi bulunamadi: %DUMP_FILE%
+  pause
+  exit /b 1
 )
 
 echo.
-set /p BACKUP_NAME=Yuklemek istediginiz yedek dosyasinin adini yazin: 
-set "BACKUP_FILE=backups\%BACKUP_NAME%"
-
-if not exist "%BACKUP_FILE%" (
-    echo [HATA] Dosya bulunamadi: %BACKUP_FILE%
-    pause
-    exit /b 1
-)
-
-echo.
-echo ============================================
-echo  UYARI: BU ISLEM GERI ALINAMAZ!
-echo ============================================
-echo.
-echo Mevcut veriler SILINECEK ve secilen yedek yuklenecek:
-echo   - Veritabani: %DB_NAME%
-echo   - Host: %DB_HOST%
-echo   - Yedek: %BACKUP_NAME%
-echo.
-set /p CONFIRM=Devam etmek icin EVET yazin: 
+echo UYARI: Mevcut veriler silinip secilen yedek y?klenecek.
+set /p CONFIRM=Devam icin EVET yazin: 
 if /I not "%CONFIRM%"=="EVET" (
-    echo Islem iptal edildi.
+  echo Islem iptal edildi.
+  pause
+  exit /b 0
+)
+
+docker ps --format "{{.Names}}" | findstr /i /c:"%DOCKER_CONTAINER%" >nul 2>nul
+if not errorlevel 1 (
+  echo [1/3] Docker uzerinden veritabani geri yukleniyor...
+  type "%DUMP_FILE%" | docker exec -i "%DOCKER_CONTAINER%" psql -U "%DB_USER%" -d "%DB_NAME%" >nul
+) else (
+  where psql >nul 2>nul
+  if errorlevel 1 (
+    echo [HATA] Ne Docker konteyneri acik ne de psql bulundu.
     pause
-    exit /b 0
-)
-
-echo.
-echo [1/3] Veritabani baglantisi kontrol ediliyor...
-
-if "%USE_DOCKER%"=="1" (
-    docker exec %DOCKER_CONTAINER% pg_isready -U %DB_USER% >nul 2>nul
-    if errorlevel 1 (
-        echo [HATA] Docker veritabani konteyneri hazir degil.
-        pause
-        exit /b 1
-    )
-) else (
-    set "PGPASSWORD="
-    for /f "tokens=*" %%a in ('findstr /B "DATABASE_URL=" "%ENV_FILE%"') do (
-        set "url=%%a"
-        for /f "delims=:@" %%p in ("!url!") do (
-            set "temp=%%p"
-            for /f "delims=" %%q in ("!temp:*:=!") do (
-                if not "%%q"=="" set "PGPASSWORD=%%q"
-            )
-        )
-    )
-    
-    pg_isready -h %DB_HOST% -p %DB_PORT% -U %DB_USER% >nul 2>nul
-    if errorlevel 1 (
-        echo [HATA] Veritabanina baglanilamadi.
-        pause
-        exit /b 1
-    )
-)
-
-echo [2/3] Mevcut veriler temizleniyor...
-
-if "%USE_DOCKER%"=="1" (
-    docker exec %DOCKER_CONTAINER% psql -U %DB_USER% -d %DB_NAME% -c "DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public;" >nul 2>&1
-) else (
-    if defined PGPASSWORD (
-        psql -h %DB_HOST% -p %DB_PORT% -U %DB_USER% -d %DB_NAME% -c "DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public;" >nul 2>&1
-    ) else (
-        psql -h %DB_HOST% -p %DB_PORT% -U %DB_USER% -d %DB_NAME% -W -c "DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public;" >nul 2>&1
-    )
+    exit /b 1
+  )
+  echo [1/3] Lokal psql ile veritabani geri yukleniyor...
+  set "PGPASSWORD=%DB_PASS%"
+  type "%DUMP_FILE%" | psql -h "%DB_HOST%" -p "%DB_PORT%" -U "%DB_USER%" -d "%DB_NAME%" >nul
 )
 
 if errorlevel 1 (
-    echo [HATA] Mevcut veriler temizlenemedi.
-    pause
-    exit /b 1
+  echo [HATA] Veritabani geri yukleme basarisiz.
+  pause
+  exit /b 1
 )
 
-echo [3/3] Yedek geri yukleniyor...
+echo [2/3] Uploads klasoru temizleniyor...
+if exist "%UPLOADS_DST%" (
+  rmdir /s /q "%UPLOADS_DST%" >nul 2>nul
+)
+mkdir "%UPLOADS_DST%" >nul 2>nul
 
-if "%USE_DOCKER%"=="1" (
-    type "%BACKUP_FILE%" | docker exec -i %DOCKER_CONTAINER% psql -U %DB_USER% -d %DB_NAME% >nul 2>&1
+echo [3/3] Uploads geri yukleniyor...
+if exist "%UPLOADS_SRC%" (
+  robocopy "%UPLOADS_SRC%" "%UPLOADS_DST%" /E /R:1 /W:1 /NFL /NDL /NJH /NJS >nul
+  if errorlevel 8 (
+    echo [UYARI] Uploads geri yuklenirken bir hata olustu.
+  )
 ) else (
-    if defined PGPASSWORD (
-        type "%BACKUP_FILE%" | psql -h %DB_HOST% -p %DB_PORT% -U %DB_USER% -d %DB_NAME% >nul 2>&1
-    ) else (
-        type "%BACKUP_FILE%" | psql -h %DB_HOST% -p %DB_PORT% -U %DB_USER% -d %DB_NAME% -W >nul 2>&1
-    )
-)
-
-if errorlevel 1 (
-    echo [HATA] Geri yukleme basarisiz.
-    pause
-    exit /b 1
+  echo [BILGI] Yedekte uploads klasoru yok, atlandi.
 )
 
 echo.
 echo ============================================
-echo  Geri Yukleme Tamamlandi!
+echo  GERI YUKLEME TAMAMLANDI
 echo ============================================
-echo.
-echo Yedek basariyla geri yuklendi: %BACKUP_NAME%
+echo Yedek: %BACKUP_NAME%
 echo.
 pause

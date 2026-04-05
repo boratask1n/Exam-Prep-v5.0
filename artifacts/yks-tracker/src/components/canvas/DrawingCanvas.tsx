@@ -1,5 +1,5 @@
-import React, { useEffect, useRef, useState, useCallback } from "react";
-import { Pen, Eraser, Trash2, Undo2, Save, ChevronDown, ChevronUp, ImageIcon, PenLine, ZoomIn, ZoomOut, Maximize2, PencilLine, Brush, Feather } from "lucide-react";
+﻿import React, { useEffect, useRef, useState, useCallback } from "react";
+import { Pen, Eraser, Trash2, Undo2, Save, ChevronDown, ChevronUp, ImageIcon, PenLine, ZoomIn, ZoomOut, Maximize2, PencilLine, Brush, Feather, Square, RectangleHorizontal, Triangle } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -17,6 +17,7 @@ interface Pt {
 
 /** 1–100 UI scale → canvas px (paper space) */
 export type PenKind = "ballpoint" | "fountain" | "pencil" | "brush";
+type ShapeKind = "square" | "rectangle" | "triangle" | "rightTriangle" | "trapezoid";
 
 interface Stroke {
   tool: "pen" | "eraser";
@@ -26,10 +27,11 @@ interface Stroke {
   points: Pt[];
   /** Sadece kalem; eski kayıtlarda yok → tükenmez */
   penKind?: PenKind;
-  snapShape?: "line";
+  snapShape?: "line" | ShapeKind;
 }
 type EraserMode = "area" | "stroke";
 
+type BoardSize = { width: number; height: number };
 
 export interface DrawingCanvasProps {
   questionId: number;
@@ -39,7 +41,16 @@ export interface DrawingCanvasProps {
   noSave?: boolean;
   onTempSave?: (canvasData: string) => void;
   defaultMode?: "overlay" | "separate";
+  overlayChrome?: boolean;
+  allowShapeTools?: boolean;
 }
+
+type TempDrawingPayload = {
+  overlay: Stroke[];
+  board: Stroke[];
+  previewDataUrl?: string | null;
+  boardSize?: { width: number; height: number } | null;
+};
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const COLORS = [
@@ -72,6 +83,12 @@ const MAX_FIT_ZOOM = 1.0;
 
 const MIN_ZOOM = 0.6;
 const MAX_ZOOM = 4.0;
+const MAX_CANVAS_DPR = 1.5;
+
+function getCanvasDpr() {
+  if (typeof window === "undefined") return 1;
+  return Math.min(window.devicePixelRatio || 1, MAX_CANVAS_DPR);
+}
 
 /** 1–100 → kalem çizgi kalınlığı (paper birimi) */
 function penScaleToPx(scale: number): number {
@@ -252,6 +269,79 @@ function makeCirclePoints(points: Pt[]): Pt[] {
     out.push({ x: cx + Math.cos(t) * rx, y: cy + Math.sin(t) * ry, pressure });
   }
   return out;
+}
+
+
+function makeSquarePointsFromBounds(start: Pt, end: Pt): Pt[] {
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const size = Math.max(8, Math.min(Math.abs(dx), Math.abs(dy)));
+  const x2 = start.x + (dx >= 0 ? size : -size);
+  const y2 = start.y + (dy >= 0 ? size : -size);
+  const pressure = end.pressure ?? start.pressure ?? 0.7;
+  return makeRectPoints([start, { x: x2, y: y2, pressure }]);
+}
+
+function makeTrianglePointsFromBounds(start: Pt, end: Pt): Pt[] {
+  const minX = Math.min(start.x, end.x);
+  const maxX = Math.max(start.x, end.x);
+  const minY = Math.min(start.y, end.y);
+  const maxY = Math.max(start.y, end.y);
+  const pressure = end.pressure ?? start.pressure ?? 0.7;
+  return makePolygonPoints([
+    { x: (minX + maxX) / 2, y: minY, pressure },
+    { x: maxX, y: maxY, pressure },
+    { x: minX, y: maxY, pressure },
+  ], pressure);
+}
+
+function makeRightTrianglePointsFromBounds(start: Pt, end: Pt): Pt[] {
+  const minX = Math.min(start.x, end.x);
+  const maxX = Math.max(start.x, end.x);
+  const minY = Math.min(start.y, end.y);
+  const maxY = Math.max(start.y, end.y);
+  const pressure = end.pressure ?? start.pressure ?? 0.7;
+  return makePolygonPoints([
+    { x: minX, y: minY, pressure },
+    { x: minX, y: maxY, pressure },
+    { x: maxX, y: maxY, pressure },
+  ], pressure);
+}
+
+function makeTrapezoidPointsFromBounds(start: Pt, end: Pt): Pt[] {
+  const minX = Math.min(start.x, end.x);
+  const maxX = Math.max(start.x, end.x);
+  const minY = Math.min(start.y, end.y);
+  const maxY = Math.max(start.y, end.y);
+  const pressure = end.pressure ?? start.pressure ?? 0.7;
+  const inset = Math.max(10, (maxX - minX) * 0.2);
+  return makePolygonPoints([
+    { x: minX + inset, y: minY, pressure },
+    { x: maxX - inset, y: minY, pressure },
+    { x: maxX, y: maxY, pressure },
+    { x: minX, y: maxY, pressure },
+  ], pressure);
+}
+
+function buildShapeStroke(baseStroke: Stroke, end: Pt, shapeKind: ShapeKind): Stroke {
+  const start = baseStroke.points[0] ?? end;
+  const points =
+    shapeKind === "square"
+      ? makeSquarePointsFromBounds(start, end)
+      : shapeKind === "rectangle"
+        ? makeRectPoints([start, end])
+        : shapeKind === "triangle"
+          ? makeTrianglePointsFromBounds(start, end)
+          : shapeKind === "rightTriangle"
+            ? makeRightTrianglePointsFromBounds(start, end)
+            : makeTrapezoidPointsFromBounds(start, end);
+
+  return {
+    ...baseStroke,
+    tool: "pen",
+    points,
+    snapShape: shapeKind,
+  };
 }
 
 function makePolygonPoints(points: Pt[], pressure: number): Pt[] {
@@ -640,7 +730,7 @@ function renderStroke(ctx: CanvasRenderingContext2D, stroke: Stroke) {
     return;
   }
 
-  if (stroke.snapShape === "line" && pts.length >= 2) {
+  if (stroke.snapShape && pts.length >= 2) {
     const pressure = pts.reduce((sum, point) => sum + point.pressure, 0) / pts.length;
     const w = segmentWidthPx(stroke, pressure, pressure);
     ctx.lineCap = "round";
@@ -650,7 +740,9 @@ function renderStroke(ctx: CanvasRenderingContext2D, stroke: Stroke) {
     ctx.lineWidth = w;
     ctx.beginPath();
     ctx.moveTo(pts[0].x, pts[0].y);
-    ctx.lineTo(pts[pts.length - 1].x, pts[pts.length - 1].y);
+    for (let i = 1; i < pts.length; i++) {
+      ctx.lineTo(pts[i].x, pts[i].y);
+    }
     ctx.stroke();
     ctx.restore();
     return;
@@ -819,6 +911,8 @@ export function DrawingCanvas({
   noSave = false,
   onTempSave,
   defaultMode,
+  overlayChrome = false,
+  allowShapeTools = true,
 }: DrawingCanvasProps) {
   const [mode, setMode] = useState<"overlay" | "separate">(
     defaultMode ?? (imageUrl ? "overlay" : "separate")
@@ -848,7 +942,7 @@ export function DrawingCanvas({
   const imgLayoutRef = useRef({ x: 0, y: IMG_TOP_PAD, w: 0, h: 0 });
 
   // DPR
-  const dprRef = useRef(typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1);
+  const dprRef = useRef(getCanvasDpr());
 
   // Separate mode state
   const [separateImageScale, setSeparateImageScale] = useState(1.0);
@@ -857,7 +951,8 @@ export function DrawingCanvas({
   const splitWrapRef = useRef<HTMLDivElement>(null);
 
   // Tools
-  const [tool, setTool] = useState<"pen" | "eraser">("pen");
+  const [tool, setTool] = useState<"pen" | "eraser" | "shape">("pen");
+  const [shapeKind, setShapeKind] = useState<ShapeKind>("rectangle");
   const [color, setColor] = useState(COLORS[0].hex);
   const [penKind, setPenKind] = useState<PenKind>("ballpoint");
   /** 1–100 kalem kalınlığı */
@@ -865,6 +960,12 @@ export function DrawingCanvas({
   /** 1–100 silgi kalınlığı */
   const [eraserWidth, setEraserWidth] = useState(35);
   const [eraserMode, setEraserMode] = useState<EraserMode>("stroke");
+  const toolRef = useRef<"pen" | "eraser" | "shape">(tool);
+  toolRef.current = tool;
+  const penWidthRef = useRef(penWidth);
+  penWidthRef.current = penWidth;
+  const eraserWidthRef = useRef(eraserWidth);
+  eraserWidthRef.current = eraserWidth;
 
   // Strokes
   const [overlayStrokes, setOverlayStrokes] = useState<Stroke[]>([]);
@@ -873,6 +974,8 @@ export function DrawingCanvas({
   const boardStrokesRef = useRef<Stroke[]>([]);
   overlayStrokesRef.current = overlayStrokes;
   boardStrokesRef.current = boardStrokes;
+  const tempSaveHandlerRef = useRef(onTempSave);
+  tempSaveHandlerRef.current = onTempSave;
 
   const [currentStroke, setCurrentStroke] = useState<Stroke | null>(null);
   const currentStrokeRef = useRef<Stroke | null>(null);
@@ -897,6 +1000,86 @@ export function DrawingCanvas({
 
   const activeStrokes = mode === "overlay" ? overlayStrokes : boardStrokes;
   const activeStrokesRef = mode === "overlay" ? overlayStrokesRef : boardStrokesRef;
+  const currentBoardSizeRef = useRef<BoardSize | null>(null);
+  const boardModelSizeRef = useRef<BoardSize | null>(null);
+
+  // Keep visible board size and backing buffer synced to avoid a dead strip on the right edge.
+  const syncSeparateBoardCanvasSize = useCallback(() => {
+    const canvas = boardCanvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const width = rect.width;
+    const height = rect.height;
+    if (width === 0 || height === 0) return;
+    currentBoardSizeRef.current = { width, height };
+    if (!boardModelSizeRef.current) {
+      boardModelSizeRef.current = { width, height };
+    }
+
+    const dpr = getCanvasDpr();
+    const targetWidth = Math.round(width * dpr);
+    const targetHeight = Math.round(height * dpr);
+
+    if (canvas.width === targetWidth && canvas.height === targetHeight) return;
+
+    canvas.width = targetWidth;
+    canvas.height = targetHeight;
+
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    const modelSize = boardModelSizeRef.current ?? { width, height };
+    const scaleX = width / Math.max(modelSize.width, 1);
+    const scaleY = height / Math.max(modelSize.height, 1);
+    ctx.setTransform(dpr * scaleX, 0, 0, dpr * scaleY, 0, 0);
+    ctx.clearRect(0, 0, modelSize.width, modelSize.height);
+    for (const stroke of boardStrokesRef.current) renderStroke(ctx, stroke);
+  }, []);
+
+  // Pointer baslangicinda imlec-cizim kaymasini onlemek icin hafif boyut senkronu.
+  // Degisiklik yoksa hicbir sey yapmaz.
+  const ensureSeparateBoardCanvasIsCurrent = useCallback(() => {
+    const canvas = boardCanvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return;
+
+    const dpr = getCanvasDpr();
+    const expectedW = Math.round(rect.width * dpr);
+    const expectedH = Math.round(rect.height * dpr);
+    if (canvas.width === expectedW && canvas.height === expectedH) return;
+
+    canvas.width = expectedW;
+    canvas.height = expectedH;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    const modelSize =
+      boardModelSizeRef.current ??
+      (boardModelSizeRef.current = { width: rect.width, height: rect.height });
+    const scaleX = rect.width / Math.max(modelSize.width, 1);
+    const scaleY = rect.height / Math.max(modelSize.height, 1);
+    ctx.setTransform(dpr * scaleX, 0, 0, dpr * scaleY, 0, 0);
+    ctx.clearRect(0, 0, modelSize.width, modelSize.height);
+    for (const stroke of boardStrokesRef.current) renderStroke(ctx, stroke);
+  }, []);
+
+
+  const buildTempSavePayload = useCallback((): string => {
+    const boardRect = boardCanvasRef.current?.getBoundingClientRect();
+    const stableBoardSize =
+      boardModelSizeRef.current ??
+      currentBoardSizeRef.current ??
+      (boardRect && boardRect.width > 20 && boardRect.height > 20
+        ? { width: boardRect.width, height: boardRect.height }
+        : null);
+    const payload: TempDrawingPayload = {
+      overlay: overlayStrokesRef.current,
+      board: boardStrokesRef.current,
+      previewDataUrl: null,
+      boardSize: stableBoardSize,
+    };
+
+    return JSON.stringify(payload);
+  }, []);
 
   const setActiveStrokes = useCallback(
     (updater: Stroke[] | ((prev: Stroke[]) => Stroke[])) => {
@@ -908,19 +1091,69 @@ export function DrawingCanvas({
 
   // ── Load initial data (does NOT mark dirty) — sadece overlay kalıcı; ayrı tahta her zaman boş (müsvedde) ──
   useEffect(() => {
-    if (!initialData) return;
+    if (!initialData) {
+      setOverlayStrokes([]);
+      setBoardStrokes([]);
+      boardModelSizeRef.current = null;
+      overlayDirtyRef.current = false;
+      return;
+    }
     try {
       const parsed = JSON.parse(initialData);
       if (Array.isArray(parsed)) {
         setOverlayStrokes(parsed.map((s) => normalizeStrokeForLoad(s as Stroke)));
+        setBoardStrokes([]);
+        boardModelSizeRef.current = null;
       } else if (parsed && typeof parsed === "object") {
-        if (Array.isArray(parsed.overlay))
+        if (Array.isArray(parsed.overlay)) {
           setOverlayStrokes(parsed.overlay.map((s: Stroke) => normalizeStrokeForLoad(s)));
+        } else {
+          setOverlayStrokes([]);
+        }
+        if (Array.isArray(parsed.board)) {
+          setBoardStrokes(parsed.board.map((s: Stroke) => normalizeStrokeForLoad(s)));
+        } else {
+          setBoardStrokes([]);
+        }
+        if (
+          parsed.boardSize &&
+          typeof parsed.boardSize === "object" &&
+          typeof parsed.boardSize.width === "number" &&
+          typeof parsed.boardSize.height === "number" &&
+          parsed.boardSize.width > 0 &&
+          parsed.boardSize.height > 0
+        ) {
+          boardModelSizeRef.current = {
+            width: parsed.boardSize.width,
+            height: parsed.boardSize.height,
+          };
+        } else {
+          boardModelSizeRef.current = null;
+        }
+      } else {
+        setOverlayStrokes([]);
+        setBoardStrokes([]);
+        boardModelSizeRef.current = null;
       }
-    } catch {}
-    setBoardStrokes([]);
+    } catch {
+      setOverlayStrokes([]);
+      setBoardStrokes([]);
+      boardModelSizeRef.current = null;
+    }
     overlayDirtyRef.current = false;
-  }, []);
+  }, [initialData]);
+
+  // noSave modunda pencere kapanirken son cizimi kacirmamak icin unmount aninda bir kez daha snapshot gonder.
+  useEffect(() => {
+    if (!noSave) return;
+    return () => {
+      try {
+        tempSaveHandlerRef.current?.(buildTempSavePayload());
+      } catch {
+        // noop
+      }
+    };
+  }, [buildTempSavePayload, noSave]);
 
   // ─────────────────────────────────────────────────────────────────
   // OVERLAY: compute image layout in PAPER coordinates (device-independent)
@@ -1095,7 +1328,7 @@ export function DrawingCanvas({
     if (!sv) return;
 
     const init = () => {
-      dprRef.current = window.devicePixelRatio || 1;
+        dprRef.current = getCanvasDpr();
       updateImgLayout();
       // On first render, fit the paper width to the viewport
       const fit = computeFitZoom();
@@ -1111,7 +1344,7 @@ export function DrawingCanvas({
     };
 
     const ro = new ResizeObserver(() => {
-      dprRef.current = window.devicePixelRatio || 1;
+      dprRef.current = getCanvasDpr();
       renderOverlay();
     });
     ro.observe(sv);
@@ -1158,34 +1391,32 @@ export function DrawingCanvas({
     if (!container || !canvas) return;
 
     const resize = () => {
-      const rect = container.getBoundingClientRect();
-      if (rect.width === 0 || rect.height === 0) return;
-      const dpr = window.devicePixelRatio || 1;
-      canvas.width = Math.round(rect.width * dpr);
-      canvas.height = Math.round(rect.height * dpr);
-      canvas.style.width = rect.width + "px";
-      canvas.style.height = rect.height + "px";
-      const ctx = canvas.getContext("2d")!;
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      ctx.clearRect(0, 0, rect.width, rect.height);
-      for (const s of boardStrokesRef.current) renderStroke(ctx, s);
+      syncSeparateBoardCanvasSize();
     };
 
     resize();
     const ro = new ResizeObserver(resize);
     ro.observe(container);
     return () => ro.disconnect();
-  }, [mode]);
+  }, [mode, syncSeparateBoardCanvasSize]);
 
   // ── Redraw separate mode on stroke change ──
   useEffect(() => {
     if (mode !== "separate") return;
+    ensureSeparateBoardCanvasIsCurrent();
     const canvas = boardCanvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d")!;
-    const dpr = window.devicePixelRatio || 1;
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.clearRect(0, 0, canvas.width / dpr, canvas.height / dpr);
+    const rect = canvas.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return;
+    const modelSize =
+      boardModelSizeRef.current ??
+      (boardModelSizeRef.current = { width: rect.width, height: rect.height });
+    const dpr = getCanvasDpr();
+    const scaleX = rect.width / Math.max(modelSize.width, 1);
+    const scaleY = rect.height / Math.max(modelSize.height, 1);
+    ctx.setTransform(dpr * scaleX, 0, 0, dpr * scaleY, 0, 0);
+    ctx.clearRect(0, 0, modelSize.width, modelSize.height);
     for (const s of boardStrokes) renderStroke(ctx, s);
     if (currentStroke) {
       if (currentStroke.tool === "eraser" && eraserMode === "stroke") {
@@ -1196,7 +1427,7 @@ export function DrawingCanvas({
       }
       renderStroke(ctx, currentStroke);
     }
-  }, [mode, boardStrokes, currentStroke, eraserMode]);
+  }, [mode, boardStrokes, currentStroke, eraserMode, ensureSeparateBoardCanvasIsCurrent]);
 
   // ─────────────────────────────────────────────────────────────────
   // INPUT: Coordinate mapping → paper coordinates
@@ -1225,9 +1456,21 @@ export function DrawingCanvas({
         pressure,
       };
     } else {
+      const activeTool = toolRef.current;
+      const edgeBleed =
+        activeTool === "eraser"
+          ? Math.max(4, eraserScaleToWidth(eraserWidthRef.current) * 0.5)
+          : Math.max(4, penScaleToPx(penWidthRef.current) * 0.5);
+      const modelSize =
+        boardModelSizeRef.current ??
+        (rect.width > 0 && rect.height > 0
+          ? (boardModelSizeRef.current = { width: rect.width, height: rect.height })
+          : { width: rect.width || 1, height: rect.height || 1 });
+      const localX = Math.min(rect.width + edgeBleed, Math.max(-edgeBleed, e.clientX - rect.left));
+      const localY = Math.min(rect.height + edgeBleed, Math.max(-edgeBleed, e.clientY - rect.top));
       return {
-        x: e.clientX - rect.left,
-        y: e.clientY - rect.top,
+        x: (localX / Math.max(rect.width, 1)) * modelSize.width,
+        y: (localY / Math.max(rect.height, 1)) * modelSize.height,
         pressure,
       };
     }
@@ -1260,17 +1503,16 @@ export function DrawingCanvas({
 
   const onPointerDown = useCallback((e: React.PointerEvent) => {
     const isHardwareEraser = e.button === 5 || (e.buttons & 32) === 32;
-    // Tablet (Veikk vb.): uç silgi ↔ kalem durumunu araç çubuğuyla eşitle
     if (e.pointerType === "pen") {
       if (isHardwareEraser) setTool("eraser");
-      else setTool("pen");
+      else if (tool !== "shape") setTool("pen");
     } else if (isHardwareEraser) {
       setTool("eraser");
     }
-    const activeTool: "pen" | "eraser" = isHardwareEraser
+    const activeTool: "pen" | "eraser" | "shape" = isHardwareEraser
       ? "eraser"
       : e.pointerType === "pen"
-        ? "pen"
+        ? tool === "shape" ? "shape" : "pen"
         : tool;
 
     e.preventDefault();
@@ -1281,22 +1523,23 @@ export function DrawingCanvas({
 
     const pt = getXY(e);
     const stroke: Stroke = {
-      tool: activeTool,
+      tool: activeTool === "eraser" ? "eraser" : "pen",
       color: activeTool === "eraser" ? "#000000" : color,
       width: activeTool === "eraser" ? eraserWidth : penWidth,
       points: [pt],
-      ...(activeTool === "pen" ? { penKind } : {}),
+      ...(activeTool !== "eraser" ? { penKind } : {}),
+      ...(activeTool === "shape" ? { snapShape: shapeKind } : {}),
     };
     setCurrentStroke(stroke);
     currentStrokeRef.current = stroke;
     rawStrokeRef.current = stroke;
-  }, [clearSnapTimer, getXY, color, penWidth, eraserWidth, tool, penKind]);
+  }, [clearSnapTimer, getXY, color, penWidth, eraserWidth, tool, penKind, shapeKind]);
 
   const onPointerMove = useCallback((e: React.PointerEvent) => {
     const isHardwareEraser = e.button === 5 || (e.buttons & 32) === 32;
     if (e.pointerType === "pen") {
       if (isHardwareEraser) setTool("eraser");
-      else setTool("pen");
+      else if (tool !== "shape") setTool("pen");
     } else if (isHardwareEraser) {
       setTool("eraser");
     }
@@ -1311,23 +1554,22 @@ export function DrawingCanvas({
       const baseStroke = rawStrokeRef.current ?? prev;
       const last = baseStroke.points[baseStroke.points.length - 1];
       if (Math.hypot(pt.x - last.x, pt.y - last.y) < 0.5) return prev;
+
+      if (tool === "shape") {
+        const rawShape = { ...baseStroke, points: [baseStroke.points[0], pt], snapShape: shapeKind };
+        rawStrokeRef.current = rawShape;
+        const previewStroke = buildShapeStroke(rawShape, pt, shapeKind);
+        currentStrokeRef.current = previewStroke;
+        return previewStroke;
+      }
+
       const updated = { ...baseStroke, points: [...baseStroke.points, pt], snapShape: undefined };
       rawStrokeRef.current = updated;
       currentStrokeRef.current = updated;
       scheduleSnapPreview();
-
-      if (modeRef.current === "separate") {
-        const canvas = boardCanvasRef.current;
-        if (canvas && (updated.tool === "pen" || (updated.tool === "eraser" && eraserMode === "area"))) {
-          const ctx = canvas.getContext("2d")!;
-          const dpr = window.devicePixelRatio || 1;
-          ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-          renderStroke(ctx, { ...updated, points: [last, pt] });
-        }
-      }
       return updated;
     });
-  }, [getXY, eraserMode, scheduleSnapPreview]);
+  }, [getXY, eraserMode, scheduleSnapPreview, tool, shapeKind]);
 
   const onPointerUp = useCallback((e: React.PointerEvent) => {
     e.preventDefault();
@@ -1472,11 +1714,11 @@ export function DrawingCanvas({
       setShowSaveDialog(true);
     } else {
       if (noSave && onTempSave) {
-        onTempSave(JSON.stringify({ overlay: overlayStrokesRef.current }));
+        onTempSave(buildTempSavePayload());
       }
       onClose?.();
     }
-  }, [noSave, onClose, onTempSave]);
+  }, [buildTempSavePayload, noSave, onClose, onTempSave]);
 
   const handleDbSave = useCallback(async () => {
     setIsSaving(true);
@@ -1514,7 +1756,7 @@ export function DrawingCanvas({
     ),
   );
 
-  const DotCursor = tool === "pen" && cursorInCanvas && cursorPos ? (
+  const DotCursor = tool === "pen" && cursorInCanvas && cursorPos && !currentStroke ? (
     <div
       className="absolute pointer-events-none z-[55] rounded-full border border-white/70"
       style={{
@@ -1534,7 +1776,7 @@ export function DrawingCanvas({
       ? Math.max(10, Math.min(eraserScaleToWidth(eraserWidth) * zoom, 160))
       : Math.max(10, Math.min(eraserScaleToWidth(eraserWidth), 160));
 
-  const EraserCursor = tool === "eraser" && cursorInCanvas && cursorPos ? (
+  const EraserCursor = tool === "eraser" && cursorInCanvas && cursorPos && !currentStroke ? (
     <div
       className="absolute pointer-events-none z-[55] rounded-full border-[2px] border-sky-500/80 bg-white/35 backdrop-blur-sm"
       style={{
@@ -1554,40 +1796,45 @@ export function DrawingCanvas({
   const Toolbar = (
     <>
       {showPanel && (
-        <div className="glass-panel flex flex-nowrap items-center gap-3 border-b border-border/60 px-4 py-3 shrink-0 overflow-x-auto">
+        <div
+          className={cn(
+            "glass-panel flex items-center border-b border-border/60 shrink-0",
+            overlayChrome ? "flex-wrap items-start gap-x-3 gap-y-1.5 px-2.5 py-1.5 overflow-visible" : "flex-nowrap gap-2 px-3 py-2 overflow-x-auto",
+          )}
+        >
           {/* Pen / Eraser */}
-          <div className="flex items-center gap-1 rounded-[1.4rem] border border-border/60 bg-card/80 p-1 shrink-0">
+          <div className="flex items-center gap-1 rounded-[1.2rem] border border-border/60 bg-card/80 p-1 shrink-0">
             <button
               onClick={() => setTool("pen")}
               title="Kalem (P)"
               className={cn(
-                "rounded-[1rem] p-2.5 transition-all",
+                  "rounded-[0.95rem] p-2 transition-all",
                 tool === "pen" ? "bg-primary text-primary-foreground shadow-[0_12px_30px_-18px_hsl(var(--primary)/0.65)]" : "text-muted-foreground hover:text-foreground hover:bg-foreground/[0.05]"
               )}
             >
-              <Pen className="w-4 h-4" />
+              <Pen className="w-3.5 h-3.5" />
             </button>
             <button
               onClick={() => setTool("eraser")}
               title="Silgi (E)"
               className={cn(
-                "rounded-[1rem] p-2.5 transition-all",
+                  "rounded-[0.95rem] p-2 transition-all",
                 tool === "eraser" ? "bg-destructive text-destructive-foreground shadow-[0_12px_30px_-18px_hsl(var(--destructive)/0.5)]" : "text-muted-foreground hover:text-foreground hover:bg-foreground/[0.05]"
               )}
             >
-              <Eraser className="w-4 h-4" />
+              <Eraser className="w-3.5 h-3.5" />
             </button>
             {tool === "eraser" && (
-              <div className="flex items-center gap-1 ml-1">
+              <div className="ml-1 flex items-center gap-1">
                 <button
                   onClick={() => setEraserMode("area")}
-                  className={cn("px-2 py-1 rounded-md text-[10px] transition-all", eraserMode === "area" ? "bg-destructive text-destructive-foreground" : "text-muted-foreground hover:bg-foreground/[0.05]")}
+                    className={cn("rounded-md px-1.5 py-0.5 text-[9px] transition-all", eraserMode === "area" ? "bg-destructive text-destructive-foreground" : "text-muted-foreground hover:bg-foreground/[0.05]")}
                 >
                   Alan
                 </button>
                 <button
                   onClick={() => setEraserMode("stroke")}
-                  className={cn("px-2 py-1 rounded-md text-[10px] transition-all", eraserMode === "stroke" ? "bg-destructive text-destructive-foreground" : "text-muted-foreground hover:bg-foreground/[0.05]")}
+                    className={cn("rounded-md px-1.5 py-0.5 text-[9px] transition-all", eraserMode === "stroke" ? "bg-destructive text-destructive-foreground" : "text-muted-foreground hover:bg-foreground/[0.05]")}
                 >
                   Çizgi
                 </button>
@@ -1596,8 +1843,8 @@ export function DrawingCanvas({
           </div>
 
           {/* Kalem türleri */}
-          {tool === "pen" && (
-            <div className="flex items-center gap-1 rounded-[1.4rem] border border-border/60 bg-card/80 p-1 shrink-0">
+          {(tool === "pen" || tool === "shape") && (
+            <div className="flex items-center gap-1 rounded-[1.2rem] border border-border/60 bg-card/80 p-1 shrink-0">
               {PEN_KIND_OPTIONS.map(({ id, label, short }) => (
                 <button
                   key={id}
@@ -1605,44 +1852,74 @@ export function DrawingCanvas({
                   title={label}
                   onClick={() => setPenKind(id)}
                   className={cn(
-                    "flex items-center gap-1 px-3 py-2 rounded-[1rem] text-[10px] font-medium transition-all whitespace-nowrap",
+                    "flex items-center gap-1 px-2 py-1.5 rounded-[0.95rem] text-[9px] font-medium transition-all whitespace-nowrap",
                     penKind === id ? "bg-primary text-primary-foreground shadow-[0_12px_30px_-18px_hsl(var(--primary)/0.65)]" : "text-muted-foreground hover:text-foreground hover:bg-foreground/[0.05]",
                   )}
                 >
-                  {id === "ballpoint" && <Pen className="w-3 h-3 shrink-0" />}
-                  {id === "fountain" && <Feather className="w-3 h-3 shrink-0" />}
-                  {id === "pencil" && <PencilLine className="w-3 h-3 shrink-0" />}
-                  {id === "brush" && <Brush className="w-3 h-3 shrink-0" />}
+                  {id === "ballpoint" && <Pen className="h-2.5 w-2.5 shrink-0" />}
+                  {id === "fountain" && <Feather className="h-2.5 w-2.5 shrink-0" />}
+                  {id === "pencil" && <PencilLine className="h-2.5 w-2.5 shrink-0" />}
+                  {id === "brush" && <Brush className="h-2.5 w-2.5 shrink-0" />}
                   <span className="hidden xl:inline">{short}</span>
                 </button>
               ))}
             </div>
           )}
 
-          {/* Colors */}
-          <div className="flex items-center gap-2 rounded-[1.4rem] border border-border/60 bg-card/80 px-2 py-1.5 shrink-0">
+          
+          {allowShapeTools && tool !== "eraser" && (
+            <div className={cn("flex items-center gap-1 rounded-[1.2rem] border border-border/60 bg-card/80 p-1 shrink-0", overlayChrome && "order-2") }>
+              {[
+                { id: "square", label: "Kare", icon: Square },
+                { id: "rectangle", label: "Dikdörtgen", icon: RectangleHorizontal },
+                { id: "triangle", label: "Üçgen", icon: Triangle },
+                { id: "rightTriangle", label: "Dik Üçgen", icon: Triangle },
+                { id: "trapezoid", label: "Yamuk", icon: RectangleHorizontal },
+              ].map(({ id, label, icon: Icon }) => (
+                <button
+                  key={id}
+                  type="button"
+                  title={label}
+                  onClick={() => {
+                    setTool("shape");
+                    setShapeKind(id as ShapeKind);
+                  }}
+                  className={cn(
+                    "flex items-center gap-1 rounded-[0.95rem] px-2 py-1.5 text-[9px] font-medium transition-all whitespace-nowrap",
+                    tool === "shape" && shapeKind === id
+                      ? "bg-primary text-primary-foreground shadow-[0_12px_30px_-18px_hsl(var(--primary)/0.65)]"
+                      : "text-muted-foreground hover:text-foreground hover:bg-foreground/[0.05]"
+                  )}
+                >
+                  <Icon className={cn("h-2.5 w-2.5 shrink-0", id === "rightTriangle" && "rotate-90")} />
+                  <span className="hidden xl:inline">{label}</span>
+                </button>
+              ))}
+            </div>
+          )}          {/* Colors */}
+          <div className={cn("flex items-center gap-1 rounded-[1.2rem] border border-border/60 bg-card/80 px-1.5 py-1 shrink-0", overlayChrome && "order-5 ml-2") }>
             {COLORS.map((c) => (
               <button
                 key={c.hex}
-                onClick={() => { setColor(c.hex); setTool("pen"); }}
+                onClick={() => { setColor(c.hex); if (tool !== "shape") setTool("pen"); }}
                 title={c.name}
                 style={{ backgroundColor: c.hex }}
                 className={cn(
-                  "h-6 w-6 rounded-full border-2 transition-all hover:scale-110",
-                  tool === "pen" && color === c.hex ? "border-foreground scale-[1.14] shadow-[0_10px_18px_-10px_rgba(15,23,42,0.45)]" : "border-white/70"
+                  "h-4.5 w-4.5 rounded-full border transition-all hover:scale-110",
+                  (tool === "pen" || tool === "shape") && color === c.hex ? "border-foreground scale-[1.14] shadow-[0_10px_18px_-10px_rgba(15,23,42,0.45)]" : "border-white/70"
                 )}
               />
             ))}
           </div>
 
           {/* Kalınlık 1–100 */}
-          {tool === "pen" && (
-            <div className="flex items-center gap-2 min-w-[180px] max-w-[260px] shrink-0">
-              <span className="w-7 tabular-nums text-[10px] text-muted-foreground">{penWidth}</span>
+          {(tool === "pen" || tool === "shape") && (
+            <div className={cn("flex min-w-[128px] max-w-[184px] items-center gap-1 shrink-0", overlayChrome && "order-3")}>
+              <span className="w-5 tabular-nums text-[9px] text-muted-foreground">{penWidth}</span>
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-6 w-6 rounded-lg"
+                className="h-5 w-5 rounded-md"
                 onClick={() => setPenWidth(Math.max(1, penWidth - 1))}
               >
                 -
@@ -1658,7 +1935,7 @@ export function DrawingCanvas({
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-6 w-6 rounded-lg"
+                className="h-5 w-5 rounded-md"
                 onClick={() => setPenWidth(Math.min(18, penWidth + 1))}
               >
                 +
@@ -1666,12 +1943,12 @@ export function DrawingCanvas({
             </div>
           )}
           {tool === "eraser" && (
-            <div className="flex items-center gap-2 min-w-[180px] max-w-[260px] shrink-0">
-              <span className="w-7 tabular-nums text-[10px] text-muted-foreground">{eraserWidth}</span>
+            <div className={cn("flex min-w-[128px] max-w-[184px] items-center gap-1 shrink-0", overlayChrome && "order-3")}>
+              <span className="w-5 tabular-nums text-[9px] text-muted-foreground">{eraserWidth}</span>
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-6 w-6 rounded-lg"
+                className="h-5 w-5 rounded-md"
                 onClick={() => setEraserWidth(Math.max(1, eraserWidth - 1))}
               >
                 -
@@ -1687,7 +1964,7 @@ export function DrawingCanvas({
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-6 w-6 rounded-lg"
+                className="h-5 w-5 rounded-md"
                 onClick={() => setEraserWidth(Math.min(100, eraserWidth + 1))}
               >
                 +
@@ -1697,12 +1974,12 @@ export function DrawingCanvas({
 
           {/* Separate mode image scale */}
           {mode === "separate" && imageUrl && (
-            <div className="flex items-center gap-1 rounded-[1.4rem] border border-border/60 bg-card/80 p-1 shrink-0">
+            <div className="flex items-center gap-1 rounded-[1.2rem] border border-border/60 bg-card/80 p-1 shrink-0">
               {[1, 1.15, 1.3, 1.5].map((z) => (
                 <button
                   key={z}
                   onClick={() => setSeparateImageScale(z)}
-                  className={cn("px-2 py-1 rounded-md text-[10px] transition-all", Math.abs(separateImageScale - z) < 0.01 ? "bg-secondary text-secondary-foreground" : "text-muted-foreground hover:bg-foreground/[0.05]")}
+                  className={cn("rounded-md px-1.5 py-0.5 text-[9px] transition-all", Math.abs(separateImageScale - z) < 0.01 ? "bg-secondary text-secondary-foreground" : "text-muted-foreground hover:bg-foreground/[0.05]")}
                 >
                   {Math.round(z * 100)}%
                 </button>
@@ -1712,38 +1989,40 @@ export function DrawingCanvas({
 
           {/* Zoom controls — overlay mode only */}
           {mode === "overlay" && (
-            <div className="flex items-center gap-0.5 rounded-[1.4rem] border border-border/60 bg-card/80 p-1 shrink-0">
+            <div className={cn("flex items-center gap-0.5 rounded-[1.2rem] border border-border/60 bg-card/80 p-1 shrink-0", overlayChrome && "order-4 ml-auto") }>
               <button
                 onClick={() => applyZoom(zoom / 1.25)}
                 title="Uzaklaş (Ctrl −)"
-                className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-foreground/[0.05] transition-all disabled:opacity-30"
+                className="rounded-md p-0.5 text-muted-foreground transition-all hover:bg-foreground/[0.05] hover:text-foreground disabled:opacity-30"
                 disabled={zoom <= MIN_ZOOM}
               >
-                <ZoomOut className="w-3.5 h-3.5" />
+                <ZoomOut className="h-3 w-3" />
               </button>
-              <span className="w-10 select-none text-center tabular-nums text-[11px] text-muted-foreground">
+              <span className="w-7 select-none text-center tabular-nums text-[9px] text-muted-foreground">
                 {Math.round(zoom * 100)}%
               </span>
               <button
                 onClick={() => applyZoom(zoom * 1.25)}
                 title="Yaklaş (Ctrl +)"
-                className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-foreground/[0.05] transition-all disabled:opacity-30"
+                className="rounded-md p-0.5 text-muted-foreground transition-all hover:bg-foreground/[0.05] hover:text-foreground disabled:opacity-30"
                 disabled={zoom >= MAX_ZOOM}
               >
-                <ZoomIn className="w-3.5 h-3.5" />
+                <ZoomIn className="h-3 w-3" />
               </button>
               <button
                 onClick={() => applyZoom(computeFitZoom())}
                 title="Sayfaya sığdır (Ctrl 0)"
-                className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-foreground/[0.05] transition-all"
+                className="rounded-md p-1 text-muted-foreground transition-all hover:bg-foreground/[0.05] hover:text-foreground"
               >
-                <Maximize2 className="w-3.5 h-3.5" />
+                <Maximize2 className="h-3 w-3" />
               </button>
             </div>
           )}
 
+          {overlayChrome && <div className="order-6 basis-full h-0.5" />}
+
           {/* Undo / Clear */}
-          <div className="flex items-center gap-1 ml-auto shrink-0">
+          <div className={cn("flex items-center gap-1.5 shrink-0", overlayChrome ? "order-7 justify-start" : "ml-auto")}>
             <button
               onClick={() => {
                 if (mode === "overlay") overlayDirtyRef.current = true;
@@ -1756,9 +2035,9 @@ export function DrawingCanvas({
               }}
               disabled={activeStrokes.length === 0 && undoHistory.length === 0}
               title="Geri Al (Ctrl+Z)"
-              className="flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs text-muted-foreground transition-all hover:bg-foreground/[0.05] hover:text-foreground disabled:opacity-30"
+              className="flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] text-muted-foreground transition-all hover:bg-foreground/[0.05] hover:text-foreground disabled:opacity-30"
             >
-              <Undo2 className="w-3.5 h-3.5" /> Geri Al
+              <Undo2 className="h-3 w-3" /> Geri Al
             </button>
             <button
               onClick={() => {
@@ -1769,15 +2048,17 @@ export function DrawingCanvas({
                 }
               }}
               disabled={activeStrokes.length === 0}
-              className="flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs text-destructive/80 transition-all hover:bg-destructive/10 hover:text-destructive disabled:opacity-30"
+              className="flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] text-destructive/80 transition-all hover:bg-destructive/10 hover:text-destructive disabled:opacity-30"
             >
-              <Trash2 className="w-3.5 h-3.5" /> Temizle
+              <Trash2 className="h-3 w-3" /> Temizle
             </button>
           </div>
 
-          <div className="hidden text-[10px] text-muted-foreground/80 lg:block">
-            Zoom: Ctrl + tekerlek · Kaydır: tekerlek / çubuk (Ctrl olmadan)
-          </div>
+          {!overlayChrome && (
+            <div className="hidden text-[10px] text-muted-foreground/80 lg:block">
+              Zoom: Ctrl + tekerlek · Kaydır: tekerlek / çubuk (Ctrl olmadan)
+            </div>
+          )}
         </div>
       )}
     </>
@@ -1804,34 +2085,42 @@ export function DrawingCanvas({
         />
       )}
 
-      <div className="flex h-full w-full flex-col overflow-hidden bg-background select-none">
+      <div className={cn("flex w-full flex-col bg-background select-none", overlayChrome && !imageUrl ? "h-auto overflow-visible" : "h-full overflow-hidden")}>
         {/* Top bar */}
-        <div className="glass-panel z-10 flex flex-nowrap items-center gap-3 border-b border-border/60 px-4 py-2 shrink-0 overflow-x-auto">
+        {!overlayChrome && (
+        <div
+          className={cn(
+            "glass-panel z-10 flex flex-nowrap items-center gap-2 border-b border-border/60 px-3 py-1.5 overflow-x-auto",
+            overlayChrome
+              ? "shrink-0 rounded-t-2xl border-x border-t bg-background/92 backdrop-blur-xl"
+              : "shrink-0",
+          )}
+        >
           <button
             onClick={handleClose}
-            className="shrink-0 rounded-lg px-2 py-1 text-sm font-medium text-muted-foreground transition-colors hover:bg-foreground/[0.05] hover:text-foreground"
+            className="shrink-0 rounded-lg px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-foreground/[0.05] hover:text-foreground"
           >
             ← Kapat
           </button>
 
           {imageUrl && (
-            <div className="flex items-center gap-0.5 rounded-[1.4rem] border border-border/60 bg-card/82 p-0.5 shrink-0">
+            <div className="flex items-center gap-0.5 rounded-[1.2rem] border border-border/60 bg-card/82 p-0.5 shrink-0">
               <button
                 onClick={() => setMode("overlay")}
                 title="Resim üzerinde çiz"
                 className={cn(
-                  "flex items-center gap-1.5 px-3 py-2 rounded-[1rem] text-xs font-medium transition-all",
+                  "flex items-center gap-1 px-2.5 py-1.5 rounded-[0.95rem] text-[10px] font-medium transition-all",
                   mode === "overlay" ? "bg-primary text-primary-foreground shadow-[0_12px_30px_-18px_hsl(var(--primary)/0.65)]" : "text-muted-foreground hover:text-foreground hover:bg-foreground/[0.05]"
                 )}
               >
-                <ImageIcon className="w-3.5 h-3.5" />
+                <ImageIcon className="h-3 w-3" />
                 <span className="hidden sm:inline">Resim Üstünde</span>
               </button>
               <button
                 onClick={() => setMode("separate")}
                 title="Müsvedde — çizimler kaydedilmez"
                 className={cn(
-                  "flex items-center gap-1.5 px-3 py-2 rounded-[1rem] text-xs font-medium transition-all",
+                  "flex items-center gap-1 px-2.5 py-1.5 rounded-[0.95rem] text-[10px] font-medium transition-all",
                   mode === "separate" ? "bg-secondary text-secondary-foreground shadow-[0_12px_30px_-22px_rgba(15,23,42,0.35)]" : "text-muted-foreground hover:text-foreground hover:bg-foreground/[0.05]"
                 )}
               >
@@ -1864,18 +2153,28 @@ export function DrawingCanvas({
               {isSaving ? "Kaydediliyor…" : "Kaydet"}
             </Button>
           )}
-          <button
-            onClick={() => setShowPanel((p) => !p)}
-            className="shrink-0 rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-foreground/[0.05] hover:text-foreground"
-            title="Araç çubuğunu gizle/göster"
-          >
-            {showPanel ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-          </button>
-        </div>
+          {!overlayChrome && (
+            <button
+              onClick={() => setShowPanel((p) => !p)}
+              className="shrink-0 rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-foreground/[0.05] hover:text-foreground"
+              title="Araç çubuğunu gizle/göster"
+            >
+              {showPanel ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+            </button>
+          )}
+          </div>
+        )}
 
         {/* Toolbar */}
-        <div className="z-20 shrink-0 bg-background">
-          {Toolbar}
+        <div
+          className={cn(
+            "z-20 bg-background",
+            overlayChrome
+              ? "shrink-0 rounded-b-2xl border-x border-b border-border/60 bg-background/92 backdrop-blur-xl"
+              : "shrink-0",
+          )}
+        >
+          {(overlayChrome || showPanel) ? Toolbar : null}
         </div>
 
         {/* ── OVERLAY mode: scrollable paper with zoom ── */}
@@ -1945,7 +2244,7 @@ export function DrawingCanvas({
           </div>
         ) : (
           /* ── SEPARATE mode: image left, canvas right ── */
-          <div ref={splitWrapRef} className="flex flex-1 overflow-hidden">
+          <div ref={splitWrapRef} className={cn("flex overflow-hidden", overlayChrome && !imageUrl ? "aspect-square w-full flex-none" : "flex-1")}>
             {imageUrl && (
               <div
                 className="flex items-start justify-center overflow-auto border-r border-border/40 bg-secondary/35 p-5 shrink-0"
@@ -1972,7 +2271,7 @@ export function DrawingCanvas({
             )}
             <div
               ref={containerRef}
-              className="relative flex-1 overflow-hidden rounded-l-[1.5rem] bg-card/55"
+              className={cn("relative flex-1 min-w-0 overflow-hidden bg-card/55", imageUrl ? "rounded-l-[1.5rem]" : "rounded-2xl")}
               style={{ cursor: tool === "pen" || tool === "eraser" ? "none" : "auto" }}
             >
               <div
@@ -1984,13 +2283,13 @@ export function DrawingCanvas({
               />
               <canvas
                 ref={boardCanvasRef}
-                className="absolute inset-0 touch-none"
+                className="absolute inset-0 block h-full w-full touch-none"
                 style={{ touchAction: "none" }}
                 {...pointerHandlers}
               />
               {DotCursor}
               {EraserCursor}
-              {activeStrokes.length === 0 && (
+              {activeStrokes.length === 0 && !overlayChrome && (
                 <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
                   <Pen className="mb-2 h-10 w-10 text-muted-foreground/30" />
                   <p className="px-4 text-center text-sm text-muted-foreground">
@@ -2025,4 +2324,35 @@ export function DrawingCanvas({
     </>
   );
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
