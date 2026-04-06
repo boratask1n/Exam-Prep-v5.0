@@ -65,9 +65,12 @@ export interface Question {
   source: QuestionSource;
   status: QuestionStatus;
   hasDrawing: boolean;
+  isOsymBadge: boolean;
+  isPremiumBadge: boolean;
   createdAt: string;
   updatedAt: string;
 }
+
 
 export type CreateQuestionInputChoice =
   | (typeof CreateQuestionInputChoice)[keyof typeof CreateQuestionInputChoice]
@@ -122,6 +125,8 @@ export interface CreateQuestionInput {
   category: CreateQuestionInputCategory;
   source: CreateQuestionInputSource;
   status?: CreateQuestionInputStatus;
+  isOsymBadge?: boolean;
+  isPremiumBadge?: boolean;
 }
 
 export type UpdateQuestionInputChoice =
@@ -177,6 +182,8 @@ export interface UpdateQuestionInput {
   source?: UpdateQuestionInputSource;
   status?: UpdateQuestionInputStatus;
   solutionUrl?: string | null;
+  isOsymBadge?: boolean;
+  isPremiumBadge?: boolean;
 }
 
 export interface UpdateTestSessionInput {
@@ -438,6 +445,9 @@ export type ListQuestionsParams = {
   limit?: number;
   offset?: number;
   topic?: string;
+  isOsymBadge?: boolean;
+  isPremiumBadge?: boolean;
+  search?: string;
 };
 
 export type ListQuestionsCategory =

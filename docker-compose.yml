@@ -5,7 +5,7 @@ services:
     restart: unless-stopped
     env_file: .env_postgres
     environment:
-      POSTGRES_INITDB_ARGS: "-c shared_buffers=256MB -c effective_cache_size=1GB -c work_mem=16MB -c maintenance_work_mem=64MB -c random_page_cost=1.1"
+      POSTGRES_INITDB_ARGS: "-c shared_buffers=256MB -c effective_cache_size=1GB -c work_mem=16MB -c maintenance_work_mem=64MB -c random_page_cost=1.1 -c password_encryption=md5"
     ports:
       - "127.0.0.1:5432:5432"
     volumes:
@@ -14,6 +14,8 @@ services:
     memswap_limit: 2g
     cpus: "2"
     shm_size: 512m
+    networks:
+      - exam_prep_net
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d exam_prep"]
       interval: 3s
@@ -21,5 +23,35 @@ services:
       retries: 15
       start_period: 15s
 
+  pgbouncer:
+    image: edoburu/pgbouncer:1.15.0
+    container_name: exam-prep-pgbouncer
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DB_HOST: postgres
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_NAME: exam_prep
+      POOL_MODE: transaction
+      MAX_CLIENT_CONN: 100
+      DEFAULT_POOL_SIZE: 25
+      MIN_POOL_SIZE: 10
+      RESERVE_POOL_SIZE: 5
+      RESERVE_POOL_TIMEOUT: 3
+      SERVER_LIFETIME: 3600
+      SERVER_IDLE_TIMEOUT: 600
+      LISTEN_PORT: 6432
+    ports:
+      - "127.0.0.1:6432:6432"
+    networks:
+      - exam_prep_net
+
 volumes:
   exam_prep_pg_data:
+
+networks:
+  exam_prep_net:
+    driver: bridge

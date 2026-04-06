@@ -20,6 +20,15 @@ if exist ".env" (
     )
   )
 )
+if exist ".env_postgres" (
+  for /f "usebackq delims=" %%A in (`powershell -NoProfile -Command "$db='';$user='';$pass='';Get-Content '.env_postgres' | ForEach-Object { if($_ -match '^POSTGRES_DB=(.+)$'){$db=$matches[1]}; if($_ -match '^POSTGRES_USER=(.+)$'){$user=$matches[1]}; if($_ -match '^POSTGRES_PASSWORD=(.+)$'){$pass=$matches[1]} }; Write-Output ('localhost|5432|'+$db+'|'+$user+'|'+$pass)"`) do (
+    for /f "tokens=1,2,3,4,5 delims=|" %%B in ("%%A") do (
+      if "%DB_NAME%"=="exam_prep" if not "%%D"=="" set "DB_NAME=%%D"
+      if "%DB_USER%"=="postgres" if not "%%E"=="" set "DB_USER=%%E"
+      if "%DB_PASS%"=="postgres" if not "%%F"=="" set "DB_PASS=%%F"
+    )
+  )
+)
 
 if not exist "backups" mkdir "backups"
 for /f "usebackq delims=" %%T in (`powershell -NoProfile -Command "Get-Date -Format 'yyyyMMdd-HHmmss'"`) do set "TS=%%T"

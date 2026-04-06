@@ -44,6 +44,10 @@ if not exist ".env_postgres" (
   )
 )
 
+if not exist "artifacts\api-server\uploads" (
+  mkdir "artifacts\api-server\uploads" >nul 2>nul
+)
+
 echo [1/6] Bagimliliklar yukleniyor...
 call pnpm install
 if errorlevel 1 (
@@ -75,7 +79,7 @@ timeout /t 2 /nobreak >nul
 goto wait_pg
 :pg_ready
 
-echo [4/6] Veritabani semasi uygulanuyor...
+echo [4/6] Veritabani semasi uygulaniyor...
 call pnpm --filter @workspace/db run push
 if errorlevel 1 (
   echo [HATA] Schema push basarisiz.

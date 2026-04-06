@@ -75,6 +75,7 @@
     "zod": "catalog:"
   },
   "dependencies": {
+    "mathlive": "^0.109.1",
     "react-use-measure": "^2.1.7"
   }
 }

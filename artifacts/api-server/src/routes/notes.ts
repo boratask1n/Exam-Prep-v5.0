@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { and, desc, eq, ilike, or } from "drizzle-orm";
+import { and, desc, eq, ilike, or, sql } from "drizzle-orm";
 import { db } from "@workspace/db";
 import * as dbSchema from "@workspace/db";
 
@@ -46,6 +46,16 @@ router.get("/notes", async (req, res) => {
   const category = parseNoteCategory(req.query.category, undefined);
   const lesson = parseOptionalString(req.query.lesson);
   const search = parseOptionalString(req.query.search);
+  const rawLimit =
+    typeof req.query.limit === "string"
+      ? Number.parseInt(req.query.limit, 10)
+      : Number.NaN;
+  const rawOffset =
+    typeof req.query.offset === "string"
+      ? Number.parseInt(req.query.offset, 10)
+      : Number.NaN;
+  const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(rawLimit, 1), 60) : 9;
+  const offset = Number.isFinite(rawOffset) ? Math.max(rawOffset, 0) : 0;
   const conditions = [];
 
   if (req.query.category) conditions.push(eq(notesTable.category, category));
@@ -54,27 +64,44 @@ router.get("/notes", async (req, res) => {
     const pattern = `%${search}%`;
     conditions.push(
       or(
-        ilike(notesTable.title, pattern),
-        ilike(notesTable.topic, pattern),
-        ilike(notesTable.description, pattern),
-        ilike(notesTable.lesson, pattern),
+        sql`coalesce(${notesTable.title}, '') ilike ${pattern}`,
+        sql`coalesce(${notesTable.topic}, '') ilike ${pattern}`,
+        sql`coalesce(${notesTable.description}, '') ilike ${pattern}`,
+        sql`coalesce(${notesTable.lesson}, '') ilike ${pattern}`,
       )!,
     );
   }
 
+  const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+  const countRows = (await db
+    .select({ count: sql<number>`count(*)`.mapWith(Number) })
+    .from(notesTable)
+    .where(whereClause)) as Array<{ count: number }>;
+  const total = countRows[0]?.count ?? 0;
+
   const rows = (await db
     .select()
     .from(notesTable)
-    .where(conditions.length > 0 ? and(...conditions) : undefined)
-    .orderBy(desc(notesTable.pinned), desc(notesTable.updatedAt))) as any[];
+    .where(whereClause)
+    .orderBy(desc(notesTable.pinned), desc(notesTable.updatedAt))
+    .limit(limit)
+    .offset(offset)) as any[];
 
-  res.json(rows.map(serializeNote));
+  res.json({
+    items: rows.map(serializeNote),
+    pagination: {
+      total,
+      limit,
+      offset,
+      hasMore: offset + rows.length < total,
+    },
+  });
 });
 
 router.post("/notes", async (req, res) => {
   const lesson = parseOptionalString(req.body.lesson)?.trim();
   if (!lesson) {
-    res.status(400).json({ error: "lesson is required" });
+    res.status(400).json({ error: "Ders seçimi zorunludur" });
     return;
   }
 

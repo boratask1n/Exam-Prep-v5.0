@@ -87,7 +87,7 @@ export function Sidebar({ children }: { children: React.ReactNode }) {
             className="flex w-full items-center gap-3 rounded-[1.25rem] px-4 py-3 font-medium text-muted-foreground transition-all duration-200 hover:bg-foreground/[0.04] hover:text-foreground"
           >
             {isDark ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
-            {isDark ? "Aydinlik Mod" : "Karanlik Mod"}
+            {isDark ? "Aydınlık Mod" : "Karanlık Mod"}
           </button>
         </div>
       </aside>

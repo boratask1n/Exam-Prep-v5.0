@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import {
   useListQuestions,
   useGetFilterOptions,
@@ -11,9 +11,11 @@ import {
 import { QuestionFormDialog } from "@/components/QuestionFormDialog";
 import { DrawingCanvas } from "@/components/canvas/DrawingCanvas";
 import { Badge } from "@/components/ui/badge";
-import { Filter, Book, FileText, CheckCircle2, XCircle, Trash2, Clock, Pencil, ChevronLeft, ChevronRight } from "lucide-react";
+import { Filter, Book, FileText, CheckCircle2, XCircle, Trash2, Clock, Pencil, ChevronLeft, ChevronRight, Plus, Search } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -27,6 +29,25 @@ import { cn } from "@/lib/utils";
 import { useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { getLessonsForCategory, getTopicsForLesson } from "@/lib/lessonTopics";
+import { useUpdateQuestion } from "@workspace/api-client-react";
+import { useDebouncedValue } from "@/hooks/use-debounced-value";
+
+type QuestionBadgeType = "osym" | "premium";
+const QUESTION_BADGE_OSYM = `${import.meta.env.BASE_URL}images/badge-osym.png`;
+const QUESTION_BADGE_PREMIUM = `${import.meta.env.BASE_URL}images/badge-premium.png`;
+
+function QuestionPreviewBadge({ type }: { type: QuestionBadgeType }) {
+  return (
+    <div className="relative h-[58px] w-[58px]">
+      <img
+        src={type === "osym" ? QUESTION_BADGE_OSYM : QUESTION_BADGE_PREMIUM}
+        alt={type === "osym" ? "\u00d6SYM \u00e7\u0131km\u0131\u015f sorular badge" : "Kaliteli Soru badge"}
+        className="h-full w-full object-contain drop-shadow-[0_6px_12px_rgba(15,23,42,0.2)]"
+        loading="lazy"
+      />
+    </div>
+  );
+}
 
 function StatusIcon({ status }: { status: string }) {
   if (status === QuestionStatus.DogruCozuldu) return <CheckCircle2 className="w-4 h-4 text-green-500" />;
@@ -85,12 +106,37 @@ export default function Pool() {
     lesson?: string;
     topic?: string;
     status?: QuestionStatus;
+    isOsymBadge?: boolean;
+    isPremiumBadge?: boolean;
   }>({});
+  const [searchInput, setSearchInput] = useState("");
   const [page, setPage] = useState(1);
   const [limit] = useState(20);
+  const debouncedSearch = useDebouncedValue(searchInput, 250);
 
   const offset = (page - 1) * limit;
-  const { data: response, isLoading } = useListQuestions({ ...filters, offset, limit } as any);
+  const questionQuery = useMemo(
+    () =>
+      ({
+        ...filters,
+        search: debouncedSearch.trim() || undefined,
+        offset,
+        limit,
+      }) as any,
+    [
+      filters.category,
+      filters.source,
+      filters.lesson,
+      filters.topic,
+      filters.status,
+      filters.isOsymBadge,
+      filters.isPremiumBadge,
+      debouncedSearch,
+      offset,
+      limit,
+    ],
+  );
+  const { data: response, isLoading } = useListQuestions(questionQuery);
   const questions: any[] = (response as any)?.items || [];
   const pagination = (response as any)?.pagination;
   const { data: options } = useGetFilterOptions();
@@ -105,6 +151,7 @@ export default function Pool() {
   const [canvasQuestionId, setCanvasQuestionId] = useState<number | null>(null);
   const [deleteTargetId, setDeleteTargetId] = useState<number | null>(null);
   const deleteMutation = useDeleteQuestion();
+  const updateQuestionMutation = useUpdateQuestion();
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
@@ -115,6 +162,33 @@ export default function Pool() {
     queryClient.invalidateQueries({ queryKey: ["/api/questions"] });
     toast({ title: "Soru silindi" });
     setDeleteTargetId(null);
+  };
+
+  const toggleQuestionBadge = async (
+    question: any,
+    badgeType: QuestionBadgeType,
+  ) => {
+    const nextValue =
+      badgeType === "osym" ? !question.isOsymBadge : !question.isPremiumBadge;
+
+    await updateQuestionMutation.mutateAsync({
+      id: question.id,
+      data: {
+        isOsymBadge:
+          badgeType === "osym" ? nextValue : Boolean(question.isOsymBadge),
+        isPremiumBadge:
+          badgeType === "premium" ? nextValue : Boolean(question.isPremiumBadge),
+      },
+    });
+
+    queryClient.invalidateQueries({ queryKey: ["/api/questions"] });
+    toast({
+      title: nextValue ? "Badge eklendi" : "Badge kaldırıldı",
+        description:
+          badgeType === "osym"
+            ? "ÖSYM çıkmış sorular badge'i güncellendi."
+            : "Kaliteli Soru badge'i güncellendi.",
+    });
   };
 
   const activeQuestion = questions?.find((q: any) => q.id === canvasQuestionId);
@@ -174,6 +248,19 @@ export default function Pool() {
       <div className="flex flex-wrap gap-3 mb-6 bg-card/40 p-4 rounded-2xl border border-border/50 backdrop-blur-md">
         <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground mr-1">
           <Filter className="w-4 h-4" /> Filtreler:
+        </div>
+
+        <div className="relative min-w-[220px] flex-1 max-w-sm">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground/70" />
+          <Input
+            value={searchInput}
+            onChange={(e) => {
+              setPage(1);
+              setSearchInput(e.target.value);
+            }}
+            placeholder="Ders, konu, yayın, test ara..."
+            className="h-9 rounded-xl border-border/50 bg-background pl-9"
+          />
         </div>
 
         <Select value={filters.category || "ALL"} onValueChange={(v) => { 
@@ -243,6 +330,36 @@ export default function Pool() {
           </SelectContent>
         </Select>
 
+        <Select
+          value={
+            filters.isOsymBadge && filters.isPremiumBadge
+              ? "both"
+              : filters.isOsymBadge
+                ? "osym"
+                : filters.isPremiumBadge
+                  ? "premium"
+                  : "ALL"
+          }
+          onValueChange={(v) => {
+            setPage(1);
+            setFilters((p) => ({
+              ...p,
+              isOsymBadge: v === "osym" || v === "both" ? true : undefined,
+              isPremiumBadge: v === "premium" || v === "both" ? true : undefined,
+            }));
+          }}
+        >
+          <SelectTrigger className="bg-background rounded-xl border-border/50 h-9 w-44">
+            <SelectValue placeholder="Badge" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="ALL">Filtresiz Badge</SelectItem>
+            <SelectItem value="osym">Sadece ÖSYM</SelectItem>
+            <SelectItem value="premium">Kaliteli Soru</SelectItem>
+            <SelectItem value="both">Her İkisi</SelectItem>
+          </SelectContent>
+        </Select>
+
         {/* Durum filtreleri - açık liste şeklinde */}
         <div className="flex items-center gap-2">
           <span className="text-xs text-muted-foreground mr-1">Durum:</span>
@@ -273,8 +390,8 @@ export default function Pool() {
           })}
         </div>
 
-        {(filters.category || filters.lesson || filters.topic || filters.status || filters.source) && (
-          <Button variant="ghost" size="sm" onClick={() => { setPage(1); setFilters({}); }} className="rounded-xl h-9 text-muted-foreground hover:text-foreground">
+        {(filters.category || filters.lesson || filters.topic || filters.status || filters.source || filters.isOsymBadge || filters.isPremiumBadge || searchInput) && (
+          <Button variant="ghost" size="sm" onClick={() => { setPage(1); setFilters({}); setSearchInput(""); }} className="rounded-xl h-9 text-muted-foreground hover:text-foreground">
             Temizle
           </Button>
         )}
@@ -300,26 +417,53 @@ export default function Pool() {
                 onClick={() => setCanvasQuestionId(q.id)}
                 className="group relative bg-card rounded-2xl overflow-hidden border border-border/40 hover:border-primary/50 shadow-sm hover:shadow-xl hover:shadow-primary/10 transition-all duration-300 cursor-pointer flex flex-col"
               >
-                {/* Image area */}
                 <div className="relative h-40 bg-muted/20 border-b border-border/40 overflow-hidden flex items-center justify-center p-3">
                   {q.imageUrl ? (
                     <LazyImage src={q.imageUrl} alt={q.topic || "Soru"} />
                   ) : (
-                    <div className="text-muted-foreground/30 font-display font-medium text-base">Görsel Yok</div>
+                    <div className="text-muted-foreground/30 font-display font-medium text-base">{"G\u00f6rsel Yok"}</div>
                   )}
 
-                  {/* Badges */}
+                  {/* Info badges */}
                   <div className="absolute top-2 left-2 flex flex-col gap-1">
                     <Badge variant="secondary" className="bg-background/80 backdrop-blur text-xs px-2 py-0.5 shadow-sm rounded-lg border-border/50">
                       {q.category}
                     </Badge>
                     {q.hasDrawing && (
-                      <Badge className="bg-primary/90 text-white backdrop-blur text-[10px] px-1.5 py-0 shadow-sm rounded-lg">Çizim</Badge>
+                      <Badge className="bg-primary/90 text-white backdrop-blur text-[10px] px-1.5 py-0 shadow-sm rounded-lg">{"\u00c7izim"}</Badge>
                     )}
                   </div>
 
+                  {/* Image badges */}
+                  {(q.isOsymBadge || q.isPremiumBadge) && (
+                    <div className="pointer-events-none absolute right-2 top-10 z-10 flex flex-col items-end gap-1.5">
+                      {q.isOsymBadge && <QuestionPreviewBadge type="osym" />}
+                      {q.isPremiumBadge && <QuestionPreviewBadge type="premium" />}
+                    </div>
+                  )}
+
                   {/* Actions */}
-                  <div className="absolute top-2 right-2 flex gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>
+                  <div className="absolute top-2 right-2 flex gap-1.5 opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <button
+                          type="button"
+                          className="flex h-7 w-7 items-center justify-center rounded-full bg-[#4c6fff] text-white shadow-sm backdrop-blur transition-colors hover:bg-[#3f62f4]"
+                        >
+                          <Plus className="h-4 w-4" />
+                        </button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="w-56 rounded-2xl border-border/60 bg-background/95 p-2 backdrop-blur">
+                        <DropdownMenuItem className="rounded-xl py-2" onClick={() => void toggleQuestionBadge(q, "osym")}>
+                          <span className="mr-2 inline-flex h-2.5 w-2.5 rounded-full bg-[#d85d10]" />
+                          {q.isOsymBadge ? "\u00d6SYM badge'ini kald\u0131r" : "\u00d6SYM \u00e7\u0131km\u0131\u015f sorular ekle"}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem className="rounded-xl py-2" onClick={() => void toggleQuestionBadge(q, "premium")}>
+                          <span className="mr-2 inline-flex h-2.5 w-2.5 rounded-full bg-[#4c6fff]" />
+                          {q.isPremiumBadge ? "Kaliteli Soru badge'ini kaldır" : "Kaliteli Soru badge'i ekle"}
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                     <QuestionFormDialog
                       question={q as any}
                       trigger={

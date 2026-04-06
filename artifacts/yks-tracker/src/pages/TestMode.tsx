@@ -12,6 +12,7 @@ import {
 } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { MathLiveStatic } from "@/components/math/MathLiveStatic";
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -1858,14 +1859,14 @@ export default function TestMode() {
                       disabled={readOnly}
                       onClick={() => selectAnswer(currentQuestion.id, label)}
                       className={cn(
-                        "w-full rounded-lg border px-3 py-2 text-left text-sm transition-colors",
+                        "w-full rounded-lg border px-4 py-3 text-left text-base transition-colors",
                         selected
                           ? "border-primary bg-primary/12 text-foreground"
                           : "border-border/50 bg-background/40 text-muted-foreground hover:border-primary/40",
                       )}
                     >
                       <span className="font-semibold text-foreground">{label}) </span>
-                      {optionText}
+                      <MathLiveStatic value={optionText} className="text-[1.25rem] leading-relaxed text-foreground" />
                     </button>
                   );
                 })}
@@ -2082,6 +2083,7 @@ export default function TestMode() {
     </div>
   );
 }
+
 
 
 

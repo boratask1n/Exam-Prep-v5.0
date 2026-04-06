@@ -10,6 +10,12 @@ echo  Exam-Prep Baslatma
 echo ============================================
 echo.
 
+echo [0/5] Eski uygulama surecleri temizleniyor...
+for /f "tokens=5" %%P in ('netstat -ano ^| findstr /r /c:":8080 .*LISTENING"') do taskkill /PID %%P /T /F >nul 2>nul
+for /f "tokens=5" %%P in ('netstat -ano ^| findstr /r /c:":24486 .*LISTENING"') do taskkill /PID %%P /T /F >nul 2>nul
+taskkill /FI "WINDOWTITLE eq Exam-Prep API*" /T /F >nul 2>nul
+taskkill /FI "WINDOWTITLE eq Exam-Prep Web*" /T /F >nul 2>nul
+
 where pnpm >nul 2>nul
 if errorlevel 1 (
   echo [HATA] pnpm bulunamadi. Once kurun: npm i -g pnpm
@@ -44,6 +50,10 @@ if not exist ".env_postgres" (
     pause
     exit /b 1
   )
+)
+
+if not exist "artifacts\api-server\uploads" (
+  mkdir "artifacts\api-server\uploads" >nul 2>nul
 )
 
 echo [1/5] Bagimliliklar kontrol ediliyor...
@@ -89,6 +99,22 @@ if errorlevel 1 (
 echo [5/5] API ve Web aciliyor...
 start "Exam-Prep API" cmd /k "cd /d ""%~dp0"" && pnpm --filter @workspace/api-server run dev"
 start "Exam-Prep Web" cmd /k "cd /d ""%~dp0"" && pnpm --filter @workspace/yks-tracker run dev -- --port 24486 --strictPort"
+
+echo [BILGI] API saglik kontrolu bekleniyor...
+set "_api_wait=0"
+:wait_api
+powershell -NoProfile -Command "try { $r = Invoke-WebRequest -UseBasicParsing http://127.0.0.1:8080/api/health -TimeoutSec 2; if($r.StatusCode -ge 200 -and $r.StatusCode -lt 500){ exit 0 } else { exit 1 } } catch { exit 1 }" >nul 2>nul
+if not errorlevel 1 goto api_ready
+set /a _api_wait+=1
+if !_api_wait! GEQ 45 (
+  echo [UYARI] API saglik yaniti zamaninda gelmedi. Pencere acildiysa build hala suruyor olabilir.
+  goto launch_done
+)
+timeout /t 2 /nobreak >nul
+goto wait_api
+:api_ready
+echo [OK] API hazir.
+:launch_done
 
 for /f "usebackq delims=" %%I in (`powershell -NoProfile -Command "$ip = Get-NetIPAddress -AddressFamily IPv4 ^| Where-Object { $_.IPAddress -ne '127.0.0.1' -and $_.IPAddress -notlike '169.254.*' -and $_.InterfaceAlias -notlike '*WSL*' -and $_.InterfaceAlias -notlike '*vEthernet*' } ^| Select-Object -First 1 -ExpandProperty IPAddress; if (-not $ip) { $ip = '127.0.0.1' }; Write-Output $ip"`) do set "LAN_IP=%%I"
 

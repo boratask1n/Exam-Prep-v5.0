@@ -1,7 +1,7 @@
 import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
 import { questionsTable, drawingsTable } from "@workspace/db";
-import { eq, and, ilike, sql } from "drizzle-orm";
+import { eq, and, ilike, sql, or } from "drizzle-orm";
 import {
   CreateQuestionBody,
   UpdateQuestionBody,
@@ -65,6 +65,21 @@ router.get("/questions", async (req, res) => {
   if (query.publisher) conditions.push(ilike(questionsTable.publisher!, `%${query.publisher}%`));
   if (query.status) conditions.push(eq(questionsTable.status, query.status));
   if (query.topic) conditions.push(ilike(questionsTable.topic!, `%${query.topic}%`));
+  if (query.isOsymBadge !== undefined) conditions.push(eq(questionsTable.isOsymBadge, query.isOsymBadge));
+  if (query.isPremiumBadge !== undefined) conditions.push(eq(questionsTable.isPremiumBadge, query.isPremiumBadge));
+  if (query.search) {
+    const searchTerm = `%${query.search.trim()}%`;
+    conditions.push(
+      or(
+        sql`coalesce(${questionsTable.lesson}, '') ilike ${searchTerm}`,
+        sql`coalesce(${questionsTable.topic}, '') ilike ${searchTerm}`,
+        sql`coalesce(${questionsTable.publisher}, '') ilike ${searchTerm}`,
+        sql`coalesce(${questionsTable.testName}, '') ilike ${searchTerm}`,
+        sql`coalesce(${questionsTable.testNo}, '') ilike ${searchTerm}`,
+        sql`coalesce(${questionsTable.description}, '') ilike ${searchTerm}`,
+      )!,
+    );
+  }
 
   // Pagination
   const rawLimit =
@@ -143,6 +158,8 @@ router.post("/questions", async (req, res) => {
       source: body.source ?? "Banka",
       status: body.status ?? "Cozulmedi",
       hasDrawing: false,
+      isOsymBadge: Boolean(body.isOsymBadge),
+      isPremiumBadge: Boolean(body.isPremiumBadge),
     } as any)
     .returning();
 
@@ -178,6 +195,8 @@ router.patch("/questions/:id", async (req, res) => {
   if (body.source !== undefined) updateData.source = body.source;
   if (body.status !== undefined) updateData.status = body.status;
   if (body.solutionUrl !== undefined) updateData.solutionUrl = body.solutionUrl;
+  if (body.isOsymBadge !== undefined) updateData.isOsymBadge = body.isOsymBadge;
+  if (body.isPremiumBadge !== undefined) updateData.isPremiumBadge = body.isPremiumBadge;
 
   const [question] = await db
     .update(questionsTable)

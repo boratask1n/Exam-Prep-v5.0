@@ -24,6 +24,9 @@ export const ListQuestionsQueryParams = zod.object({
   publisher: zod.coerce.string().optional(),
   status: zod.enum(["Cozulmedi", "DogruCozuldu", "YanlisHocayaSor"]).optional(),
   topic: zod.coerce.string().optional(),
+  isOsymBadge: zod.coerce.boolean().optional(),
+  isPremiumBadge: zod.coerce.boolean().optional(),
+  search: zod.coerce.string().optional(),
   limit: zod.coerce.number().int().positive().optional(),
   offset: zod.coerce.number().int().min(0).optional(),
 });
@@ -53,6 +56,8 @@ export const ListQuestionsResponseItem = zod.object({
   source: zod.enum(["Deneme", "Banka", "Fasikül", "Ders Kitabı"]),
   status: zod.enum(["Cozulmedi", "DogruCozuldu", "YanlisHocayaSor"]),
   hasDrawing: zod.boolean(),
+  isOsymBadge: zod.boolean(),
+  isPremiumBadge: zod.boolean(),
   createdAt: zod.string(),
   updatedAt: zod.string(),
 });
@@ -84,6 +89,8 @@ export const CreateQuestionBody = zod.object({
   category: zod.enum(["TYT", "AYT", "Geometri"]),
   source: zod.enum(["Deneme", "Banka", "Fasikül", "Ders Kitabı"]),
   status: zod.enum(["Cozulmedi", "DogruCozuldu", "YanlisHocayaSor"]).optional(),
+  isOsymBadge: zod.boolean().optional(),
+  isPremiumBadge: zod.boolean().optional(),
 });
 
 /**
@@ -118,6 +125,8 @@ export const GetQuestionResponse = zod.object({
   source: zod.enum(["Deneme", "Banka", "Fasikül", "Ders Kitabı"]),
   status: zod.enum(["Cozulmedi", "DogruCozuldu", "YanlisHocayaSor"]),
   hasDrawing: zod.boolean(),
+  isOsymBadge: zod.boolean(),
+  isPremiumBadge: zod.boolean(),
   createdAt: zod.string(),
   updatedAt: zod.string(),
 });
@@ -152,6 +161,8 @@ export const UpdateQuestionBody = zod.object({
   source: zod.enum(["Deneme", "Banka", "Fasikül", "Ders Kitabı"]).optional(),
   status: zod.enum(["Cozulmedi", "DogruCozuldu", "YanlisHocayaSor"]).optional(),
   solutionUrl: zod.string().nullish(),
+  isOsymBadge: zod.boolean().optional(),
+  isPremiumBadge: zod.boolean().optional(),
 });
 
 export const UpdateQuestionResponse = zod.object({
@@ -179,6 +190,8 @@ export const UpdateQuestionResponse = zod.object({
   source: zod.enum(["Deneme", "Banka", "Fasikül", "Ders Kitabı"]),
   status: zod.enum(["Cozulmedi", "DogruCozuldu", "YanlisHocayaSor"]),
   hasDrawing: zod.boolean(),
+  isOsymBadge: zod.boolean(),
+  isPremiumBadge: zod.boolean(),
   createdAt: zod.string(),
   updatedAt: zod.string(),
 });

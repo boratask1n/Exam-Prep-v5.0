@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+﻿import { useEffect, useMemo, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -21,13 +21,14 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
 import { getLessonsForCategory, getTopicsForLesson } from "@/lib/lessonTopics";
+import { MathLiveChoiceEditor } from "@/components/math/MathLiveChoiceEditor";
+import { convertLegacyMathValueToLatex } from "@/components/math/mathExpression";
 
 const OPTION_LABELS = ["A", "B", "C", "D", "E"] as const;
 type OptionLabel = (typeof OPTION_LABELS)[number];
 type OptionItem = { label: OptionLabel; text: string };
-
 const formSchema = z.object({
-  lesson: z.string().min(1, "Ders adı zorunludur"),
+  lesson: z.string().min(1, "Ders ad\u0131 zorunludur"),
   topic: z.string().optional(),
   description: z.string().optional(),
   publisher: z.string().optional(),
@@ -41,7 +42,7 @@ const formSchema = z.object({
     .string()
     .optional()
     .or(z.literal(""))
-    .refine((v) => !v || /^https?:\/\//i.test(v), "Geçerli bir http(s) adresi girin"),
+    .refine((v) => !v || /^https?:\/\//i.test(v), "Ge\u00e7erli bir http(s) adresi girin"),
 });
 
 type FormValues = z.infer<typeof formSchema>;
@@ -93,6 +94,8 @@ export function QuestionFormDialog({ question, trigger, onSaved }: Props) {
     register,
     handleSubmit,
     setValue,
+    setError,
+    clearErrors,
     watch,
     reset,
     formState: { errors },
@@ -114,17 +117,17 @@ export function QuestionFormDialog({ question, trigger, onSaved }: Props) {
     if (!lesson) return [];
     if (category === "Geometri") {
       return [
-        "Doğruda ve Üçgende Açılar",
-        "Dik Üçgen ve Trigonometrik Bağıntılar",
-        "İkizkenar ve Eşkenar Üçgen",
-        "Üçgende Alan ve Benzerlik",
-        "Üçgende Yardımcı Elemanlar",
-        "Çokgenler ve Dörtgenler",
-        "Özel Dörtgenler",
-        "Çember ve Daire",
-        "Katı Cisimler",
+        "Do\u011fruda ve \u00dc\u00e7gende A\u00e7\u0131lar",
+        "Dik \u00dc\u00e7gen ve Trigonometrik Ba\u011f\u0131nt\u0131lar",
+        "\u0130kizkenar ve E\u015fkenar \u00dc\u00e7gen",
+        "\u00dc\u00e7gende Alan ve Benzerlik",
+        "\u00dc\u00e7gende Yard\u0131mc\u0131 Elemanlar",
+        "\u00c7okgenler ve D\u00f6rtgenler",
+        "\u00d6zel D\u00f6rtgenler",
+        "\u00c7ember ve Daire",
+        "Kat\u0131 Cisimler",
         "Analitik Geometri",
-        "Çemberin Analitik İncelenmesi",
+        "\u00c7emberin Analitik \u0130ncelenmesi",
       ];
     }
     return getTopicsForLesson(category, lesson);
@@ -172,7 +175,7 @@ export function QuestionFormDialog({ question, trigger, onSaved }: Props) {
         const next = emptyOptionTexts();
         for (const option of question.options) {
           const label = (option.label || "").toUpperCase() as OptionLabel;
-          if (OPTION_LABELS.includes(label)) next[label] = option.text ?? "";
+          if (OPTION_LABELS.includes(label)) next[label] = convertLegacyMathValueToLatex(option.text ?? "");
         }
         setOptionTexts(next);
         setUseManualChoices(true);
@@ -226,6 +229,11 @@ export function QuestionFormDialog({ question, trigger, onSaved }: Props) {
 
   const onSubmit = async (data: FormValues) => {
     try {
+      if (!data.lesson?.trim()) {
+        setError("lesson", { type: "manual", message: "Ders adı zorunludur" });
+        return;
+      }
+
       let imageUrl: string | null | undefined = undefined;
       const manualOptions: OptionItem[] | null = useManualChoices
         ? OPTION_LABELS.map((label) => ({ label, text: optionTexts[label].trim() })).filter((item) => item.text.length > 0)
@@ -233,8 +241,8 @@ export function QuestionFormDialog({ question, trigger, onSaved }: Props) {
 
       if (useManualChoices && (!manualOptions || manualOptions.length < 2)) {
         toast({
-          title: "En az 2 şık girin",
-          description: "Manuel şık modunda en az iki şık metni doldurmalısın.",
+          title: "En az 2 \u015f\u0131k girin",
+          description: "Manuel \u015f\u0131k modunda en az iki \u015f\u0131k metni doldurmal\u0131s\u0131n.",
           variant: "destructive",
         });
         return;
@@ -261,7 +269,7 @@ export function QuestionFormDialog({ question, trigger, onSaved }: Props) {
 
       if (isEdit && question) {
         await updateMutation.mutateAsync({ id: question.id, data: payload });
-        toast({ title: "Soru güncellendi" });
+        toast({ title: "Soru g\u00fcncellendi" });
       } else {
         await createMutation.mutateAsync({ data: payload });
         toast({ title: "Soru havuza eklendi" });
@@ -277,7 +285,7 @@ export function QuestionFormDialog({ question, trigger, onSaved }: Props) {
       setUseManualChoices(false);
       setOptionTexts(emptyOptionTexts());
     } catch {
-      toast({ title: "Hata", description: "İşlem sırasında bir hata oluştu.", variant: "destructive" });
+      toast({ title: "Hata", description: "\u0130\u015flem s\u0131ras\u0131nda bir hata olu\u015ftu.", variant: "destructive" });
     }
   };
 
@@ -294,15 +302,31 @@ export function QuestionFormDialog({ question, trigger, onSaved }: Props) {
         )}
       </DialogTrigger>
 
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto bg-card border-border/50 shadow-2xl rounded-2xl" onPaste={handlePaste}>
+      <DialogContent
+        className="max-w-2xl max-h-[90vh] overflow-y-auto bg-card border-border/50 shadow-2xl rounded-2xl"
+        onPaste={handlePaste}
+        onInteractOutside={(event) => {
+          const target = event.target as HTMLElement | null;
+          if (
+            target?.closest(".ML__keyboard") ||
+            target?.closest(".MLK__backdrop") ||
+            target?.closest("[data-command-target='virtual-keyboard']")
+          ) {
+            event.preventDefault();
+          }
+        }}
+      >
         <DialogHeader>
-          <DialogTitle className="text-2xl font-display">{isEdit ? "Soruyu Düzenle" : "Yeni Soru Ekle"}</DialogTitle>
+          <DialogTitle className="text-2xl font-display">{isEdit ? "Soruyu D\u00fczenle" : "Yeni Soru Ekle"}</DialogTitle>
+          <DialogDescription className="text-sm text-muted-foreground">
+            Soru bilgilerini, görseli ve gerekiyorsa matematiksel şıklarını bu pencereden düzenleyebilirsin.
+          </DialogDescription>
         </DialogHeader>
 
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-5 mt-4">
           <div className="space-y-2">
             <Label>
-              Soru Görseli <span className="text-muted-foreground text-xs">(Sürükle bırak veya Ctrl+V ile yapıştır)</span>
+              {"Soru G\u00f6rseli"} <span className="text-muted-foreground text-xs">{"(S\u00fcr\u00fckle b\u0131rak veya Ctrl+V ile yap\u0131\u015ft\u0131r)"}</span>
             </Label>
             {!imagePreview ? (
               <div
@@ -312,15 +336,15 @@ export function QuestionFormDialog({ question, trigger, onSaved }: Props) {
                 <div className="p-3 bg-primary/10 rounded-full group-hover:scale-110 transition-transform mb-2">
                   <UploadCloud className="w-6 h-6 text-primary" />
                 </div>
-                <p className="text-sm text-muted-foreground font-medium">Görsel Yükle</p>
+                <p className="text-sm text-muted-foreground font-medium">{"G\u00f6rsel Y\u00fckle"}</p>
                 <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={onFileSelect} />
               </div>
             ) : (
               <div className="relative w-full rounded-xl overflow-hidden border border-border/50 bg-foreground/10 group flex justify-center">
-                <img src={imagePreview} alt="Önizleme" className="max-h-56 object-contain" />
+                <img src={imagePreview} alt={"\u00d6nizleme"} className="max-h-56 object-contain" />
                 <div className="absolute inset-0 bg-foreground/45 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
                   <Button type="button" variant="destructive" size="sm" onClick={clearImage} className="rounded-xl">
-                    <X className="w-4 h-4 mr-2" /> Kaldır
+                    <X className="w-4 h-4 mr-2" /> {"Kald\u0131r"}
                   </Button>
                 </div>
               </div>
@@ -351,11 +375,12 @@ export function QuestionFormDialog({ question, trigger, onSaved }: Props) {
                 onValueChange={(val) => {
                   setValue("lesson", val);
                   setValue("topic", "");
+                  clearErrors("lesson");
                 }}
                 disabled={category === "Geometri"}
               >
                 <SelectTrigger className="bg-muted/30 border-border/50 rounded-xl">
-                  <SelectValue placeholder={category === "Geometri" ? "Geometri" : "Ders seçin..."} />
+                  <SelectValue placeholder={category === "Geometri" ? "Geometri" : "Ders se\u00e7in..."} />
                 </SelectTrigger>
                 <SelectContent>
                   {lessonOptions.map((l) => (
@@ -376,10 +401,10 @@ export function QuestionFormDialog({ question, trigger, onSaved }: Props) {
                 disabled={!lesson && category !== "Geometri"}
               >
                 <SelectTrigger className="bg-muted/30 border-border/50 rounded-xl">
-                  <SelectValue placeholder={lesson ? "Konu seçin..." : category === "Geometri" ? "Konu seçin..." : "Önce ders seçin"} />
+                  <SelectValue placeholder={lesson ? "Konu se\u00e7in..." : category === "Geometri" ? "Konu se\u00e7in..." : "\u00d6nce ders se\u00e7in"} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="NONE">Konu seçilmedi</SelectItem>
+                  <SelectItem value="NONE">{"Konu se\u00e7ilmedi"}</SelectItem>
                   {topicOptions.length > 0
                     ? topicOptions.map((t) => (
                         <SelectItem key={t} value={t}>
@@ -388,7 +413,7 @@ export function QuestionFormDialog({ question, trigger, onSaved }: Props) {
                       ))
                     : lesson && (
                         <SelectItem value="_NO_TOPICS_" disabled>
-                          Konu bulunamadı
+                          {"Konu bulunamad\u0131"}
                         </SelectItem>
                       )}
                 </SelectContent>
@@ -412,12 +437,12 @@ export function QuestionFormDialog({ question, trigger, onSaved }: Props) {
             </div>
 
             <div className="space-y-2">
-              <Label>Yayınevi</Label>
+              <Label>{"Yay\u0131nevi"}</Label>
               <Input {...register("publisher")} placeholder="3D, Bilgi Sarmal..." className="bg-muted/30 border-border/50 rounded-xl" />
             </div>
 
             <div className="space-y-2">
-              <Label>Doğru Şık</Label>
+              <Label>{"Do\u011fru \u015e\u0131k"}</Label>
               <Select value={watch("choice") || "NONE"} onValueChange={(val) => setValue("choice", val === "NONE" ? null : (val as QuestionChoice))}>
                 <SelectTrigger className="bg-muted/30 border-border/50 rounded-xl">
                   <SelectValue placeholder="Belirtilmedi" />
@@ -434,8 +459,8 @@ export function QuestionFormDialog({ question, trigger, onSaved }: Props) {
             </div>
 
             <div className="space-y-2">
-              <Label>Test Adı</Label>
-              <Input {...register("testName")} placeholder="Deneme adı" className="bg-muted/30 border-border/50 rounded-xl" />
+              <Label>{"Test Ad\u0131"}</Label>
+              <Input {...register("testName")} placeholder={"Deneme ad\u0131"} className="bg-muted/30 border-border/50 rounded-xl" />
             </div>
 
             <div className="space-y-2">
@@ -450,9 +475,9 @@ export function QuestionFormDialog({ question, trigger, onSaved }: Props) {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value={QuestionStatus.Cozulmedi}>Çözülmedi</SelectItem>
-                  <SelectItem value={QuestionStatus.DogruCozuldu}>Doğru Çözüldü</SelectItem>
-                  <SelectItem value={QuestionStatus.YanlisHocayaSor}>Yanlış / Hocaya Sor</SelectItem>
+                  <SelectItem value={QuestionStatus.Cozulmedi}>{"\u00c7\u00f6z\u00fclmedi"}</SelectItem>
+                  <SelectItem value={QuestionStatus.DogruCozuldu}>{"Do\u011fru \u00c7\u00f6z\u00fcld\u00fc"}</SelectItem>
+                  <SelectItem value={QuestionStatus.YanlisHocayaSor}>{"Yanl\u0131\u015f / Hocaya Sor"}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -466,43 +491,47 @@ export function QuestionFormDialog({ question, trigger, onSaved }: Props) {
                 checked={useManualChoices}
                 onChange={(e) => setUseManualChoices(e.target.checked)}
               />
-              Şıkları kendim gireceğim
+              {"\u015e\u0131klar\u0131 kendim girece\u011fim"}
             </label>
             {useManualChoices && (
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                {OPTION_LABELS.map((label) => (
-                  <div key={label} className="space-y-1">
-                    <Label className="text-xs">{label} Şıkkı</Label>
-                    <Input
-                      value={optionTexts[label]}
-                      onChange={(e) => setOptionTexts((prev) => ({ ...prev, [label]: e.target.value }))}
-                      placeholder={`${label} şık metni`}
-                      className="bg-muted/30 border-border/50 rounded-xl"
-                    />
-                  </div>
-                ))}
+              <div className="space-y-3">
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  {OPTION_LABELS.map((label) => (
+                    <div key={label} className="space-y-1">
+                      <Label className="text-xs">{label} {"\u015e\u0131kk\u0131"}</Label>
+                      <MathLiveChoiceEditor
+                        value={optionTexts[label]}
+                        onChange={(nextValue) => setOptionTexts((prev) => ({ ...prev, [label]: nextValue }))}
+                        placeholder={`${label}\u00A0\u015f\u0131k\u00A0metni`}
+                      />
+                    </div>
+                  ))}
+                </div>
+                <p className="text-[11px] text-muted-foreground">
+                  MathLive editörü odaklandığında matematik klavyesi açılır. Limit, kesir, integral ve iç içe ifadeleri doğrudan bu alanda yazabilirsin.
+                </p>
               </div>
             )}
           </div>
 
           <div className="space-y-2">
-            <Label>Açıklama / Notlar</Label>
-            <Textarea {...register("description")} placeholder="Bu soru hakkında notlarınız..." className="bg-muted/30 border-border/50 rounded-xl resize-none min-h-[80px]" />
+            <Label>{"A\u00e7\u0131klama / Notlar"}</Label>
+            <Textarea {...register("description")} placeholder={"Bu soru hakk\u0131nda notlar\u0131n\u0131z..."} className="bg-muted/30 border-border/50 rounded-xl resize-none min-h-[80px]" />
           </div>
 
           <div className="space-y-2">
-            <Label>Çözüm videosu (YouTube linki)</Label>
+            <Label>{"\u00c7\u00f6z\u00fcm videosu (YouTube linki)"}</Label>
             <Input {...register("solutionUrl")} type="url" placeholder="https://www.youtube.com/watch?v=..." className="bg-muted/30 border-border/50 rounded-xl" />
             {errors.solutionUrl && <p className="text-destructive text-xs">{errors.solutionUrl.message}</p>}
-            <p className="text-[11px] text-muted-foreground">Test modunda bu soru için “Çözüm videosu” ile izlenebilir.</p>
+            <p className="text-[11px] text-muted-foreground">{"Test modunda bu soru i\u00e7in \u201c\u00c7\u00f6z\u00fcm videosu\u201d ile izlenebilir."}</p>
           </div>
 
           <div className="pt-4 flex justify-end gap-3 border-t border-border/50">
             <Button type="button" variant="ghost" onClick={() => setOpen(false)} className="rounded-xl font-medium">
-              İptal
+              {"\u0130ptal"}
             </Button>
             <Button type="submit" disabled={isPending} className="rounded-xl px-8 font-semibold">
-              {isPending ? "Kaydediliyor..." : isEdit ? "Güncelle" : "Kaydet"}
+              {isPending ? "Kaydediliyor..." : isEdit ? "G\u00fcncelle" : "Kaydet"}
             </Button>
           </div>
         </form>
@@ -510,3 +539,4 @@ export function QuestionFormDialog({ question, trigger, onSaved }: Props) {
     </Dialog>
   );
 }
+

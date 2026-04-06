@@ -113,7 +113,6 @@ type AiStatusResponse = {
 
 type AiInsightsCache = {
   insights: AiInsightsResponse;
-  requestedRange: { startDate: string; endDate: string };
   requestedAt: string;
 };
 
@@ -132,7 +131,7 @@ function formatDuration(totalSeconds: number) {
 
 const defaultEnd = new Date();
 const defaultStart = new Date(defaultEnd.getTime() - 30 * 24 * 60 * 60 * 1000);
-const AI_INSIGHTS_CACHE_KEY = "analysis_ai_insights_cache_v2";
+const AI_INSIGHTS_CACHE_KEY = "analysis_ai_insights_cache_v3";
 
 export default function Analysis() {
   const [dateMode, setDateMode] = useState<"range" | "all">("all");
@@ -149,7 +148,6 @@ export default function Analysis() {
   const [aiCreatingTest, setAiCreatingTest] = useState(false);
   const [creatingDiagnosticTest, setCreatingDiagnosticTest] = useState(false);
   const [aiStatus, setAiStatus] = useState<AiStatusResponse | null>(null);
-  const [aiRequestedRange, setAiRequestedRange] = useState<{ startDate: string; endDate: string } | null>(null);
   const [aiRequestedAt, setAiRequestedAt] = useState<string | null>(null);
 
   const [refreshKey, setRefreshKey] = useState(0);
@@ -159,9 +157,8 @@ export default function Analysis() {
       const raw = window.localStorage.getItem(AI_INSIGHTS_CACHE_KEY);
       if (!raw) return;
       const cached = JSON.parse(raw) as AiInsightsCache;
-      if (!cached?.insights || !cached?.requestedRange || !cached?.requestedAt) return;
+      if (!cached?.insights || !cached?.requestedAt) return;
       setAiInsights(cached.insights);
-      setAiRequestedRange(cached.requestedRange);
       setAiRequestedAt(cached.requestedAt);
     } catch {
       // ignore malformed cache
@@ -211,46 +208,20 @@ export default function Analysis() {
     return () => controller.abort();
   }, [analyticsQuery, refreshKey]);
 
-  useEffect(() => {
-    if (!data) return;
-    if (data.summary.totalQuestions > 0) return;
-    if (!aiInsights) return;
-    const isCurrentRange =
-      aiRequestedRange?.startDate === effectiveStartDate &&
-      aiRequestedRange?.endDate === effectiveEndDate;
-    if (!isCurrentRange) return;
-
-    setAiInsights(null);
-    setAiRequestedAt(null);
-    setAiRequestedRange(null);
-    window.localStorage.removeItem(AI_INSIGHTS_CACHE_KEY);
-  }, [data, aiInsights, aiRequestedRange, effectiveStartDate, effectiveEndDate]);
-
   const requestAiInsights = async () => {
-    if ((data?.summary.totalQuestions ?? 0) === 0) {
-      setError(null);
-      setInfoNotice("Bu tarih aralığında çözülen soru verisi yok. Önce en az bir test çözmelisin.");
-      return;
-    }
-
     setAiLoading(true);
     try {
-      const response = await fetch(
-        `/api/analytics/ai-insights?${analyticsQuery}`,
-      );
+      const response = await fetch("/api/analytics/ai-insights");
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
       const aiBody = (await response.json()) as AiInsightsResponse;
-      const requestedRange = { startDate: effectiveStartDate, endDate: effectiveEndDate };
       const requestedAt = new Date().toISOString();
 
       setAiInsights(aiBody);
-      setAiRequestedRange(requestedRange);
       setAiRequestedAt(requestedAt);
 
       const cachePayload: AiInsightsCache = {
         insights: aiBody,
-        requestedRange,
         requestedAt,
       };
       window.localStorage.setItem(AI_INSIGHTS_CACHE_KEY, JSON.stringify(cachePayload));
@@ -398,9 +369,10 @@ export default function Analysis() {
     aiStatus?.provider === "gemini" ? "bg-emerald-500/15 text-emerald-300" : "bg-amber-500/15 text-amber-300";
   const lastAnalysisSourceLabel =
     aiInsights?.generatedBy === "ai" ? "Son analiz: AI" : aiInsights?.generatedBy === "rule_based" ? "Son analiz: Kural tabanlı" : null;
-  const aiMatchesSelectedRange =
-    aiRequestedRange?.startDate === effectiveStartDate && aiRequestedRange?.endDate === effectiveEndDate;
   const aiRequestedAtLabel = aiRequestedAt ? new Date(aiRequestedAt).toLocaleString("tr-TR") : null;
+  const showDiagnosticPrompt =
+    aiInsights?.generatedBy === "rule_based" &&
+    aiInsights.summary.toLocaleLowerCase("tr-TR").includes("henüz sistem genelinde çözülen soru verisi yok");
 
   const summaryCards = useMemo(
     () => [
@@ -515,6 +487,11 @@ export default function Analysis() {
               <span className="text-xs text-muted-foreground">{data?.subjectStats.length ?? 0} ders</span>
             </div>
             <div className="space-y-4">
+              {(data?.subjectStats.length ?? 0) === 0 && (
+                <p className="rounded-xl border border-border/50 bg-card/50 p-3 text-xs text-muted-foreground">
+                  Ders bazlı performansın burada görünecek. Bu alanın dolması için soru havuzundan bir test çözüp sonucu analize eklemen yeterli.
+                </p>
+              )}
               {(data?.subjectStats ?? []).map((s) => {
                 const correctPct = s.totalQuestions > 0 ? (s.correctCount / s.totalQuestions) * 100 : 0;
                 const wrongPct = s.totalQuestions > 0 ? (s.wrongCount / s.totalQuestions) * 100 : 0;
@@ -551,6 +528,12 @@ export default function Analysis() {
           <article className="glass-panel rounded-[1.5rem] border-border/55 p-5 sm:p-6">
             <h2 className="mb-4 flex items-center gap-2 text-lg font-semibold text-foreground"><AlertTriangle className="h-5 w-5 text-amber-400" />Zayıf Konular</h2>
             <div className="space-y-3">
+              {(!hideSystemSuggestions ? (data?.weakTopics ?? []).length : 0) === 0 &&
+                (aiInsights?.aiWeakTopicHints?.length ?? 0) === 0 && (
+                  <p className="rounded-xl border border-border/50 bg-card/50 p-3 text-xs text-muted-foreground">
+                    Zayıf konu sinyalleri burada listelenecek. Yeterli veri oluştuğunda sık hata yaptığın veya yeniden dikkat gerektiren konular otomatik olarak görünecek.
+                  </p>
+                )}
               {(!hideSystemSuggestions ? (data?.weakTopics ?? []).slice(0, 8) : []).map((topic) => {
                 const pct = Math.round(topic.wrongRatio * 100);
                 return (
@@ -629,14 +612,10 @@ export default function Analysis() {
               <button
                 type="button"
                 onClick={() => void requestAiInsights()}
-                disabled={aiLoading || (data?.summary.totalQuestions ?? 0) === 0}
+                disabled={aiLoading}
                 className="inline-flex items-center gap-2 rounded-xl border border-border/60 bg-card/60 px-3 py-1.5 text-xs text-foreground hover:bg-foreground/[0.04] disabled:opacity-60"
               >
-                {aiLoading
-                  ? "Analiz hazırlanıyor..."
-                  : (data?.summary.totalQuestions ?? 0) === 0
-                    ? "Önce veri gerekli"
-                    : "Yapay zeka analizi üret"}
+                {aiLoading ? "Analiz hazırlanıyor..." : "Yapay zeka analizi üret"}
               </button>
               <span className={cn("rounded-full px-2 py-1 text-[11px] font-medium", runtimeProviderTone)}>
                 {runtimeProviderLabel}
@@ -644,8 +623,10 @@ export default function Analysis() {
             </div>
           </div>
 
-          <p className="mb-3 text-xs text-muted-foreground">Not: Gemini analizi sadece butona bastığında çağrılır. Son sonuç sayfa yenilemede korunur.</p>
-          {(data?.summary.totalQuestions ?? 0) === 0 && (
+          <p className="mb-3 text-xs text-muted-foreground">
+            Not: Gemini analizi sadece butona bastığında çağrılır. AI yorumu menüde seçtiğin tarih aralığından bağımsız olarak tüm geçmişi değerlendirir ve son sonuç sayfa yenilemede korunur.
+          </p>
+          {showDiagnosticPrompt && (
             <div className="mb-3 rounded-xl border border-primary/40 bg-primary/10 p-3">
               <p className="text-xs text-foreground/90">
                 Henüz analiz verisi yok. İlk değerlendirme için soru havuzundan bir AI kazanım tarama testi oluşturup test merkezinde çözebilirsin.
@@ -663,10 +644,9 @@ export default function Analysis() {
           {lastAnalysisSourceLabel && (
             <p className="mb-2 text-xs text-muted-foreground">{lastAnalysisSourceLabel}</p>
           )}
-          {aiRequestedRange && aiRequestedAtLabel && (
+          {aiRequestedAtLabel && (
             <p className="mb-3 text-xs text-muted-foreground">
-              Son AI analizi: {aiRequestedRange.startDate} - {aiRequestedRange.endDate} ({aiRequestedAtLabel})
-              {!aiMatchesSelectedRange ? " · Şu an farklı tarih aralığı seçili." : ""}
+              Son AI analizi: Tüm zamanlar ({aiRequestedAtLabel})
             </p>
           )}
 
@@ -674,7 +654,7 @@ export default function Analysis() {
 
           {!aiLoading && !aiInsights && (
             <p className="rounded-xl border border-border/50 bg-card/50 p-4 text-sm text-muted-foreground">
-              Yapay zeka analizi görmek için "Yapay zeka analizi üret" butonuna bas.
+              Yapay zeka analizi görmek için "Yapay zeka analizi üret" butonuna bas. Bu bölüm tarih filtresinden bağımsız olarak tüm çalışma geçmişini değerlendirir.
             </p>
           )}
 

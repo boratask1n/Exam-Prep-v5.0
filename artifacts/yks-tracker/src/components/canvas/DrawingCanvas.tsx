@@ -1,9 +1,10 @@
 ﻿import React, { useEffect, useRef, useState, useCallback } from "react";
-import { Pen, Eraser, Trash2, Undo2, Save, ChevronDown, ChevronUp, ImageIcon, PenLine, ZoomIn, ZoomOut, Maximize2, PencilLine, Brush, Feather, Square, RectangleHorizontal, Triangle } from "lucide-react";
+import { Pen, Eraser, Trash2, Undo2, Save, ChevronDown, ChevronUp, ImageIcon, PenLine, ZoomIn, ZoomOut, Maximize2, PencilLine, Brush, Feather, Square, RectangleHorizontal, Triangle, Circle, Minus } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useSaveDrawing } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
@@ -17,7 +18,7 @@ interface Pt {
 
 /** 1–100 UI scale → canvas px (paper space) */
 export type PenKind = "ballpoint" | "fountain" | "pencil" | "brush";
-type ShapeKind = "square" | "rectangle" | "triangle" | "rightTriangle" | "trapezoid";
+type ShapeKind = "line" | "circle" | "square" | "rectangle" | "triangle" | "rightTriangle" | "trapezoid";
 
 interface Stroke {
   tool: "pen" | "eraser";
@@ -70,6 +71,16 @@ const PEN_KIND_OPTIONS: { id: PenKind; label: string; short: string }[] = [
   { id: "brush", label: "Fırça", short: "Fırça" },
 ];
 
+const SHAPE_TOOL_OPTIONS: { id: ShapeKind; label: string; icon: React.ComponentType<{ className?: string }>; iconClassName?: string }[] = [
+  { id: "line", label: "Düz Çizgi", icon: Minus },
+  { id: "circle", label: "Çember", icon: Circle },
+  { id: "square", label: "Kare", icon: Square },
+  { id: "rectangle", label: "Dikdörtgen", icon: RectangleHorizontal },
+  { id: "triangle", label: "Üçgen", icon: Triangle },
+  { id: "rightTriangle", label: "Dik Üçgen", icon: Triangle, iconClassName: "rotate-90" },
+  { id: "trapezoid", label: "Yamuk", icon: RectangleHorizontal },
+];
+
 // Fixed paper dimensions — same on every device so drawings stay in sync
 const PAPER_W = 2000;
 const PAPER_H = 2000;
@@ -84,10 +95,24 @@ const MAX_FIT_ZOOM = 1.0;
 const MIN_ZOOM = 0.6;
 const MAX_ZOOM = 4.0;
 const MAX_CANVAS_DPR = 1.5;
+const APPLE_CANVAS_DPR = 1;
+const REDUCED_EFFECTS_POINT_STEP = 1.4;
+
+function isApplePlatform() {
+  if (typeof navigator === "undefined") return false;
+  const ua = navigator.userAgent ?? "";
+  const platform = navigator.platform ?? "";
+  return /Mac|iPhone|iPad|iPod/i.test(ua) || /Mac/i.test(platform);
+}
+
+function shouldUseReducedCanvasEffects() {
+  return isApplePlatform();
+}
 
 function getCanvasDpr() {
   if (typeof window === "undefined") return 1;
-  return Math.min(window.devicePixelRatio || 1, MAX_CANVAS_DPR);
+  const cap = isApplePlatform() ? APPLE_CANVAS_DPR : MAX_CANVAS_DPR;
+  return Math.min(window.devicePixelRatio || 1, cap);
 }
 
 /** 1–100 → kalem çizgi kalınlığı (paper birimi) */
@@ -166,7 +191,7 @@ function renderEraserTrail(
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
     ctx.shadowColor = `rgba(71, 85, 105, ${0.16 + progress * 0.18})`;
-    ctx.shadowBlur = 8 + progress * 6;
+    ctx.shadowBlur = shouldUseReducedCanvasEffects() ? 1.5 + progress * 1.25 : 8 + progress * 6;
     ctx.beginPath();
     ctx.moveTo(p0.x, p0.y);
     ctx.lineTo(p1.x, p1.y);
@@ -326,7 +351,11 @@ function makeTrapezoidPointsFromBounds(start: Pt, end: Pt): Pt[] {
 function buildShapeStroke(baseStroke: Stroke, end: Pt, shapeKind: ShapeKind): Stroke {
   const start = baseStroke.points[0] ?? end;
   const points =
-    shapeKind === "square"
+    shapeKind === "line"
+      ? makeLinePoints(start, end)
+      : shapeKind === "circle"
+        ? makeCirclePoints([start, end])
+        : shapeKind === "square"
       ? makeSquarePointsFromBounds(start, end)
       : shapeKind === "rectangle"
         ? makeRectPoints([start, end])
@@ -340,7 +369,7 @@ function buildShapeStroke(baseStroke: Stroke, end: Pt, shapeKind: ShapeKind): St
     ...baseStroke,
     tool: "pen",
     points,
-    snapShape: shapeKind,
+    snapShape: shapeKind === "line" ? "line" : shapeKind,
   };
 }
 
@@ -609,7 +638,7 @@ function renderStrokePencil(ctx: CanvasRenderingContext2D, stroke: Stroke, strok
     ctx.strokeStyle = col;
     ctx.globalAlpha = 0.22 + 0.42 * pr;
     ctx.lineWidth = w;
-    ctx.shadowBlur = 1.2;
+    ctx.shadowBlur = shouldUseReducedCanvasEffects() ? 0 : 1.2;
     ctx.shadowColor = col;
     ctx.beginPath();
     ctx.moveTo(p0.x + ox, p0.y + oy);
@@ -763,7 +792,7 @@ function renderStroke(ctx: CanvasRenderingContext2D, stroke: Stroke) {
       const w = Math.max(0.35, base * pr);
       ctx.fillStyle = strokeStyleForPen(stroke);
       ctx.globalAlpha = 0.35 + 0.45 * pr;
-      ctx.shadowBlur = 1;
+      ctx.shadowBlur = shouldUseReducedCanvasEffects() ? 0 : 1;
       ctx.shadowColor = stroke.color;
       ctx.beginPath();
       ctx.arc(pts[0].x, pts[0].y, w / 2, 0, Math.PI * 2);
@@ -797,6 +826,7 @@ function renderStroke(ctx: CanvasRenderingContext2D, stroke: Stroke) {
   renderStrokeSmooth(ctx, stroke);
   ctx.restore();
 }
+
 
 function eraseStrokesByPath(strokes: Stroke[], eraserPath: Pt[], radius: number): Stroke[] {
   if (!eraserPath.length || radius <= 0) return strokes;
@@ -983,11 +1013,22 @@ export function DrawingCanvas({
 
   const [isSaving, setIsSaving] = useState(false);
   const [showPanel, setShowPanel] = useState(true);
+  const [shapeToolsOpen, setShapeToolsOpen] = useState(false);
 
   // cursorPos: in PAPER coords for overlay mode, screen-relative for separate mode
   const [cursorPos, setCursorPos] = useState<{ x: number; y: number } | null>(null);
   const [cursorInCanvas, setCursorInCanvas] = useState(false);
+  const cursorFrameRef = useRef<number | null>(null);
+  const pendingCursorStateRef = useRef<{ inCanvas: boolean; pos: { x: number; y: number } | null }>({
+    inCanvas: false,
+    pos: null,
+  });
+  const lastCursorStateRef = useRef<{ inCanvas: boolean; pos: { x: number; y: number } | null }>({
+    inCanvas: false,
+    pos: null,
+  });
   const [undoHistory, setUndoHistory] = useState<Stroke[][]>([]);
+  const useCustomCursor = !shouldUseReducedCanvasEffects();
 
   /** Sadece resim üstü (overlay) değişince kayıt uyarısı — ayrı tahta müsvedde, kaydedilmez */
   const overlayDirtyRef = useRef(false);
@@ -1228,7 +1269,7 @@ export function DrawingCanvas({
     if (imgRef.current && imgLoadedRef.current && imgW > 0) {
       ctxBase.save();
       ctxBase.shadowColor = palette.imageShadow;
-      ctxBase.shadowBlur = 18;
+      ctxBase.shadowBlur = shouldUseReducedCanvasEffects() ? 4 : 18;
       ctxBase.fillStyle = palette.emptyPaper;
       ctxBase.fillRect(imgX, imgY, imgW, imgH);
       ctxBase.restore();
@@ -1553,7 +1594,8 @@ export function DrawingCanvas({
       if (!prev) return prev;
       const baseStroke = rawStrokeRef.current ?? prev;
       const last = baseStroke.points[baseStroke.points.length - 1];
-      if (Math.hypot(pt.x - last.x, pt.y - last.y) < 0.5) return prev;
+      const pointStep = shouldUseReducedCanvasEffects() ? REDUCED_EFFECTS_POINT_STEP : 0.5;
+      if (Math.hypot(pt.x - last.x, pt.y - last.y) < pointStep) return prev;
 
       if (tool === "shape") {
         const rawShape = { ...baseStroke, points: [baseStroke.points[0], pt], snapShape: shapeKind };
@@ -1566,7 +1608,9 @@ export function DrawingCanvas({
       const updated = { ...baseStroke, points: [...baseStroke.points, pt], snapShape: undefined };
       rawStrokeRef.current = updated;
       currentStrokeRef.current = updated;
-      scheduleSnapPreview();
+      if (!shouldUseReducedCanvasEffects()) {
+        scheduleSnapPreview();
+      }
       return updated;
     });
   }, [getXY, eraserMode, scheduleSnapPreview, tool, shapeKind]);
@@ -1602,8 +1646,31 @@ export function DrawingCanvas({
 
   // Özel imleç: küçük kağıt div'inde pointerleave titremesi yerine global pointermove + rect (tolerans)
   useEffect(() => {
+    if (!useCustomCursor) return;
     const EDGE_PAD = 8;
     const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+    const flushCursorState = () => {
+      cursorFrameRef.current = null;
+      const next = pendingCursorStateRef.current;
+      const prev = lastCursorStateRef.current;
+      const sameInCanvas = prev.inCanvas === next.inCanvas;
+      const samePos =
+        prev.pos === next.pos ||
+        (!!prev.pos &&
+          !!next.pos &&
+          Math.abs(prev.pos.x - next.pos.x) < 0.25 &&
+          Math.abs(prev.pos.y - next.pos.y) < 0.25);
+      if (sameInCanvas && samePos) return;
+      lastCursorStateRef.current = next;
+      setCursorInCanvas(next.inCanvas);
+      setCursorPos(next.pos);
+    };
+
+    const queueCursorState = (inCanvas: boolean, pos: { x: number; y: number } | null) => {
+      pendingCursorStateRef.current = { inCanvas, pos };
+      if (cursorFrameRef.current !== null) return;
+      cursorFrameRef.current = window.requestAnimationFrame(flushCursorState);
+    };
 
     const syncCursor = (e: PointerEvent) => {
       if (modeRef.current === "overlay") {
@@ -1615,15 +1682,13 @@ export function DrawingCanvas({
           e.clientX <= rect.right + EDGE_PAD &&
           e.clientY >= rect.top - EDGE_PAD &&
           e.clientY <= rect.bottom + EDGE_PAD;
-        if (!inBounds && !currentStrokeRef.current) {
-          setCursorInCanvas(false);
-          setCursorPos(null);
+        if (!inBounds) {
+          queueCursorState(false, null);
           return;
         }
         const localX = (e.clientX - rect.left) / zoomRef.current;
         const localY = (e.clientY - rect.top) / zoomRef.current;
-        setCursorInCanvas(true);
-        setCursorPos({
+        queueCursorState(true, {
           x: clamp(localX, 0, PAPER_W),
           y: clamp(localY, 0, PAPER_H),
         });
@@ -1638,21 +1703,25 @@ export function DrawingCanvas({
         e.clientX <= rect.right + EDGE_PAD &&
         e.clientY >= rect.top - EDGE_PAD &&
         e.clientY <= rect.bottom + EDGE_PAD;
-      if (!inBounds && !currentStrokeRef.current) {
-        setCursorInCanvas(false);
-        setCursorPos(null);
+      if (!inBounds) {
+        queueCursorState(false, null);
         return;
       }
-      setCursorInCanvas(true);
-      setCursorPos({
+      queueCursorState(true, {
         x: clamp(e.clientX - rect.left, 0, rect.width),
         y: clamp(e.clientY - rect.top, 0, rect.height),
       });
     };
 
     window.addEventListener("pointermove", syncCursor, { passive: true });
-    return () => window.removeEventListener("pointermove", syncCursor);
-  }, []);
+    return () => {
+      window.removeEventListener("pointermove", syncCursor);
+      if (cursorFrameRef.current !== null) {
+        window.cancelAnimationFrame(cursorFrameRef.current);
+        cursorFrameRef.current = null;
+      }
+    };
+  }, [useCustomCursor]);
 
   // ─────────────────────────────────────────────────────────────────
   // Keyboard shortcuts
@@ -1756,7 +1825,7 @@ export function DrawingCanvas({
     ),
   );
 
-  const DotCursor = tool === "pen" && cursorInCanvas && cursorPos && !currentStroke ? (
+  const DotCursor = useCustomCursor && tool === "pen" && cursorInCanvas && cursorPos ? (
     <div
       className="absolute pointer-events-none z-[55] rounded-full border border-white/70"
       style={{
@@ -1776,7 +1845,7 @@ export function DrawingCanvas({
       ? Math.max(10, Math.min(eraserScaleToWidth(eraserWidth) * zoom, 160))
       : Math.max(10, Math.min(eraserScaleToWidth(eraserWidth), 160));
 
-  const EraserCursor = tool === "eraser" && cursorInCanvas && cursorPos && !currentStroke ? (
+  const EraserCursor = useCustomCursor && tool === "eraser" && cursorInCanvas && cursorPos ? (
     <div
       className="absolute pointer-events-none z-[55] rounded-full border-[2px] border-sky-500/80 bg-white/35 backdrop-blur-sm"
       style={{
@@ -1868,36 +1937,81 @@ export function DrawingCanvas({
 
           
           {allowShapeTools && tool !== "eraser" && (
-            <div className={cn("flex items-center gap-1 rounded-[1.2rem] border border-border/60 bg-card/80 p-1 shrink-0", overlayChrome && "order-2") }>
-              {[
-                { id: "square", label: "Kare", icon: Square },
-                { id: "rectangle", label: "Dikdörtgen", icon: RectangleHorizontal },
-                { id: "triangle", label: "Üçgen", icon: Triangle },
-                { id: "rightTriangle", label: "Dik Üçgen", icon: Triangle },
-                { id: "trapezoid", label: "Yamuk", icon: RectangleHorizontal },
-              ].map(({ id, label, icon: Icon }) => (
-                <button
-                  key={id}
-                  type="button"
-                  title={label}
-                  onClick={() => {
-                    setTool("shape");
-                    setShapeKind(id as ShapeKind);
-                  }}
-                  className={cn(
-                    "flex items-center gap-1 rounded-[0.95rem] px-2 py-1.5 text-[9px] font-medium transition-all whitespace-nowrap",
-                    tool === "shape" && shapeKind === id
-                      ? "bg-primary text-primary-foreground shadow-[0_12px_30px_-18px_hsl(var(--primary)/0.65)]"
-                      : "text-muted-foreground hover:text-foreground hover:bg-foreground/[0.05]"
-                  )}
+            overlayChrome ? (
+              <Popover open={shapeToolsOpen} onOpenChange={setShapeToolsOpen}>
+                <PopoverTrigger asChild>
+                  <button
+                    type="button"
+                    className={cn(
+                      "flex items-center gap-1 rounded-[1.2rem] border border-border/60 bg-card/80 px-2.5 py-2 text-[10px] font-medium text-muted-foreground transition-all shrink-0 hover:text-foreground hover:bg-foreground/[0.05]",
+                      "order-5",
+                      tool === "shape" && "border-primary/40 bg-primary/10 text-primary",
+                    )}
+                    title="Şekiller"
+                  >
+                    <Square className="h-3 w-3 shrink-0" />
+                    <span>Şekiller</span>
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent
+                  align="end"
+                  side="bottom"
+                  sideOffset={8}
+                  className="w-[min(22rem,calc(100vw-2rem))] rounded-[1.25rem] border border-border/70 bg-card/95 p-2.5 shadow-[0_24px_48px_-28px_rgba(15,23,42,0.38)] backdrop-blur-xl"
                 >
-                  <Icon className={cn("h-2.5 w-2.5 shrink-0", id === "rightTriangle" && "rotate-90")} />
-                  <span className="hidden xl:inline">{label}</span>
-                </button>
-              ))}
-            </div>
-          )}          {/* Colors */}
-          <div className={cn("flex items-center gap-1 rounded-[1.2rem] border border-border/60 bg-card/80 px-1.5 py-1 shrink-0", overlayChrome && "order-5 ml-2") }>
+                  <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3">
+                    {SHAPE_TOOL_OPTIONS.map(({ id, label, icon: Icon, iconClassName }) => (
+                      <button
+                        key={id}
+                        type="button"
+                        title={label}
+                        onClick={() => {
+                          setTool("shape");
+                          setShapeKind(id);
+                          setShapeToolsOpen(false);
+                        }}
+                        className={cn(
+                          "flex items-center gap-1 rounded-[0.95rem] px-2.5 py-2 text-[10px] font-medium transition-all whitespace-nowrap",
+                          tool === "shape" && shapeKind === id
+                            ? "bg-primary text-primary-foreground shadow-[0_12px_30px_-18px_hsl(var(--primary)/0.65)]"
+                            : "bg-background/80 text-muted-foreground hover:text-foreground hover:bg-foreground/[0.05]",
+                        )}
+                      >
+                        <Icon className={cn("h-3 w-3 shrink-0", iconClassName)} />
+                        <span>{label}</span>
+                      </button>
+                    ))}
+                  </div>
+                </PopoverContent>
+              </Popover>
+            ) : (
+              <div className="flex items-center gap-1 rounded-[1.2rem] border border-border/60 bg-card/80 p-1 shrink-0">
+                {SHAPE_TOOL_OPTIONS.map(({ id, label, icon: Icon, iconClassName }) => (
+                  <button
+                    key={id}
+                    type="button"
+                    title={label}
+                    onClick={() => {
+                      setTool("shape");
+                      setShapeKind(id);
+                    }}
+                    className={cn(
+                      "flex items-center gap-1 rounded-[0.95rem] px-2 py-1.5 text-[9px] font-medium transition-all whitespace-nowrap",
+                      tool === "shape" && shapeKind === id
+                        ? "bg-primary text-primary-foreground shadow-[0_12px_30px_-18px_hsl(var(--primary)/0.65)]"
+                        : "text-muted-foreground hover:text-foreground hover:bg-foreground/[0.05]"
+                    )}
+                  >
+                    <Icon className={cn("h-2.5 w-2.5 shrink-0", iconClassName)} />
+                    <span className="hidden xl:inline">{label}</span>
+                  </button>
+                ))}
+              </div>
+            )
+          )}
+
+          {/* Colors */}
+          <div className={cn("flex items-center gap-1 rounded-[1.2rem] border border-border/60 bg-card/80 px-1.5 py-1 shrink-0", overlayChrome && "order-7") }>
             {COLORS.map((c) => (
               <button
                 key={c.hex}
@@ -1914,7 +2028,7 @@ export function DrawingCanvas({
 
           {/* Kalınlık 1–100 */}
           {(tool === "pen" || tool === "shape") && (
-            <div className={cn("flex min-w-[128px] max-w-[184px] items-center gap-1 shrink-0", overlayChrome && "order-3")}>
+            <div className={cn("flex min-w-[128px] max-w-[184px] items-center gap-1 shrink-0", overlayChrome && "order-3 mt-1.5")}>
               <span className="w-5 tabular-nums text-[9px] text-muted-foreground">{penWidth}</span>
               <Button
                 variant="ghost"
@@ -1943,7 +2057,7 @@ export function DrawingCanvas({
             </div>
           )}
           {tool === "eraser" && (
-            <div className={cn("flex min-w-[128px] max-w-[184px] items-center gap-1 shrink-0", overlayChrome && "order-3")}>
+            <div className={cn("flex min-w-[128px] max-w-[184px] items-center gap-1 shrink-0", overlayChrome && "order-3 mt-1.5")}>
               <span className="w-5 tabular-nums text-[9px] text-muted-foreground">{eraserWidth}</span>
               <Button
                 variant="ghost"
@@ -1989,7 +2103,7 @@ export function DrawingCanvas({
 
           {/* Zoom controls — overlay mode only */}
           {mode === "overlay" && (
-            <div className={cn("flex items-center gap-0.5 rounded-[1.2rem] border border-border/60 bg-card/80 p-1 shrink-0", overlayChrome && "order-4 ml-auto") }>
+            <div className={cn("flex items-center gap-0.5 rounded-[1.2rem] border border-border/60 bg-card/80 p-1 shrink-0", overlayChrome && "order-4") }>
               <button
                 onClick={() => applyZoom(zoom / 1.25)}
                 title="Uzaklaş (Ctrl −)"
@@ -2022,7 +2136,7 @@ export function DrawingCanvas({
           {overlayChrome && <div className="order-6 basis-full h-0.5" />}
 
           {/* Undo / Clear */}
-          <div className={cn("flex items-center gap-1.5 shrink-0", overlayChrome ? "order-7 justify-start" : "ml-auto")}>
+          <div className={cn("flex items-center gap-1.5 shrink-0", overlayChrome ? "order-8 justify-start" : "ml-auto")}>
             <button
               onClick={() => {
                 if (mode === "overlay") overlayDirtyRef.current = true;
@@ -2192,7 +2306,7 @@ export function DrawingCanvas({
                   width: PAPER_W * zoom,
                   height: PAPER_H * zoom,
                   flexShrink: 0,
-                  cursor: tool === "pen" || tool === "eraser" ? "none" : "crosshair",
+                  cursor: useCustomCursor && (tool === "pen" || tool === "eraser") ? "none" : "crosshair",
                   touchAction: "none",
                   filter: "drop-shadow(0 32px 48px rgba(15, 23, 42, 0.12))",
                 }}
@@ -2272,7 +2386,7 @@ export function DrawingCanvas({
             <div
               ref={containerRef}
               className={cn("relative flex-1 min-w-0 overflow-hidden bg-card/55", imageUrl ? "rounded-l-[1.5rem]" : "rounded-2xl")}
-              style={{ cursor: tool === "pen" || tool === "eraser" ? "none" : "auto" }}
+              style={{ cursor: useCustomCursor && (tool === "pen" || tool === "eraser") ? "none" : "crosshair" }}
             >
               <div
                 className="absolute inset-0 pointer-events-none opacity-[0.04]"

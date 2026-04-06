@@ -204,3 +204,18 @@
 ::-webkit-scrollbar-thumb:hover {
   @apply bg-muted-foreground/50;
 }
+
+math-field::part(virtual-keyboard-toggle),
+math-field::part(menu-toggle) {
+  display: none !important;
+}
+
+math-field {
+  --placeholder-color: hsl(var(--foreground));
+  --placeholder-opacity: 0.8;
+}
+
+math-field::part(prompt) {
+  color: hsl(var(--foreground));
+  opacity: 1;
+}

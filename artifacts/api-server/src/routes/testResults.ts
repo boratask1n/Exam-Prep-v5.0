@@ -84,11 +84,9 @@ router.get("/analytics/overview", async (req, res) => {
   }
 });
 
-router.get("/analytics/ai-insights", async (req, res) => {
+router.get("/analytics/ai-insights", async (_req, res) => {
   try {
-    const startDate = typeof req.query.startDate === "string" ? req.query.startDate : undefined;
-    const endDate = typeof req.query.endDate === "string" ? req.query.endDate : undefined;
-    const data = await getAnalyticsAiInsights(startDate, endDate);
+    const data = await getAnalyticsAiInsights();
     return res.json(data);
   } catch (error) {
     console.error("Error fetching analytics ai insights:", error);

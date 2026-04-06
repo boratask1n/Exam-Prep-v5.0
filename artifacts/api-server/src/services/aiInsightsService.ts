@@ -1,8 +1,55 @@
 ﻿import fs from "node:fs/promises";
 import path from "node:path";
-import { db, notesTable, questionsTable, testSolutionsTable } from "@workspace/db";
+import {
+  db,
+  notesTable,
+  questionsTable,
+  testResultSummariesTable,
+  testResultTopicStatsTable,
+  testSolutionsTable,
+} from "@workspace/db";
 import { desc, eq, inArray } from "drizzle-orm";
 import { getAnalyticsOverview, getTestResultBySessionId } from "./testResultService";
+
+type AnalyticsOverview = Awaited<ReturnType<typeof getAnalyticsOverview>>;
+type OverviewWeakTopic = AnalyticsOverview["weakTopics"][number];
+type OverviewRepeatReminder = AnalyticsOverview["repeatReminders"][number];
+
+type AiTopicSignal = OverviewWeakTopic & {
+  recentAnsweredCount: number;
+  recentCorrectCount: number;
+  recentWrongCount: number;
+  recentWrongRatio: number;
+  previousAnsweredCount: number;
+  previousWrongRatio: number;
+  latestAnsweredCount: number;
+  latestWrongCount: number;
+  latestWrongRatio: number;
+  appearanceCount: number;
+  improvementDelta: number;
+  priorityScore: number;
+  trendLabel: "persistent_weakness" | "watch" | "improving" | "recovered";
+  recentSpike: boolean;
+  isRecovered: boolean;
+  isActiveWeakness: boolean;
+  lastSeenAt: string;
+};
+
+type AiAnalyticsOverview = Omit<AnalyticsOverview, "weakTopics" | "repeatReminders"> & {
+  weakTopics: AiTopicSignal[];
+  repeatReminders: Array<
+    OverviewRepeatReminder & {
+      trendLabel: AiTopicSignal["trendLabel"];
+      lastSeenAt: string;
+      priorityScore: number;
+    }
+  >;
+  aiSignals: {
+    activeWeakTopics: AiTopicSignal[];
+    recoveredTopics: AiTopicSignal[];
+    watchTopics: AiTopicSignal[];
+  };
+};
 
 type AiInsightsResponse = {
   generatedBy: "ai" | "rule_based";
@@ -151,6 +198,245 @@ function hasDrawingPayload(value: unknown): boolean {
   return false;
 }
 
+const AI_ALL_TIME_START = "2000-01-01";
+const AI_ALL_TIME_END = "2999-12-31";
+
+type TopicAttemptSnapshot = {
+  lesson: string;
+  topic: string;
+  totalQuestions: number;
+  answeredCount: number;
+  correctCount: number;
+  wrongCount: number;
+  skippedCount: number;
+  completedAt: Date;
+};
+
+function aggregateTopicAttempts(rows: TopicAttemptSnapshot[]) {
+  const aggregate = rows.reduce(
+    (acc, row) => {
+      acc.totalQuestions += row.totalQuestions;
+      acc.answeredCount += row.answeredCount;
+      acc.correctCount += row.correctCount;
+      acc.wrongCount += row.wrongCount;
+      acc.skippedCount += row.skippedCount;
+      return acc;
+    },
+    { totalQuestions: 0, answeredCount: 0, correctCount: 0, wrongCount: 0, skippedCount: 0 },
+  );
+
+  return {
+    ...aggregate,
+    wrongRatio: aggregate.answeredCount > 0 ? aggregate.wrongCount / aggregate.answeredCount : 0,
+  };
+}
+
+function daysBetween(date: Date, now = new Date()) {
+  return Math.max(0, Math.floor((now.getTime() - date.getTime()) / (24 * 60 * 60 * 1000)));
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function buildTopicSignal(attempts: TopicAttemptSnapshot[]): AiTopicSignal {
+  const sortedAttempts = [...attempts].sort((a, b) => a.completedAt.getTime() - b.completedAt.getTime());
+  const overall = aggregateTopicAttempts(sortedAttempts);
+  const recentCount = Math.min(3, sortedAttempts.length);
+  const recentAttempts = sortedAttempts.slice(-recentCount);
+  const previousAttempts = sortedAttempts.slice(
+    Math.max(0, sortedAttempts.length - recentCount - 4),
+    sortedAttempts.length - recentCount,
+  );
+  const recent = aggregateTopicAttempts(recentAttempts);
+  const previous = aggregateTopicAttempts(previousAttempts);
+  const latest = sortedAttempts[sortedAttempts.length - 1];
+  const latestWrongRatio = latest.answeredCount > 0 ? latest.wrongCount / latest.answeredCount : 0;
+  const comparisonBase =
+    previous.answeredCount > 0 ? previous.wrongRatio : overall.answeredCount > 0 ? overall.wrongRatio : 0;
+  const improvementDelta = comparisonBase - recent.wrongRatio;
+  const recentSpike = recentAttempts.some((attempt) => attempt.wrongCount >= 3);
+  const daysSinceLastSeen = daysBetween(latest.completedAt);
+
+  const isRecovered =
+    recent.answeredCount >= 4 &&
+    recent.wrongRatio <= 0.25 &&
+    (overall.answeredCount >= 6 ? comparisonBase >= 0.45 || improvementDelta >= 0.18 : latestWrongRatio <= 0.2);
+
+  const hasRecentWeakness =
+    (recent.answeredCount >= 3 && recent.wrongRatio >= 0.5) ||
+    (latest.answeredCount >= 2 && latestWrongRatio >= 0.5);
+
+  const hasPersistentWeakness =
+    overall.answeredCount >= 6 &&
+    overall.wrongRatio >= 0.5 &&
+    (recent.answeredCount === 0 || recent.wrongRatio >= 0.34 || latestWrongRatio >= 0.34);
+
+  const isActiveWeakness = !isRecovered && (hasRecentWeakness || hasPersistentWeakness || recentSpike);
+  const watchSignal =
+    !isRecovered &&
+    !isActiveWeakness &&
+    ((overall.answeredCount >= 4 && overall.wrongRatio >= 0.4) ||
+      (recent.answeredCount >= 2 && recent.wrongRatio >= 0.34));
+
+  const stalePenalty = daysSinceLastSeen >= 150 ? 14 : daysSinceLastSeen >= 90 ? 8 : daysSinceLastSeen >= 45 ? 3 : 0;
+  const priorityScore =
+    recent.wrongRatio * 60 +
+    overall.wrongRatio * 22 +
+    Math.min(recent.wrongCount, 6) * 4 +
+    Math.min(overall.wrongCount, 12) * 1.4 +
+    (recentSpike ? 14 : 0) +
+    (hasPersistentWeakness ? 10 : 0) +
+    (latestWrongRatio >= 0.5 ? 8 : 0) -
+    Math.max(0, improvementDelta) * 42 -
+    (isRecovered ? 64 : 0) -
+    stalePenalty;
+
+  const trendLabel: AiTopicSignal["trendLabel"] = isRecovered
+    ? "recovered"
+    : isActiveWeakness
+      ? "persistent_weakness"
+      : improvementDelta >= 0.15
+        ? "improving"
+        : watchSignal
+          ? "watch"
+          : "improving";
+
+  return {
+    lesson: latest.lesson,
+    topic: latest.topic,
+    totalQuestions: overall.totalQuestions,
+    answeredCount: overall.answeredCount,
+    correctCount: overall.correctCount,
+    wrongCount: overall.wrongCount,
+    skippedCount: overall.skippedCount,
+    wrongRatio: overall.wrongRatio,
+    recentAnsweredCount: recent.answeredCount,
+    recentCorrectCount: recent.correctCount,
+    recentWrongCount: recent.wrongCount,
+    recentWrongRatio: recent.wrongRatio,
+    previousAnsweredCount: previous.answeredCount,
+    previousWrongRatio: previous.wrongRatio,
+    latestAnsweredCount: latest.answeredCount,
+    latestWrongCount: latest.wrongCount,
+    latestWrongRatio,
+    appearanceCount: sortedAttempts.length,
+    improvementDelta: clamp(improvementDelta, -1, 1),
+    priorityScore,
+    trendLabel,
+    recentSpike,
+    isRecovered,
+    isActiveWeakness,
+    lastSeenAt: latest.completedAt.toISOString(),
+  };
+}
+
+async function buildAllTimeAiOverview(): Promise<AiAnalyticsOverview> {
+  const overview = await getAnalyticsOverview(AI_ALL_TIME_START, AI_ALL_TIME_END);
+  if (overview.summary.totalQuestions === 0) {
+    return {
+      ...overview,
+      weakTopics: [],
+      repeatReminders: [],
+      aiSignals: {
+        activeWeakTopics: [],
+        recoveredTopics: [],
+        watchTopics: [],
+      },
+    };
+  }
+
+  const summaries = await db.select().from(testResultSummariesTable);
+  if (summaries.length === 0) {
+    return {
+      ...overview,
+      weakTopics: [],
+      repeatReminders: [],
+      aiSignals: {
+        activeWeakTopics: [],
+        recoveredTopics: [],
+        watchTopics: [],
+      },
+    };
+  }
+
+  const summaryById = new Map(summaries.map((summary) => [summary.id, summary]));
+  const resultIds = summaries.map((summary) => summary.id);
+  const topicRows = await db
+    .select()
+    .from(testResultTopicStatsTable)
+    .where(inArray(testResultTopicStatsTable.testResultId, resultIds));
+
+  const topicAttemptMap = new Map<string, TopicAttemptSnapshot[]>();
+  for (const row of topicRows) {
+    const summary = summaryById.get(row.testResultId);
+    if (!summary) continue;
+    const key = `${row.lesson}__${row.topic}`;
+    if (!topicAttemptMap.has(key)) topicAttemptMap.set(key, []);
+    topicAttemptMap.get(key)!.push({
+      lesson: row.lesson,
+      topic: row.topic,
+      totalQuestions: row.totalQuestions,
+      answeredCount: row.answeredCount,
+      correctCount: row.correctCount,
+      wrongCount: row.wrongCount,
+      skippedCount: row.skippedCount,
+      completedAt: summary.completedAt,
+    });
+  }
+
+  const topicSignals = Array.from(topicAttemptMap.values())
+    .map((attempts) => buildTopicSignal(attempts))
+    .sort((a, b) => b.priorityScore - a.priorityScore || b.recentWrongRatio - a.recentWrongRatio);
+
+  const activeWeakTopics = topicSignals
+    .filter((signal) => signal.isActiveWeakness)
+    .sort((a, b) => b.priorityScore - a.priorityScore || b.recentWrongRatio - a.recentWrongRatio)
+    .slice(0, 10);
+
+  const recoveredTopics = topicSignals
+    .filter((signal) => signal.isRecovered)
+    .sort((a, b) => b.improvementDelta - a.improvementDelta || b.recentAnsweredCount - a.recentAnsweredCount)
+    .slice(0, 6);
+
+  const watchTopics = topicSignals
+    .filter((signal) => !signal.isActiveWeakness && !signal.isRecovered)
+    .sort((a, b) => b.priorityScore - a.priorityScore)
+    .slice(0, 6);
+
+  const repeatReminders = activeWeakTopics.slice(0, 8).map((signal) => ({
+    lesson: signal.lesson,
+    topic: signal.topic,
+    totalQuestions: signal.totalQuestions,
+    answeredCount: signal.answeredCount,
+    correctCount: signal.correctCount,
+    wrongCount: signal.wrongCount,
+    skippedCount: signal.skippedCount,
+    wrongRatio: signal.recentAnsweredCount > 0 ? signal.recentWrongRatio : signal.wrongRatio,
+    repeatPriority:
+      signal.recentSpike || signal.recentWrongRatio >= 0.7
+        ? ("high" as const)
+        : signal.recentWrongRatio >= 0.5 || signal.latestWrongRatio >= 0.5
+          ? ("medium" as const)
+          : ("low" as const),
+    trigger: signal.recentSpike ? ("single_test_spike" as const) : ("aggregate" as const),
+    trendLabel: signal.trendLabel,
+    lastSeenAt: signal.lastSeenAt,
+    priorityScore: signal.priorityScore,
+  }));
+
+  return {
+    ...overview,
+    weakTopics: activeWeakTopics,
+    repeatReminders,
+    aiSignals: {
+      activeWeakTopics,
+      recoveredTopics,
+      watchTopics,
+    },
+  };
+}
+
 const DEFAULT_AI_RULES = `
 Rol:
 - YKS öğrencisi için veri odaklı çalışma koçu ol.
@@ -161,9 +447,10 @@ Genel ilkeler:
 - Boş/genel cümlelerden kaç; net eylem öner.
 
 Önceliklendirme:
-- Son testlerde tekrar eden hata konularına daha yüksek öncelik ver.
-- Aynı konuda hem yüksek hata oranı hem düşük hız varsa "kritik" kabul et.
-- Tek testte konusal patlama (3+ yanlış) varsa tekrar listesine mutlaka ekle.
+- Tüm zaman verisini kullan ama son dönemde düzeltilen konuları yeniden "kritik" diye öne çıkarma.
+- Önceliği güncel ve devam eden zayıflıklara ver; sadece geçmişte kötü olan konu tek başına yeterli değildir.
+- Aynı konuda hem güncel yüksek hata oranı hem düşük hız varsa "kritik" kabul et.
+- Tek testte yakın dönemde konusal patlama (3+ yanlış) varsa tekrar listesine ekle.
 
 Süre kullanımı:
 - Test süresi trendini son 5 test üzerinden değerlendir.
@@ -464,16 +751,17 @@ async function buildAiInsightsContext(
   };
 }
 
-function buildRuleBasedInsights(overview: Awaited<ReturnType<typeof getAnalyticsOverview>>): AiInsightsResponse {
+function buildRuleBasedInsights(overview: AiAnalyticsOverview): AiInsightsResponse {
   const weak = overview.weakTopics.slice(0, 4);
   const topLessons = overview.subjectStats.slice(0, 5);
   const success = overview.summary.successRate;
   const totalQuestions = overview.summary.totalQuestions;
+  const recoveredTopics = overview.aiSignals.recoveredTopics.slice(0, 3);
 
   if (totalQuestions === 0) {
     return {
       generatedBy: "rule_based",
-      summary: "Bu tarih aralığında henüz çözülen soru verisi yok. Analiz üretmek için en az bir test çöz.",
+      summary: "Henüz sistem genelinde çözülen soru verisi yok. Analiz üretmek için önce en az bir test çöz.",
       priorityTopics: [],
       weeklyPlan: [
         "Önce kısa bir deneme çöz ve süreyi kaydet.",
@@ -488,9 +776,12 @@ function buildRuleBasedInsights(overview: Awaited<ReturnType<typeof getAnalytics
   }
 
   const priorityTopics = weak.map((w) => {
-    const reason = `${w.answeredCount} çözümde ${w.wrongCount} yanlış (${toPct(w.wrongRatio)})`;
+    const reason =
+      w.recentAnsweredCount > 0
+        ? `Son ${w.appearanceCount >= 3 ? "3" : String(w.appearanceCount)} görünümde ${w.recentWrongCount} yanlış (${toPct(w.recentWrongRatio)}), genel toplam ${w.wrongCount} yanlış`
+        : `${w.answeredCount} çözümde ${w.wrongCount} yanlış (${toPct(w.wrongRatio)})`;
     const action =
-      w.wrongRatio >= 0.7
+      w.recentWrongRatio >= 0.7 || w.recentSpike
         ? "Önce temel konu özeti + 20 soru kısa tekrar, ertesi gün 10 soru kontrol."
         : "Kısa konu tekrarı + 15 soru uygulama, 2 gün sonra 10 soru pekiştirme.";
     return { lesson: w.lesson, topic: w.topic, reason, action };
@@ -521,16 +812,26 @@ function buildRuleBasedInsights(overview: Awaited<ReturnType<typeof getAnalytics
   if (weak.length >= 3) {
     examRiskNotes.push("Birden fazla konuda hata yoğunluğu var. Aynı hafta tümüne değil, ilk 2 konuya odaklan.");
   }
+  if (recoveredTopics.length > 0) {
+    examRiskNotes.push(
+      `İyileşen alanlar var: ${recoveredTopics.map((topic) => `${topic.lesson} - ${topic.topic}`).join(", ")}. Bu konuları sadece kısa kontrol testiyle canlı tutman yeterli.`,
+    );
+  }
 
   const summary =
     weak.length > 0
       ? `En kritik tekrar alanları: ${weak.map((w) => `${w.lesson} - ${w.topic}`).join(", ")}.`
-      : "Bu aralıkta belirgin zayıf konu sinyali yok; mevcut ritmi koruyup düzenli deneme çöz.";
+      : recoveredTopics.length > 0
+        ? `Belirgin aktif zayıf konu görünmüyor. Son dönemde toparlanan alanlar: ${recoveredTopics.map((topic) => `${topic.lesson} - ${topic.topic}`).join(", ")}.`
+        : "Belirgin aktif zayıf konu görünmüyor; mevcut ritmi koruyup düzenli deneme çöz.";
 
   const aiWeakTopicHints = weak.slice(0, 3).map((w) => ({
     lesson: w.lesson,
     topic: w.topic,
-    why: `${w.answeredCount} çözümde ${w.wrongCount} yanlış (${toPct(w.wrongRatio)})`,
+    why:
+      w.recentAnsweredCount > 0
+        ? `Güncel sinyal: ${w.recentWrongCount} yanlış / ${w.recentAnsweredCount} cevap (${toPct(w.recentWrongRatio)})`
+        : `${w.answeredCount} çözümde ${w.wrongCount} yanlış (${toPct(w.wrongRatio)})`,
     suggestion: "Bu konu için 1 özet turu + 20 soru tekrar + ertesi gün 10 soru kontrol yap.",
   }));
 
@@ -687,7 +988,7 @@ function normalizeAiResponse(raw: string): AiInsightsResponse {
 }
 
 async function tryGeminiInsights(
-  overview: Awaited<ReturnType<typeof getAnalyticsOverview>>,
+  overview: AiAnalyticsOverview,
   context: AiInsightsContext,
 ): Promise<AiInsightsResponse | null> {
   const apiKey = getGeminiKey();
@@ -701,11 +1002,43 @@ async function tryGeminiInsights(
   const speedTrend = recentSlice.length && olderSlice.length ? avg(recentSlice) - avg(olderSlice) : 0;
 
   const compact = {
+    analysisScope: {
+      type: "all_time",
+      description: "Bu veri paketinde AI tüm zamanları değerlendirir; UI tarih filtresi dikkate alınmaz.",
+    },
     summary: overview.summary,
     subjectStats: overview.subjectStats.slice(0, 6),
     weakTopics: overview.weakTopics.slice(0, 6),
     repeatReminders: overview.repeatReminders.slice(0, 4),
     recentResults: overview.recentResults.slice(0, 6),
+    trendSignals: {
+      activeWeakTopics: overview.aiSignals.activeWeakTopics.slice(0, 6).map((topic) => ({
+        lesson: topic.lesson,
+        topic: topic.topic,
+        recentWrongRatio: Number(topic.recentWrongRatio.toFixed(3)),
+        overallWrongRatio: Number(topic.wrongRatio.toFixed(3)),
+        recentWrongCount: topic.recentWrongCount,
+        recentAnsweredCount: topic.recentAnsweredCount,
+        improvementDelta: Number(topic.improvementDelta.toFixed(3)),
+        recentSpike: topic.recentSpike,
+        lastSeenAt: topic.lastSeenAt,
+      })),
+      recoveredTopics: overview.aiSignals.recoveredTopics.slice(0, 5).map((topic) => ({
+        lesson: topic.lesson,
+        topic: topic.topic,
+        recentWrongRatio: Number(topic.recentWrongRatio.toFixed(3)),
+        previousWrongRatio: Number(topic.previousWrongRatio.toFixed(3)),
+        improvementDelta: Number(topic.improvementDelta.toFixed(3)),
+        lastSeenAt: topic.lastSeenAt,
+      })),
+      watchTopics: overview.aiSignals.watchTopics.slice(0, 5).map((topic) => ({
+        lesson: topic.lesson,
+        topic: topic.topic,
+        recentWrongRatio: Number(topic.recentWrongRatio.toFixed(3)),
+        overallWrongRatio: Number(topic.wrongRatio.toFixed(3)),
+        lastSeenAt: topic.lastSeenAt,
+      })),
+    },
     behaviorSignals: {
       solvedTests: overview.recentResults.length,
       avgElapsedSeconds: Math.round(avg(elapsedList)),
@@ -725,6 +1058,8 @@ ${aiRulesText}
 Kısa, net ve eyleme dönük Türkçe öneriler üret.
 Türkçe karakterleri doğru kullan (ç, ğ, ı, İ, ö, ş, ü).
 Sadece geçerli JSON döndür, JSON dışı metin üretme.
+Bu analiz seçili tarih aralığından bağımsızdır; tüm zamanları kullan ama özellikle son dönemdeki yön değişimini dikkate al.
+Geçmişte zayıf olup son denemelerde toparlanan konuları kritik listesine geri alma. Ancak yeniden bozulma sinyali varsa tekrar gündeme getir.
 Not ve çizim bağlamı verilirse yalnızca destekleyici sinyal olarak kullan; performans verisinin önüne geçirme.
 Ham çizim koordinatları yoksa bunu sorun etme; çizim kullanım yoğunluğunu davranış sinyali olarak değerlendir.
 Son soru kırılımı verilirse boş bırakılan ve yanlış yapılan soru örüntülerini özellikle dikkate al.
@@ -756,6 +1091,7 @@ Kurallar:
 - aiSuggestedTest count 16-40 arası.
 - aiSuggestedTest.filters.lessons en az 1 ders.
 - Tüm metinler Türkçe olsun.
+- Düzelmiş konuları sadece kısa kontrol/koruma önerisi olarak an; aktif zayıflık gibi sunma.
 
 Veri:
 ${JSON.stringify(compact)}
@@ -795,8 +1131,8 @@ ${JSON.stringify(compact)}
   return normalizeAiResponse(raw);
 }
 
-export async function getAnalyticsAiInsights(startDateRaw?: string, endDateRaw?: string) {
-  const overview = await getAnalyticsOverview(startDateRaw, endDateRaw);
+export async function getAnalyticsAiInsights() {
+  const overview = await buildAllTimeAiOverview();
   const fallback = buildRuleBasedInsights(overview);
   if (overview.summary.totalQuestions === 0) {
     return fallback;
