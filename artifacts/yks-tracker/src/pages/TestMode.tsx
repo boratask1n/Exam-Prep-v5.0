@@ -1859,14 +1859,16 @@ export default function TestMode() {
                       disabled={readOnly}
                       onClick={() => selectAnswer(currentQuestion.id, label)}
                       className={cn(
-                        "w-full rounded-lg border px-4 py-3 text-left text-base transition-colors",
+                        "w-full rounded-lg border px-5 py-4 text-left text-base transition-colors",
                         selected
                           ? "border-primary bg-primary/12 text-foreground"
                           : "border-border/50 bg-background/40 text-muted-foreground hover:border-primary/40",
                       )}
                     >
                       <span className="font-semibold text-foreground">{label}) </span>
-                      <MathLiveStatic value={optionText} className="text-[1.25rem] leading-relaxed text-foreground" />
+                      <span className="inline-block origin-left scale-[1.12] sm:scale-[1.18] align-middle">
+                        <MathLiveStatic value={optionText} className="text-[1.35rem] leading-relaxed text-foreground" />
+                      </span>
                     </button>
                   );
                 })}

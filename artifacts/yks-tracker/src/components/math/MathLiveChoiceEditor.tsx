@@ -1,5 +1,5 @@
 ﻿import { MathfieldElement } from "./mathliveSetup";
-import { createElement, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { cn } from "@/lib/utils";
 import { convertLegacyMathValueToLatex } from "./mathExpression";
@@ -354,15 +354,56 @@ export function MathLiveChoiceEditor({
   onActivate,
   onChange,
 }: MathLiveChoiceEditorProps) {
+  const hostRef = useRef<HTMLDivElement | null>(null);
   const fieldRef = useRef<MathfieldElement | null>(null);
+  const onActivateRef = useRef(onActivate);
+  const onChangeRef = useRef(onChange);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const [activeSectionId, setActiveSectionId] = useState(KEYBOARD_SECTIONS[0].id);
   const latexValue = useMemo(() => convertLegacyMathValueToLatex(value), [value]);
   const showPlaceholder = !latexValue.trim();
 
   useEffect(() => {
-    const field = fieldRef.current;
+    onActivateRef.current = onActivate;
+  }, [onActivate]);
+
+  useEffect(() => {
+    onChangeRef.current = onChange;
+  }, [onChange]);
+
+  const readLatexValue = (field: MathfieldElement | null) => {
+    if (!field) return "";
+    if (typeof field.getValue === "function") {
+      return field.getValue("latex-expanded");
+    }
+    return field.value ?? "";
+  };
+
+  const writeLatexValue = (field: MathfieldElement | null, nextValue: string) => {
     if (!field) return;
+    if (typeof field.setValue === "function") {
+      field.setValue(nextValue, { silenceNotifications: true, mode: "math" });
+      return;
+    }
+    field.value = nextValue;
+  };
+
+  useEffect(() => {
+    const host = hostRef.current;
+    if (!host || fieldRef.current) return;
+
+    const field = new MathfieldElement();
+    fieldRef.current = field;
+    field.className =
+      "relative z-[2] block w-full bg-transparent text-[1.75rem] outline-none";
+    field.style.display = "block";
+    field.style.width = "100%";
+    field.style.background = "transparent";
+    field.style.border = "none";
+    field.style.boxShadow = "none";
+    field.style.padding = "0";
+    field.style.minHeight = "0";
+    host.appendChild(field);
 
     field.smartFence = true;
     field.smartMode = true;
@@ -371,10 +412,13 @@ export function MathLiveChoiceEditor({
     field.popoverPolicy = "off";
     field.environmentPopoverPolicy = "off";
     field.menuItems = [];
+    field.setAttribute("aria-label", placeholder || "Matematik şık editörü");
 
-    const handleInput = () => onChange(field.getValue("latex-expanded"));
+    writeLatexValue(field, latexValue);
+
+    const handleInput = () => onChangeRef.current(readLatexValue(field));
     const handleFocus = () => {
-      onActivate?.();
+      onActivateRef.current?.();
       setKeyboardVisible(true);
       window.mathVirtualKeyboard?.hide({ animate: false });
     };
@@ -394,8 +438,16 @@ export function MathLiveChoiceEditor({
       field.removeEventListener("input", handleInput);
       field.removeEventListener("focusin", handleFocus);
       field.removeEventListener("focusout", handleBlur);
+      field.remove();
+      fieldRef.current = null;
     };
-  }, [onActivate, onChange]);
+  }, []);
+
+  useEffect(() => {
+    const field = fieldRef.current;
+    if (!field) return;
+    field.setAttribute("aria-label", placeholder || "Matematik şık editörü");
+  }, [placeholder]);
 
   useEffect(() => {
     if (!keyboardVisible) return;
@@ -405,8 +457,8 @@ export function MathLiveChoiceEditor({
   useEffect(() => {
     const field = fieldRef.current;
     if (!field) return;
-    if (field.value !== latexValue) {
-      field.setValue(latexValue, { silenceNotifications: true, mode: "math" });
+    if (readLatexValue(field) !== latexValue) {
+      writeLatexValue(field, latexValue);
     }
   }, [latexValue]);
 
@@ -421,7 +473,7 @@ export function MathLiveChoiceEditor({
     if (!executed && Array.isArray(command) && command[0] === "insert") {
       field.insert(command[1], { format: "latex" });
     }
-    onChange(field.getValue("latex-expanded"));
+    onChangeRef.current(readLatexValue(field));
   };
 
   const handleInsert = (cell: KeyboardCell) => {
@@ -435,9 +487,9 @@ export function MathLiveChoiceEditor({
   const handleClear = () => {
     const field = fieldRef.current;
     if (!field) return;
-    field.setValue("", { silenceNotifications: true, mode: "math" });
+    writeLatexValue(field, "");
     field.focus();
-    onChange("");
+    onChangeRef.current("");
   };
 
   const handleClose = () => {
@@ -448,21 +500,21 @@ export function MathLiveChoiceEditor({
 
   return (
     <>
-      <div className="relative">
+      <div
+        className={cn(
+          "relative w-full min-h-[5.15rem] rounded-[1.65rem] border bg-background px-5 py-4 shadow-sm transition",
+          active || keyboardVisible ? "border-primary ring-2 ring-primary/15" : "border-border/50",
+        )}
+        onClick={() => {
+          fieldRef.current?.focus();
+        }}
+      >
         {showPlaceholder && placeholder ? (
           <span className="pointer-events-none absolute left-5 top-1/2 z-[3] -translate-y-1/2 whitespace-pre text-[1.7rem] tracking-normal text-muted-foreground/55 italic">
             {placeholder}
           </span>
         ) : null}
-        {createElement("math-field", {
-          ref: (element: MathfieldElement | HTMLElement | null) => {
-            fieldRef.current = element as MathfieldElement | null;
-          },
-          className: cn(
-            "relative z-[2] block min-h-[5.15rem] w-full rounded-[1.65rem] border bg-background px-5 py-4 text-[1.75rem] shadow-sm outline-none transition",
-            active || keyboardVisible ? "border-primary ring-2 ring-primary/15" : "border-border/50",
-          ),
-        })}
+        <div ref={hostRef} />
       </div>
       <FloatingMathKeyboard
         visible={keyboardVisible}
