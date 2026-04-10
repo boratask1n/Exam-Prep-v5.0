@@ -44,6 +44,7 @@ echo   - test_session_questions
 echo   - test_sessions
 echo   - test_result_topic_stats
 echo   - test_result_summaries
+echo   - note_review_stats
 echo   - notes
 echo   - questions
 echo   - uploads klasoru
@@ -67,7 +68,7 @@ if /I not "%CONFIRM%"=="EVET" (
   exit /b 0
 )
 
-set "SQL=TRUNCATE TABLE test_result_topic_stats, test_result_summaries, test_session_progress, test_solutions, test_session_questions, test_sessions, drawings, notes, questions RESTART IDENTITY CASCADE;"
+set "SQL=TRUNCATE TABLE test_result_topic_stats, test_result_summaries, test_session_progress, test_solutions, test_session_questions, test_sessions, drawings, note_review_stats, notes, questions RESTART IDENTITY CASCADE;"
 
 docker ps --format "{{.Names}}" | findstr /i /c:"%DOCKER_CONTAINER%" >nul 2>nul
 if not errorlevel 1 (

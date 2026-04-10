@@ -12,6 +12,7 @@ import {
 } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { PageHeader, PageSection, PageShell } from "@/components/layout/PageShell";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -393,16 +394,13 @@ export default function Tests() {
   }, [safeCurrentPage, totalPages]);
 
   return (
-    <div className="h-full flex flex-col p-6 max-w-6xl mx-auto w-full">
-      <div className="flex items-center justify-between gap-4 mb-8 mt-2">
-        <div>
-          <h1 className="text-3xl md:text-4xl font-display font-bold text-foreground flex items-center gap-3">
-            <Target className="w-8 h-8 text-primary" /> Test Merkezi
-          </h1>
-          <p className="text-muted-foreground mt-1">Özel testler oluştur, kendini sına ve eksiklerini kapat.</p>
-        </div>
-
-        <Dialog open={open} onOpenChange={setOpen}>
+    <PageShell maxWidthClassName="max-w-6xl">
+      <PageHeader
+        icon={<Target className="h-5 w-5" />}
+        title="Test Merkezi"
+        description="Özel testler oluştur, kendini sına ve eksiklerini kapat."
+        actions={
+          <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger asChild>
             <Button className="rounded-xl px-6 font-semibold shadow-lg shadow-primary/25 hover:shadow-xl transition-all duration-300 gap-2">
               <PlusCircle className="w-5 h-5" />
@@ -733,26 +731,33 @@ export default function Tests() {
               </Button>
             </div>
           </DialogContent>
-        </Dialog>
-      </div>
+          </Dialog>
+        }
+      />
 
 
-      <div className="mb-6 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-        <div className="w-full md:max-w-sm">
+      <PageSection className="mb-0">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div className="w-full md:max-w-sm">
           <Input value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} placeholder="Test ara..." className="rounded-xl" />
-        </div>
-        <p className="text-sm text-muted-foreground">{filteredTests.length} test bulundu</p>
-      </div>      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 pb-10">
-        {isLoading ? (
-          <div className="col-span-full py-20 flex justify-center">
-            <div className="animate-spin h-10 w-10 border-b-2 border-primary rounded-full" />
           </div>
+          <p className="text-sm text-muted-foreground">{filteredTests.length} test bulundu</p>
+        </div>
+      </PageSection>
+
+      <div className="grid grid-cols-1 gap-6 pb-10 md:grid-cols-2 lg:grid-cols-3">
+        {isLoading ? (
+          <PageSection className="col-span-full py-20">
+            <div className="flex justify-center">
+              <div className="h-10 w-10 animate-spin rounded-full border-b-2 border-primary" />
+            </div>
+          </PageSection>
         ) : !tests?.length ? (
-          <div className="col-span-full flex flex-col items-center justify-center py-20 opacity-80">
-            <Book className="w-20 h-20 text-muted-foreground/30 mb-4" />
+          <PageSection className="col-span-full flex flex-col items-center justify-center py-20 opacity-80">
+            <Book className="mb-4 h-20 w-20 text-muted-foreground/30" />
             <h3 className="text-xl font-display font-medium text-foreground">Henüz Test Yok</h3>
             <p className="text-muted-foreground mt-2">Sağ üstten yeni bir test oluşturarak çalışmaya başla.</p>
-          </div>
+          </PageSection>
         ) : (
           paginatedTests.map((test: TestSession) => {
             const pct = test.questionCount > 0 ? Math.round((test.completedCount / test.questionCount) * 100) : 0;
@@ -889,7 +894,7 @@ export default function Tests() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </div>
+    </PageShell>
   );
 }
 

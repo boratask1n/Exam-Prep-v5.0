@@ -136,8 +136,8 @@
   body {
     font-family: var(--font-sans);
     background:
-      radial-gradient(circle at top, hsl(var(--primary) / 0.15), transparent 38%),
-      radial-gradient(circle at 78% 0%, hsl(var(--accent-foreground) / 0.11), transparent 34%),
+      radial-gradient(circle at top, hsl(var(--primary) / 0.1), transparent 36%),
+      radial-gradient(circle at 78% 0%, hsl(var(--accent-foreground) / 0.07), transparent 31%),
       linear-gradient(180deg, hsl(var(--background)) 0%, color-mix(in srgb, hsl(var(--background)) 92%, white) 100%);
     @apply font-sans antialiased text-foreground selection:bg-primary/20 selection:text-foreground;
   }
@@ -156,12 +156,12 @@
 
 @layer utilities {
   .glass-panel {
-    background: color-mix(in srgb, hsl(var(--card)) 82%, transparent);
-    border: 1px solid hsl(var(--card-border) / 0.72);
+    background: color-mix(in srgb, hsl(var(--card)) 88%, transparent);
+    border: 1px solid hsl(var(--card-border) / 0.6);
     box-shadow:
-      0 14px 28px -22px rgba(14, 14, 26, 0.3),
-      inset 0 1px 0 rgba(255, 255, 255, 0.6);
-    backdrop-filter: blur(12px);
+      0 18px 40px -30px rgba(14, 14, 26, 0.22),
+      inset 0 1px 0 rgba(255, 255, 255, 0.52);
+    backdrop-filter: blur(10px);
   }
 
   .apple-surface {

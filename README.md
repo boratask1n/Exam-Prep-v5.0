@@ -1,24 +1,25 @@
 # Exam-Prep
 
-Exam-Prep, YKS calisma surecini tek yerde toplamak icin gelistirilmis yerel bir uygulamadir. Soru havuzu, test olusturma ve cozme, analiz ekranlari, AI destekli oneriler, notlar ve cizim araclarini ayni proje icinde birlestirir.
+Exam-Prep, YKS çalışma sürecini tek yerde toplamak için geliştirilmiş yerel bir uygulamadır. Soru havuzu, test oluşturma ve çözme, analiz ekranları, AI destekli öneriler, notlar, not akışı ve çizim araçlarını aynı proje içinde birleştirir.
 
 ## Neler Var
 
-- Soru havuzu ve filtreli test olusturma
-- Test modu, sonuc ekrani ve cozum / kontrol akisi
+- Soru havuzu ve filtreli test oluşturma
+- Test modu, sonuç ekranı ve çözüm / kontrol akışı
 - Analiz merkezi ve grafikler
-- Gemini destekli analiz onerileri ve AI test onerileri
-- TYT / AYT bazli sticky note sistemi
-- Not ve soru uzerinde cizim
-- PostgreSQL tabanli kalici veri saklama
+- Gemini destekli analiz önerileri ve AI test önerileri
+- TYT / AYT bazlı not sistemi
+- Aktif geri çağırma mantığıyla çalışan `Not Akışı`
+- Not ve soru üzerinde çizim
+- PostgreSQL tabanlı kalıcı veri saklama
 
-## Klasor Yapisi
+## Klasör Yapısı
 
-- `artifacts/yks-tracker`: React + Vite web uygulamasi
+- `artifacts/yks-tracker`: React + Vite web uygulaması
 - `artifacts/api-server`: Express API
-- `lib/db`: Drizzle schema ve veritabani komutlari
+- `lib/db`: Drizzle schema ve veritabanı komutları
 - `lib/api-zod`, `lib/api-client-react`: ortak API tipleri
-- `backups`: veritabani yedekleri
+- `backups`: veritabanı yedekleri
 
 ## Gereksinimler
 
@@ -26,14 +27,14 @@ Exam-Prep, YKS calisma surecini tek yerde toplamak icin gelistirilmis yerel bir 
 - `pnpm`
 - Docker Desktop
 
-## Ortam Dosyalari
+## Ortam Dosyaları
 
-Ilk acilista `BASLAT.bat` eksik dosyalari otomatik olusturur.
+İlk açılışta `BASLAT.bat` eksik dosyaları otomatik oluşturur.
 
-- `.env.example` -> `.env`
-- `.env_postgres.example` -> `.env_postgres`
+- `.env.example` → `.env`
+- `.env_postgres.example` → `.env_postgres`
 
-Temel degiskenler:
+Temel değişkenler:
 
 ```env
 DATABASE_URL=postgresql://<db_user>:<db_password>@<db_host>:5432/<db_name>
@@ -44,18 +45,18 @@ GEMINI_API_KEY=
 GEMINI_MODEL=gemini-1.5-flash
 ```
 
-Gemini kullanmak istemiyorsan `GEMINI_API_KEY` bos kalabilir. Bu durumda AI tarafinda sadece yerel / kural tabanli fallback davranislari gorunur.
+Gemini kullanmak istemiyorsan `GEMINI_API_KEY` boş kalabilir. Bu durumda AI tarafında yalnızca yerel / kural tabanlı fallback davranışları görünür.
 
-## Hizli Baslat
+## Hızlı Başlat
 
-Windows uzerinde en kolay yol:
+Windows üzerinde en kolay yol:
 
 ```powershell
 .\KURULUM.bat
 .\BASLAT.bat
 ```
 
-Ilk kez clone alan bir kullanici icin onerilen akis:
+İlk kez clone alan bir kullanıcı için önerilen akış:
 
 ```powershell
 git clone <repo-url>
@@ -64,25 +65,27 @@ cd Exam-Prep
 .\BASLAT.bat
 ```
 
-Bu script:
+`KURULUM.bat` şunları yapar:
 
-- gerekli `.env` dosyalarini orneklerden olusturur
-- bagimliliklari kurar
-- PostgreSQL konteynerini baslatir
+- gerekli `.env` dosyalarını örneklerden oluşturur
+- bağımlılıkları kurar
+- PostgreSQL konteynerini başlatır
 - schema push uygular
-- typecheck ve production build alir
+- API ve web için ayrı typecheck çalıştırır
+- production build alır
 
 `BASLAT.bat` ise:
 
-- bagimliliklari kontrol eder
-- PostgreSQL konteynerini baslatir
+- bağımlılıkları kontrol eder
+- PostgreSQL konteynerini başlatır
 - schema push uygular
-- API ve web uygulamasini ayri pencerelerde acir
+- API ve web uygulamasını ayrı pencerelerde açar
+- API sağlık kontrolünü bekler
 
-Acilan adresler:
+Açılan adresler:
 
 - Web: `http://localhost:24486`
-- API saglik kontrolu: `http://localhost:8080/api/health`
+- API sağlık kontrolü: `http://localhost:8080/api/health`
 
 ## Durdurma
 
@@ -90,9 +93,9 @@ Acilan adresler:
 .\DURDUR.bat
 ```
 
-Bu script acik API / web pencerelerini kapatir ve PostgreSQL konteynerini durdurur.
+Bu script açık API / web pencerelerini kapatır ve PostgreSQL konteynerini durdurur.
 
-## Veritabani ve Bakim Scriptleri
+## Veritabanı ve Bakım Scriptleri
 
 ### Yedek alma
 
@@ -100,43 +103,49 @@ Bu script acik API / web pencerelerini kapatir ve PostgreSQL konteynerini durdur
 .\YEDEK_AL.bat
 ```
 
-- PostgreSQL dump alir
-- `artifacts/api-server/uploads` klasorunu da yedekler
-- yedekleri `backups/backup-YYYYMMDD-HHMMSS` altina yazar
+- PostgreSQL dump alır
+- `artifacts/api-server/uploads` klasörünü de yedekler
+- yedekleri `backups/backup-YYYYMMDD-HHMMSS` altına yazar
 
-### Yedekten geri yukleme
+### Yedekten geri yükleme
 
 ```powershell
 .\YEDEKTEN_GERI_YUKLE.bat
 ```
 
-- secilen dump dosyasini geri yukler
-- mevcut `uploads` klasorunu temizleyip yedekteki dosyalari geri kopyalar
+- seçilen dump dosyasını geri yükler
+- mevcut `uploads` klasörünü temizleyip yedekteki dosyaları geri kopyalar
 
-### Veritabanini temizleme
+### Veritabanını temizleme
 
 ```powershell
 .\VERITABANI_TEMIZLE.bat
 ```
 
-- testler, sorular, notlar, cizimler ve analiz tablolari sifirlanir
-- `artifacts/api-server/uploads` klasoru de temizlenir
-- istenirse once otomatik yedek alir
+- testler, sorular, notlar, çizimler ve analiz tabloları sıfırlanır
+- `artifacts/api-server/uploads` klasörü de temizlenir
+- istenirse önce otomatik yedek alır
 
-### DB arayuzleri
+### DB arayüzleri
 
 ```powershell
 .\DB_AC.bat
 ```
 
-Bu script pgAdmin veya DBeaver acmak icin baglanti bilgilerini hazirlar.
+Bu script pgAdmin veya DBeaver açmak için bağlantı bilgilerini hazırlar.
 
-## Manuel Gelistirme Komutlari
+## Manuel Geliştirme Komutları
 
-Tum repo icin tip kontrolu:
+API typecheck:
 
 ```powershell
-pnpm typecheck
+pnpm --filter @workspace/api-server run typecheck
+```
+
+Web typecheck:
+
+```powershell
+pnpm --filter @workspace/yks-tracker run typecheck
 ```
 
 API build:
@@ -157,17 +166,24 @@ Schema push:
 pnpm --filter @workspace/db run push
 ```
 
-## Kullanima Hazirlik Notlari
+## Kullanıma Hazırlık Notları
 
-- Docker konteyner adi: `exam-prep-postgres`
+- Docker konteyner adı: `exam-prep-postgres`
 - Web portu: `24486`
 - API portu: `8080`
-- Uygulama yerel agda da acilabilir
-- Kalici veriler Docker volume icinde saklanir
+- Uygulama yerel ağda da açılabilir
+- Kalıcı veriler Docker volume içinde saklanır
+
+## Performans Notu
+
+- Sayfalar lazy-load edildiği için ilk açılış daha hafiftir.
+- Çizim sistemi Mac tarafında özel cursor yerine daha stabil yerel imleç davranışıyla çalışır.
+- `Soru Havuzu` içinde ağır bileşenler isteğe bağlı yüklenecek şekilde ayrılmıştır.
+- `Not Akışı`, notları tekrar mantığına göre batch halinde çeker.
 
 ## Git ve Temizlik
 
-Repoda su dosyalar git'e gonderilmez:
+Repoda şu dosyalar git'e gönderilmez:
 
 - `.env`
 - `.env_postgres`
@@ -179,27 +195,28 @@ Repoda su dosyalar git'e gonderilmez:
 - `*.log`
 - `*.tsbuildinfo`
 
-Ornek ortam dosyalari repoda tutulur:
+Örnek ortam dosyaları repoda tutulur:
 
 - `.env.example`
 - `.env_postgres.example`
 
-GitHub'a yuklenen surumde:
+GitHub'a yüklenen sürümde:
 
-- kullaniciya ozel `.env` dosyalari yoktur
-- lokal veritabani dump / backup dosyalari yoktur
-- `uploads` klasorundeki lokal dosyalar yoktur
-- node_modules ve runtime loglari yoktur
+- kullanıcıya özel `.env` dosyaları yoktur
+- API key değerleri yoktur
+- lokal veritabanı dump / backup dosyaları yoktur
+- `uploads` klasöründeki lokal dosyalar yoktur
+- node_modules ve runtime logları yoktur
 
-Bu nedenle taze clone sonrasi `KURULUM.bat` calistirmak gerekir.
+Bu nedenle taze clone sonrası `KURULUM.bat` çalıştırmak gerekir.
 
-## Onerilen Akis
+## Önerilen Akış
 
-1. `BASLAT.bat` ile projeyi ac
-2. uygulamayi test et
+1. `BASLAT.bat` ile projeyi aç
+2. uygulamayı test et
 3. gerekiyorsa `YEDEK_AL.bat` ile yedek al
-4. gelistirme sonunda `DURDUR.bat` ile kapat
+4. geliştirme sonunda `DURDUR.bat` ile kapat
 
 ## Not
 
-Bu README mevcut proje yapisina gore guncellendi. Eski path veya artik kullanilmayan script referanslari kaldirildi.
+Bu README mevcut proje yapısına göre güncellendi. Eski path veya artık kullanılmayan script referansları kaldırıldı.

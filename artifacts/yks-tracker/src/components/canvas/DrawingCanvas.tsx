@@ -1620,16 +1620,17 @@ export function DrawingCanvas({
     isDrawingRef.current = false;
     clearSnapTimer();
     setCurrentStroke((prev) => {
-      if (!prev) return prev;
+      const strokeToCommit = currentStrokeRef.current ?? prev;
+      if (!strokeToCommit) return prev;
       if (modeRef.current === "overlay") overlayDirtyRef.current = true;
-      const isStrokeEraser = prev.tool === "eraser" && eraserMode === "stroke";
+      const isStrokeEraser = strokeToCommit.tool === "eraser" && eraserMode === "stroke";
       if (isStrokeEraser) {
-        const radius = Math.max(6, eraserScaleToWidth(prev.width) / 2);
-        if (modeRef.current === "overlay") setOverlayStrokes((s) => eraseStrokesByPath(s, prev.points, radius));
-        else setBoardStrokes((s) => eraseStrokesByPath(s, prev.points, radius));
+        const radius = Math.max(6, eraserScaleToWidth(strokeToCommit.width) / 2);
+        if (modeRef.current === "overlay") setOverlayStrokes((s) => eraseStrokesByPath(s, strokeToCommit.points, radius));
+        else setBoardStrokes((s) => eraseStrokesByPath(s, strokeToCommit.points, radius));
       } else {
-        if (modeRef.current === "overlay") setOverlayStrokes((s) => [...s, prev]);
-        else setBoardStrokes((s) => [...s, prev]);
+        if (modeRef.current === "overlay") setOverlayStrokes((s) => [...s, strokeToCommit]);
+        else setBoardStrokes((s) => [...s, strokeToCommit]);
       }
       currentStrokeRef.current = null;
       rawStrokeRef.current = null;
@@ -1722,6 +1723,20 @@ export function DrawingCanvas({
       }
     };
   }, [useCustomCursor]);
+
+  useEffect(() => {
+    if (!useCustomCursor || typeof document === "undefined") return;
+    const shouldHideNativeCursor =
+      !showSaveDialog && (tool === "pen" || tool === "eraser") && (cursorInCanvas || !!currentStroke);
+    const previousCursor = document.body.style.cursor;
+    if (shouldHideNativeCursor) {
+      document.body.style.cursor = "none";
+    }
+
+    return () => {
+      document.body.style.cursor = previousCursor;
+    };
+  }, [useCustomCursor, tool, cursorInCanvas, currentStroke, showSaveDialog]);
 
   // ─────────────────────────────────────────────────────────────────
   // Keyboard shortcuts
@@ -2306,7 +2321,7 @@ export function DrawingCanvas({
                   width: PAPER_W * zoom,
                   height: PAPER_H * zoom,
                   flexShrink: 0,
-                  cursor: useCustomCursor && (tool === "pen" || tool === "eraser") ? "none" : "crosshair",
+                  cursor: useCustomCursor && !showSaveDialog && (tool === "pen" || tool === "eraser") ? "none" : "crosshair",
                   touchAction: "none",
                   filter: "drop-shadow(0 32px 48px rgba(15, 23, 42, 0.12))",
                 }}
@@ -2386,7 +2401,7 @@ export function DrawingCanvas({
             <div
               ref={containerRef}
               className={cn("relative flex-1 min-w-0 overflow-hidden bg-card/55", imageUrl ? "rounded-l-[1.5rem]" : "rounded-2xl")}
-              style={{ cursor: useCustomCursor && (tool === "pen" || tool === "eraser") ? "none" : "crosshair" }}
+              style={{ cursor: useCustomCursor && !showSaveDialog && (tool === "pen" || tool === "eraser") ? "none" : "crosshair" }}
             >
               <div
                 className="absolute inset-0 pointer-events-none opacity-[0.04]"

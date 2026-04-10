@@ -48,7 +48,7 @@ if not exist "artifacts\api-server\uploads" (
   mkdir "artifacts\api-server\uploads" >nul 2>nul
 )
 
-echo [1/6] Bagimliliklar yukleniyor...
+echo [1/7] Bagimliliklar yukleniyor...
 call pnpm install
 if errorlevel 1 (
   echo [HATA] pnpm install basarisiz.
@@ -56,7 +56,7 @@ if errorlevel 1 (
   exit /b 1
 )
 
-echo [2/6] PostgreSQL baslatiliyor...
+echo [2/7] PostgreSQL baslatiliyor...
 docker compose up -d postgres
 if errorlevel 1 (
   echo [HATA] PostgreSQL baslatilamadi.
@@ -64,7 +64,7 @@ if errorlevel 1 (
   exit /b 1
 )
 
-echo [3/6] PostgreSQL hazir olmasi bekleniyor...
+echo [3/7] PostgreSQL hazir olmasi bekleniyor...
 set "_pg_wait=0"
 :wait_pg
 for /f "delims=" %%S in ('docker inspect -f "{{.State.Health.Status}}" exam-prep-postgres 2^>nul') do set "PG_HEALTH=%%S"
@@ -79,7 +79,7 @@ timeout /t 2 /nobreak >nul
 goto wait_pg
 :pg_ready
 
-echo [4/6] Veritabani semasi uygulaniyor...
+echo [4/7] Veritabani semasi uygulaniyor...
 call pnpm --filter @workspace/db run push
 if errorlevel 1 (
   echo [HATA] Schema push basarisiz.
@@ -87,15 +87,22 @@ if errorlevel 1 (
   exit /b 1
 )
 
-echo [5/6] Tip kontrolu calistiriliyor...
-call pnpm typecheck
+echo [5/7] Tip kontrolu calistiriliyor...
+call pnpm --filter @workspace/api-server run typecheck
 if errorlevel 1 (
-  echo [HATA] Typecheck basarisiz.
+  echo [HATA] API typecheck basarisiz.
   pause
   exit /b 1
 )
 
-echo [6/6] Uretim build'leri hazirlaniyor...
+call pnpm --filter @workspace/yks-tracker run typecheck
+if errorlevel 1 (
+  echo [HATA] Web typecheck basarisiz.
+  pause
+  exit /b 1
+)
+
+echo [6/7] Uretim build'leri hazirlaniyor...
 call pnpm --filter @workspace/api-server run build
 if errorlevel 1 (
   echo [HATA] API build basarisiz.
@@ -109,6 +116,8 @@ if errorlevel 1 (
   pause
   exit /b 1
 )
+
+echo [7/7] Kurulum kontrolleri tamamlandi...
 
 echo.
 echo ============================================

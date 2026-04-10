@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from "react";
+import { lazy, Suspense, useState, useEffect, useMemo, useRef } from "react";
 import {
   useListQuestions,
   useGetFilterOptions,
@@ -8,14 +8,13 @@ import {
   QuestionSource,
   QuestionStatus,
 } from "@workspace/api-client-react";
-import { QuestionFormDialog } from "@/components/QuestionFormDialog";
-import { DrawingCanvas } from "@/components/canvas/DrawingCanvas";
 import { Badge } from "@/components/ui/badge";
 import { Filter, Book, FileText, CheckCircle2, XCircle, Trash2, Clock, Pencil, ChevronLeft, ChevronRight, Plus, Search } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { PageHeader, PageSection, PageShell } from "@/components/layout/PageShell";
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -31,6 +30,18 @@ import { useToast } from "@/hooks/use-toast";
 import { getLessonsForCategory, getTopicsForLesson } from "@/lib/lessonTopics";
 import { useUpdateQuestion } from "@workspace/api-client-react";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
+
+const QuestionFormDialog = lazy(() =>
+  import("@/components/QuestionFormDialog").then((module) => ({
+    default: module.QuestionFormDialog,
+  })),
+);
+
+const DrawingCanvas = lazy(() =>
+  import("@/components/canvas/DrawingCanvas").then((module) => ({
+    default: module.DrawingCanvas,
+  })),
+);
 
 type QuestionBadgeType = "osym" | "premium";
 const QUESTION_BADGE_OSYM = `${import.meta.env.BASE_URL}images/badge-osym.png`;
@@ -96,7 +107,17 @@ function CanvasModal({ questionId, imageUrl, onClose }: { questionId: number; im
       <div className="animate-spin h-8 w-8 border-b-2 border-white rounded-full" />
     </div>
   );
-  return <DrawingCanvas questionId={questionId} imageUrl={imageUrl} initialData={data?.canvasData} onClose={onClose} />;
+  return (
+    <Suspense
+      fallback={
+        <div className="w-full h-full flex items-center justify-center">
+          <div className="animate-spin h-8 w-8 border-b-2 border-white rounded-full" />
+        </div>
+      }
+    >
+      <DrawingCanvas questionId={questionId} imageUrl={imageUrl} initialData={data?.canvasData} onClose={onClose} />
+    </Suspense>
+  );
 }
 
 export default function Pool() {
@@ -184,10 +205,10 @@ export default function Pool() {
     queryClient.invalidateQueries({ queryKey: ["/api/questions"] });
     toast({
       title: nextValue ? "Badge eklendi" : "Badge kaldırıldı",
-        description:
-          badgeType === "osym"
-            ? "ÖSYM çıkmış sorular badge'i güncellendi."
-            : "Kaliteli Soru badge'i güncellendi.",
+      description:
+        badgeType === "osym"
+          ? "ÖSYM çıkmış sorular badge'i güncellendi."
+          : "Kaliteli Soru badge'i güncellendi.",
     });
   };
 
@@ -201,30 +222,33 @@ export default function Pool() {
   const wrongPct = visibleCount > 0 ? Math.round((wrongCount / visibleCount) * 100) : 0;
 
   return (
-    <div className="h-full flex flex-col p-6 max-w-7xl mx-auto w-full">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4 mt-2">
-        <div>
-          <h1 className="text-3xl md:text-4xl font-display font-bold text-foreground">Soru Havuzu</h1>
-          <p className="text-muted-foreground mt-1">Arşivlediğin tüm sorular ve durumları.</p>
-        </div>
-        <QuestionFormDialog />
-      </div>
+    <PageShell>
+      <PageHeader
+        icon={<Book className="h-5 w-5" />}
+        title="Soru Havuzu"
+        description="Arşivlediğin tüm soruları, badge'leri ve çözüm durumlarını tek yerde yönet."
+        actions={
+          <Suspense fallback={<Button className="rounded-xl" disabled>Yükleniyor...</Button>}>
+            <QuestionFormDialog />
+          </Suspense>
+        }
+      />
 
       {/* Progress bar - always visible */}
-      <div className="mb-5 bg-card/40 border border-border/50 rounded-2xl p-4 backdrop-blur-md">
+      <PageSection className="gap-3">
         <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 mb-2">
           <span className="text-sm font-medium text-muted-foreground shrink-0">
-            {visibleCount || 0} gorunen soru
+            {visibleCount || 0} görünen soru
           </span>
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs font-semibold">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs font-medium">
             <span className="text-green-500 shrink-0">✓ {solvedCount || 0} doğru</span>
-            <span className="text-destructive shrink-0">✗ {wrongCount || 0} yanlış</span>
-            <span className="text-muted-foreground shrink-0">· {(visibleCount || 0) - (solvedCount || 0) - (wrongCount || 0)} çözülmedi</span>
+            <span className="text-destructive shrink-0">✕ {wrongCount || 0} yanlış</span>
+            <span className="text-muted-foreground shrink-0">• {(visibleCount || 0) - (solvedCount || 0) - (wrongCount || 0)} çözülmedi</span>
           </div>
         </div>
         {totalCount !== visibleCount && (
           <p className="text-xs text-muted-foreground mb-2">
-            Ozet yalnizca bu sayfayi gosterir. Filtre toplam: {totalCount} soru.
+            Özet yalnızca bu sayfayı gösterir. Filtre toplamı: {totalCount} soru.
           </p>
         )}
         <div className="h-2.5 rounded-full bg-muted/40 overflow-hidden flex">
@@ -239,13 +263,14 @@ export default function Pool() {
         </div>
         {totalCount === 0 && (
           <p className="text-xs text-muted-foreground mt-2 text-center">
-            Veri görmek için bu başlık altına soru yükleyin
+            Veri görmek için bu başlık altına soru yükleyin.
           </p>
         )}
-      </div>
+      </PageSection>
 
       {/* Filters */}
-      <div className="flex flex-wrap gap-3 mb-6 bg-card/40 p-4 rounded-2xl border border-border/50 backdrop-blur-md">
+      <PageSection className="mb-0">
+        <div className="flex flex-wrap gap-3">
         <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground mr-1">
           <Filter className="w-4 h-4" /> Filtreler:
         </div>
@@ -258,7 +283,7 @@ export default function Pool() {
               setPage(1);
               setSearchInput(e.target.value);
             }}
-            placeholder="Ders, konu, yayın, test ara..."
+            placeholder="Ders, konu, yayın veya test ara..."
             className="h-9 rounded-xl border-border/50 bg-background pl-9"
           />
         </div>
@@ -395,19 +420,20 @@ export default function Pool() {
             Temizle
           </Button>
         )}
-      </div>
+        </div>
+      </PageSection>
 
       {/* Grid */}
       {isLoading ? (
-        <div className="flex-1 flex items-center justify-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary" />
-        </div>
+        <PageSection className="flex min-h-[320px] items-center justify-center">
+          <div className="h-12 w-12 animate-spin rounded-full border-b-2 border-primary" />
+        </PageSection>
       ) : !questions?.length ? (
-        <div className="flex-1 flex flex-col items-center justify-center opacity-80">
+        <PageSection className="flex min-h-[360px] flex-col items-center justify-center opacity-80">
           <img src={`${import.meta.env.BASE_URL}images/empty-state.png`} alt="Boş" className="w-56 h-56 object-contain opacity-50 drop-shadow-2xl mb-6" />
           <h3 className="text-xl font-display font-medium text-foreground">Buralar Çok Sessiz</h3>
-          <p className="text-muted-foreground mt-2 max-w-sm text-center">Filtrelere uygun soru bulunamadı. Yeni soru ekleyerek havuzunu genişlet!</p>
-        </div>
+          <p className="text-muted-foreground mt-2 max-w-sm text-center">Filtrelere uygun soru bulunamadı. Yeni soru ekleyerek havuzunu genişletebilirsin.</p>
+        </PageSection>
       ) : (
         <>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5 pb-20">
@@ -464,14 +490,22 @@ export default function Pool() {
                         </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
-                    <QuestionFormDialog
-                      question={q as any}
-                      trigger={
-                        <button className="p-1.5 bg-primary/90 text-white rounded-lg backdrop-blur shadow-sm hover:bg-primary transition-colors">
+                    <Suspense
+                      fallback={
+                        <button className="p-1.5 bg-primary/70 text-white rounded-lg backdrop-blur shadow-sm opacity-70" disabled>
                           <Pencil className="w-3.5 h-3.5" />
                         </button>
                       }
-                    />
+                    >
+                      <QuestionFormDialog
+                        question={q as any}
+                        trigger={
+                          <button className="p-1.5 bg-primary/90 text-white rounded-lg backdrop-blur shadow-sm hover:bg-primary transition-colors">
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+                        }
+                      />
+                    </Suspense>
                     <button
                       type="button"
                       onClick={(e) => {
@@ -554,7 +588,7 @@ export default function Pool() {
               disabled={deleteMutation.isPending}
               onClick={() => void confirmDeleteQuestion()}
             >
-              {deleteMutation.isPending ? "Siliniyor…" : "Sil"}
+              {deleteMutation.isPending ? "Siliniyor..." : "Sil"}
             </Button>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -570,7 +604,11 @@ export default function Pool() {
           />
         </div>
       )}
-    </div>
+    </PageShell>
   );
 }
+
+
+
+
 

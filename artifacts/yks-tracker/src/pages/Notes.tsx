@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useRef, useState } from "react";
+﻿import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CalendarClock, NotebookPen, Pin, PinOff, Plus, Search, StickyNote, Trash2 } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
@@ -58,6 +58,7 @@ type DrawingPayload = {
 };
 type DrawingPoint = { x: number; y: number };
 type DrawingStrokePreview = { tool: "pen" | "eraser"; color: string; width: number; points: DrawingPoint[] };
+type NotesViewMode = "grid" | "reels";
 
 function getPendingOpenNoteKey(category: NoteCategory) {
   return `yks_notes_pending_open_${category.toLowerCase()}`;
@@ -96,11 +97,11 @@ function createNote(lesson: string, noteType: NoteType, category: NoteCategory):
 
 function hashToStickyColor(id: string) {
   const palette = [
-    "bg-[#fef3c7] border-[#facc15]/40 text-amber-950",
-    "bg-[#fecdd3] border-[#fb7185]/35 text-rose-950",
-    "bg-[#bfdbfe] border-[#60a5fa]/35 text-sky-950",
-    "bg-[#bbf7d0] border-[#4ade80]/35 text-emerald-950",
-    "bg-[#e9d5ff] border-[#a78bfa]/35 text-violet-950",
+    "bg-[#fff2d2] border-[#f4c979]/38 text-amber-950",
+    "bg-[#ffe1df] border-[#f5a4ae]/34 text-rose-950",
+    "bg-[#dde9ff] border-[#93b7ff]/34 text-sky-950",
+    "bg-[#f1e5d7] border-[#d3b492]/34 text-stone-900",
+    "bg-[#eadfff] border-[#b79df4]/34 text-violet-950",
   ];
   let hash = 0;
   for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) | 0;
@@ -251,8 +252,10 @@ export default function Notes({ category }: NotesProps) {
 
   const [isLoading, setIsLoading] = useState(true);
   const [notes, setNotes] = useState<StudyNote[]>([]);
+  const [reelsNotes, setReelsNotes] = useState<StudyNote[]>([]);
   const [activeLesson, setActiveLesson] = useState("");
   const [searchInput, setSearchInput] = useState("");
+  const [viewMode, setViewMode] = useState<NotesViewMode>("grid");
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
@@ -269,6 +272,11 @@ export default function Notes({ category }: NotesProps) {
   });
   const [reloadSeed, setReloadSeed] = useState(0);
   const debouncedSearchTerm = useDebouncedValue(searchInput, 250);
+  const combinedNotes = useMemo(() => {
+    const registry = new Map<string, StudyNote>();
+    for (const note of [...reelsNotes, ...notes]) registry.set(note.id, note);
+    return Array.from(registry.values());
+  }, [notes, reelsNotes]);
 
   useEffect(() => {
     let cancelled = false;
@@ -307,8 +315,8 @@ export default function Notes({ category }: NotesProps) {
   }, [activeLesson, category, currentPage, debouncedSearchTerm, lessonTabs, notesPerPage, reloadSeed]);
 
   useEffect(() => {
-    notesRef.current = notes;
-  }, [notes]);
+    notesRef.current = combinedNotes;
+  }, [combinedNotes]);
 
   useEffect(() => () => {
     Object.values(saveTimersRef.current).forEach((timer) => clearTimeout(timer));
@@ -365,7 +373,20 @@ export default function Notes({ category }: NotesProps) {
     return Array.from({ length: end - adjustedStart + 1 }, (_, index) => adjustedStart + index);
   }, [safeCurrentPage, totalPages]);
 
-  const expandedNote = useMemo(() => notes.find((note) => note.id === expandedId) ?? null, [notes, expandedId]);
+  const handleReelsSync = useCallback((incomingNotes: StudyNote[]) => {
+    setReelsNotes(incomingNotes);
+  }, []);
+
+  const noteMatchesActiveFilters = useCallback((note: StudyNote) => {
+    if (activeLesson && note.lesson !== activeLesson) return false;
+    const pattern = debouncedSearchTerm.trim().toLocaleLowerCase("tr-TR");
+    if (!pattern) return true;
+    return [note.title, note.topic, note.description, note.lesson]
+      .filter((value): value is string => typeof value === "string")
+      .some((value) => value.toLocaleLowerCase("tr-TR").includes(pattern));
+  }, [activeLesson, debouncedSearchTerm]);
+
+  const expandedNote = useMemo(() => combinedNotes.find((note) => note.id === expandedId) ?? null, [combinedNotes, expandedId]);
   const expandedNoteTopics = useMemo(() => (expandedNote ? getTopicsForLesson(expandedNote.category, expandedNote.lesson) : []), [expandedNote]);
 
   const persistNote = async (noteId: string, patch?: UpdateNoteInput) => {
@@ -386,6 +407,7 @@ export default function Notes({ category }: NotesProps) {
     try {
       const updated = await updateStudyNote(noteId, payload);
       setNotes((prev) => prev.map((note) => (note.id === noteId ? updated : note)));
+      setReelsNotes((prev) => prev.map((note) => (note.id === noteId ? updated : note)));
       setRecentlySavedNoteId(noteId);
       window.setTimeout(() => setRecentlySavedNoteId((current) => (current === noteId ? null : current)), 1800);
     } finally {
@@ -410,15 +432,17 @@ export default function Notes({ category }: NotesProps) {
   };
 
   const upsertNote = (noteId: string, patch: Partial<StudyNote>) => {
-    let changed = false;
-    setNotes((prev) => prev.map((note) => {
-      if (note.id !== noteId) return note;
-      const hasAnyChange = Object.entries(patch).some(([key, value]) => note[key as keyof StudyNote] !== value);
-      if (!hasAnyChange) return note;
-      changed = true;
-      return { ...note, ...patch, updatedAt: new Date().toISOString() };
-    }));
-    if (changed) queueSave(noteId, patch);
+    const currentNote = notesRef.current.find((note) => note.id === noteId);
+    if (!currentNote) return;
+    const hasAnyChange = Object.entries(patch).some(([key, value]) => currentNote[key as keyof StudyNote] !== value);
+    if (!hasAnyChange) return;
+
+    const nextUpdatedAt = new Date().toISOString();
+    const applyPatch = (collection: StudyNote[]) => collection.map((note) => (note.id === noteId ? { ...note, ...patch, updatedAt: nextUpdatedAt } : note));
+
+    setNotes((prev) => applyPatch(prev));
+    setReelsNotes((prev) => applyPatch(prev));
+    queueSave(noteId, patch);
   };
 
   const handleManualSave = async (noteId: string) => {
@@ -439,6 +463,7 @@ export default function Notes({ category }: NotesProps) {
     if (typeof draft !== "string") return;
     delete drawingDraftsRef.current[noteId];
     setNotes((prev) => prev.map((note) => (note.id === noteId ? { ...note, drawingData: draft } : note)));
+    setReelsNotes((prev) => prev.map((note) => (note.id === noteId ? { ...note, drawingData: draft } : note)));
     await persistNote(noteId, { drawingData: draft });
   };
 
@@ -477,6 +502,9 @@ export default function Notes({ category }: NotesProps) {
         setCurrentPage(1);
         setExpandedId(created.id);
         setNotes((prev) => [created, ...prev.filter((note) => note.id !== created.id)].slice(0, notesPerPage));
+        if (noteMatchesActiveFilters(created)) {
+          setReelsNotes((prev) => [created, ...prev.filter((note) => note.id !== created.id)]);
+        }
         setPagination((prev) => ({
           ...prev,
           total: prev.total + 1,
@@ -501,6 +529,7 @@ export default function Notes({ category }: NotesProps) {
     }
     delete drawingDraftsRef.current[noteId];
     setNotes((prev) => prev.filter((note) => note.id !== noteId));
+    setReelsNotes((prev) => prev.filter((note) => note.id !== noteId));
     if (expandedId === noteId) setExpandedId(null);
     try {
       await deleteStudyNote(noteId);
@@ -521,16 +550,16 @@ export default function Notes({ category }: NotesProps) {
   return (
     <div className="relative min-h-full w-full overflow-x-hidden px-4 py-6 text-slate-900 sm:px-6 sm:py-8 dark:text-white">
       <div className="pointer-events-none absolute inset-0 overflow-hidden">
-        <div className="absolute -right-24 -top-20 h-72 w-72 rounded-full bg-primary/16 blur-3xl" />
-        <div className="absolute -left-24 top-1/3 h-72 w-72 rounded-full bg-accent/25 blur-3xl" />
+        <div className="absolute right-[-9rem] top-[-7rem] h-64 w-64 rounded-full bg-primary/10 blur-3xl" />
+        <div className="absolute left-[-8rem] top-[28%] h-56 w-56 rounded-full bg-accent/14 blur-3xl" />
       </div>
       <div className="relative mx-auto flex w-full max-w-7xl flex-col gap-4">
-        <header className="rounded-[1.6rem] border border-slate-200/80 bg-white/80 px-5 py-5 shadow-[0_20px_60px_-30px_rgba(15,23,42,0.28)] backdrop-blur-xl sm:px-6 dark:border-white/10 dark:bg-slate-950/65">
+        <header className="rounded-[1.7rem] border border-slate-200/70 bg-white/76 px-5 py-5 shadow-[0_22px_50px_-38px_rgba(15,23,42,0.3)] backdrop-blur-xl sm:px-6 dark:border-white/8 dark:bg-slate-950/58">
           <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
             <div className="flex items-center gap-3">
-              <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-primary to-pink-500 text-white"><StickyNote className="h-5 w-5" /></div>
+              <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-primary/18 bg-primary/10 text-primary shadow-[0_16px_32px_-28px_rgba(76,111,255,0.42)] dark:border-primary/15 dark:bg-primary/14"><StickyNote className="h-5 w-5" /></div>
               <div>
-                <h1 className="text-2xl font-bold sm:text-3xl">YKS Notları</h1>
+                <h1 className="text-[1.9rem] font-semibold tracking-[-0.045em] sm:text-[2.25rem]">YKS Notları</h1>
                 <p className="mt-1 text-sm text-slate-600 dark:text-white/55">Ders bazlı sticky notlar, çizimli çözümler ve hızlı tekrar alanı.</p>
               </div>
             </div>
@@ -543,7 +572,7 @@ export default function Notes({ category }: NotesProps) {
           </div>
         </header>
 
-        <section className="rounded-[1.4rem] border border-slate-200/80 bg-white/75 p-4 backdrop-blur-xl dark:border-white/10 dark:bg-slate-950/55">
+        <section className="rounded-[1.4rem] border border-slate-200/70 bg-white/72 p-4 shadow-[0_18px_42px_-36px_rgba(15,23,42,0.28)] backdrop-blur-xl dark:border-white/8 dark:bg-slate-950/48">
           <div className="relative">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400 dark:text-white/40" />
             <Input value={searchInput} onChange={(e) => setSearchInput(e.target.value)} placeholder={activeLesson ? `${activeLesson} altında not ara...` : "Not ara..."} className="rounded-xl border-slate-200 bg-white/85 pl-9 text-slate-900 placeholder:text-slate-400 dark:border-white/10 dark:bg-white/5 dark:text-white dark:placeholder:text-white/35" />
@@ -555,7 +584,7 @@ export default function Notes({ category }: NotesProps) {
           </div>
         </section>
 
-        <section className="rounded-[1.4rem] border border-slate-200/80 bg-white/72 p-4 shadow-[0_24px_80px_-40px_rgba(15,23,42,0.22)] backdrop-blur-md dark:border-white/10 dark:bg-slate-950/45 sm:p-5">
+        <section className="rounded-[1.4rem] border border-slate-200/70 bg-white/72 p-4 shadow-[0_24px_64px_-42px_rgba(15,23,42,0.24)] backdrop-blur-md dark:border-white/8 dark:bg-slate-950/42 sm:p-5">
           <div className="mb-3 flex items-center justify-between">
             <h2 className="text-lg font-semibold">{activeLesson || "Ders"} Notları</h2>
             <span className="text-xs text-slate-500 dark:text-white/45">{pagination.total} not</span>
