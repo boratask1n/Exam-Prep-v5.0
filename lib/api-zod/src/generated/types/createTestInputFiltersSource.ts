@@ -12,7 +12,7 @@ export type CreateTestInputFiltersSource =
 export const CreateTestInputFiltersSource = {
   Deneme: "Deneme",
   Banka: "Banka",
-  "Ders Kitabı": "Ders Kitabı",
+  Fasikül: "Fasikül",
+  Ders_Kitabı: "Ders Kitabı",
 } as const;
-
 

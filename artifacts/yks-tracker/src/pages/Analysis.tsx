@@ -235,6 +235,13 @@ export default function Analysis() {
     }
   };
 
+  const clearAiInsightsCache = () => {
+    window.localStorage.removeItem(AI_INSIGHTS_CACHE_KEY);
+    setAiInsights(null);
+    setAiRequestedAt(null);
+    setInfoNotice("Kaydedilmiş AI analizi bu cihazdan temizlendi.");
+  };
+
   const createTestFromAiSuggestion = async () => {
     if (!aiInsights?.aiSuggestedTest) return;
     setAiCreatingTest(true);
@@ -617,6 +624,15 @@ export default function Analysis() {
               >
                 {aiLoading ? "Analiz hazırlanıyor..." : "Yapay zeka analizi üret"}
               </button>
+              {aiInsights && (
+                <button
+                  type="button"
+                  onClick={clearAiInsightsCache}
+                  className="inline-flex items-center gap-2 rounded-xl border border-border/60 bg-card/60 px-3 py-1.5 text-xs text-muted-foreground hover:bg-foreground/[0.04] hover:text-foreground"
+                >
+                  AI önbelleğini temizle
+                </button>
+              )}
               <span className={cn("rounded-full px-2 py-1 text-[11px] font-medium", runtimeProviderTone)}>
                 {runtimeProviderLabel}
               </span>
@@ -624,7 +640,7 @@ export default function Analysis() {
           </div>
 
           <p className="mb-3 text-xs text-muted-foreground">
-            Not: Gemini analizi sadece butona bastığında çağrılır. AI yorumu menüde seçtiğin tarih aralığından bağımsız olarak tüm geçmişi değerlendirir ve son sonuç sayfa yenilemede korunur.
+            Not: Gemini analizi sadece butona bastığında çağrılır. AI yorumu menüde seçtiğin tarih aralığından bağımsız olarak tüm geçmişi değerlendirir ve son sonuç bu cihazın yerel önbelleğinde korunur; istersen tek tuşla temizleyebilirsin.
           </p>
           {showDiagnosticPrompt && (
             <div className="mb-3 rounded-xl border border-primary/40 bg-primary/10 p-3">

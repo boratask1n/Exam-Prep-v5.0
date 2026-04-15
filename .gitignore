@@ -21,6 +21,7 @@ pgbouncer/
 # Build outputs
 dist/
 **/dist/
+artifacts/desktop-shell/release/
 *.tsbuildinfo
 .turbo/
 coverage/

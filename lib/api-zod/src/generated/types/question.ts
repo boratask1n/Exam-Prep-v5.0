@@ -7,6 +7,7 @@
  */
 import type { QuestionCategory } from "./questionCategory";
 import type { QuestionChoice } from "./questionChoice";
+import type { QuestionOptionsItem } from "./questionOptionsItem";
 import type { QuestionSource } from "./questionSource";
 import type { QuestionStatus } from "./questionStatus";
 
@@ -20,11 +21,16 @@ export interface Question {
   testName?: string | null;
   testNo?: string | null;
   choice?: QuestionChoice;
+  options?: QuestionOptionsItem[] | null;
   solutionUrl?: string | null;
+  solutionYoutubeUrl?: string | null;
+  solutionYoutubeStartSecond?: number | null;
   category: QuestionCategory;
   source: QuestionSource;
   status: QuestionStatus;
   hasDrawing: boolean;
+  isOsymBadge: boolean;
+  isPremiumBadge: boolean;
   createdAt: string;
   updatedAt: string;
 }

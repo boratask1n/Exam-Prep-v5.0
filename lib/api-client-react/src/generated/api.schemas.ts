@@ -21,6 +21,11 @@ export const QuestionChoice = {
   E: "E",
 } as const;
 
+export type QuestionOptionsItem = {
+  label: string;
+  text: string;
+};
+
 export type QuestionCategory =
   (typeof QuestionCategory)[keyof typeof QuestionCategory];
 
@@ -36,8 +41,8 @@ export type QuestionSource =
 export const QuestionSource = {
   Deneme: "Deneme",
   Banka: "Banka",
-  "Ders Kitabı": "Ders Kitabı",
-  "Fasikül": "Fasikül",
+  Fasikül: "Fasikül",
+  Ders_Kitabı: "Ders Kitabı",
 } as const;
 
 export type QuestionStatus =
@@ -58,9 +63,11 @@ export interface Question {
   publisher?: string | null;
   testName?: string | null;
   testNo?: string | null;
-  options?: { label: string; text: string }[] | null;
   choice?: QuestionChoice;
+  options?: QuestionOptionsItem[] | null;
   solutionUrl?: string | null;
+  solutionYoutubeUrl?: string | null;
+  solutionYoutubeStartSecond?: number | null;
   category: QuestionCategory;
   source: QuestionSource;
   status: QuestionStatus;
@@ -71,6 +78,61 @@ export interface Question {
   updatedAt: string;
 }
 
+export type QuestionReviewItem = Question & {
+  totalServed?: number | null;
+  totalReviewed?: number | null;
+  correctReviewCount?: number | null;
+  wrongReviewCount?: number | null;
+  repetitionStage?: number | null;
+  lastServedAt?: string | null;
+  lastReviewedAt?: string | null;
+  nextEligibleAt?: string | null;
+  lastOutcome?: string | null;
+  score?: number | null;
+};
+
+export type QuestionReviewFeedResponsePagination = {
+  total: number;
+  limit: number;
+  offset: number;
+  hasMore: boolean;
+};
+
+export type QuestionReviewFeedResponseAlgorithm = {
+  name: string;
+  description: string;
+};
+
+export interface QuestionReviewFeedResponse {
+  items: QuestionReviewItem[];
+  pagination: QuestionReviewFeedResponsePagination;
+  algorithm?: QuestionReviewFeedResponseAlgorithm;
+}
+
+export type QuestionReviewFeedbackInputFeedback =
+  (typeof QuestionReviewFeedbackInputFeedback)[keyof typeof QuestionReviewFeedbackInputFeedback];
+
+export const QuestionReviewFeedbackInputFeedback = {
+  again: "again",
+  wrong: "wrong",
+  hard: "hard",
+  correct: "correct",
+  easy: "easy",
+  less_often: "less_often",
+  more_often: "more_often",
+} as const;
+
+export interface QuestionReviewFeedbackInput {
+  feedback: QuestionReviewFeedbackInputFeedback;
+}
+
+export interface QuestionReviewFeedbackResponse {
+  ok: boolean;
+  feedback: string;
+  outcome?: string | null;
+  repetitionStage: number;
+  nextEligibleAt: string;
+}
 
 export type CreateQuestionInputChoice =
   | (typeof CreateQuestionInputChoice)[keyof typeof CreateQuestionInputChoice]
@@ -83,6 +145,11 @@ export const CreateQuestionInputChoice = {
   D: "D",
   E: "E",
 } as const;
+
+export type CreateQuestionInputOptionsItem = {
+  label: string;
+  text: string;
+};
 
 export type CreateQuestionInputCategory =
   (typeof CreateQuestionInputCategory)[keyof typeof CreateQuestionInputCategory];
@@ -99,7 +166,8 @@ export type CreateQuestionInputSource =
 export const CreateQuestionInputSource = {
   Deneme: "Deneme",
   Banka: "Banka",
-  "Ders Kitabı": "Ders Kitabı",
+  Fasikül: "Fasikül",
+  Ders_Kitabı: "Ders Kitabı",
 } as const;
 
 export type CreateQuestionInputStatus =
@@ -119,9 +187,11 @@ export interface CreateQuestionInput {
   publisher?: string | null;
   testName?: string | null;
   testNo?: string | null;
-  options?: { label: string; text: string }[] | null;
   choice?: CreateQuestionInputChoice;
+  options?: CreateQuestionInputOptionsItem[] | null;
   solutionUrl?: string | null;
+  solutionYoutubeUrl?: string | null;
+  solutionYoutubeStartSecond?: number | null;
   category: CreateQuestionInputCategory;
   source: CreateQuestionInputSource;
   status?: CreateQuestionInputStatus;
@@ -141,6 +211,11 @@ export const UpdateQuestionInputChoice = {
   E: "E",
 } as const;
 
+export type UpdateQuestionInputOptionsItem = {
+  label: string;
+  text: string;
+};
+
 export type UpdateQuestionInputCategory =
   (typeof UpdateQuestionInputCategory)[keyof typeof UpdateQuestionInputCategory];
 
@@ -156,7 +231,8 @@ export type UpdateQuestionInputSource =
 export const UpdateQuestionInputSource = {
   Deneme: "Deneme",
   Banka: "Banka",
-  "Ders Kitabı": "Ders Kitabı",
+  Fasikül: "Fasikül",
+  Ders_Kitabı: "Ders Kitabı",
 } as const;
 
 export type UpdateQuestionInputStatus =
@@ -176,12 +252,14 @@ export interface UpdateQuestionInput {
   publisher?: string | null;
   testName?: string | null;
   testNo?: string | null;
-  options?: { label: string; text: string }[] | null;
   choice?: UpdateQuestionInputChoice;
+  options?: UpdateQuestionInputOptionsItem[] | null;
   category?: UpdateQuestionInputCategory;
   source?: UpdateQuestionInputSource;
   status?: UpdateQuestionInputStatus;
   solutionUrl?: string | null;
+  solutionYoutubeUrl?: string | null;
+  solutionYoutubeStartSecond?: number | null;
   isOsymBadge?: boolean;
   isPremiumBadge?: boolean;
 }
@@ -236,7 +314,8 @@ export type CreateTestInputFiltersSource =
 export const CreateTestInputFiltersSource = {
   Deneme: "Deneme",
   Banka: "Banka",
-  "Ders Kitabı": "Ders Kitabı",
+  Fasikül: "Fasikül",
+  Ders_Kitabı: "Ders Kitabı",
 } as const;
 
 export type CreateTestInputFiltersStatus =
@@ -253,10 +332,12 @@ export type CreateTestInputFilters = {
   source?: CreateTestInputFiltersSource;
   lessons?: string[];
   topic?: string;
-  publisher?: string;
   topics?: string[];
+  publisher?: string;
   status?: CreateTestInputFiltersStatus;
 };
+
+export type CreateTestInputDistribution = { [key: string]: number };
 
 export interface CreateTestInput {
   name: string;
@@ -264,7 +345,7 @@ export interface CreateTestInput {
   timeLimitSeconds?: number | null;
   questionIds?: number[];
   filters?: CreateTestInputFilters;
-  distribution?: Record<string, number>;
+  distribution?: CreateTestInputDistribution;
 }
 
 export interface FilterOptions {
@@ -442,12 +523,19 @@ export type ListQuestionsParams = {
   lesson?: string;
   publisher?: string;
   status?: ListQuestionsStatus;
-  limit?: number;
-  offset?: number;
   topic?: string;
+  search?: string;
   isOsymBadge?: boolean;
   isPremiumBadge?: boolean;
-  search?: string;
+  /**
+   * @minimum 1
+   * @maximum 100
+   */
+  limit?: number;
+  /**
+   * @minimum 0
+   */
+  offset?: number;
 };
 
 export type ListQuestionsCategory =
@@ -465,7 +553,8 @@ export type ListQuestionsSource =
 export const ListQuestionsSource = {
   Deneme: "Deneme",
   Banka: "Banka",
-  "Ders Kitabı": "Ders Kitabı",
+  Fasikül: "Fasikül",
+  Ders_Kitabı: "Ders Kitabı",
 } as const;
 
 export type ListQuestionsStatus =
@@ -486,6 +575,25 @@ export type UploadQuestionImage200 = {
   url: string;
 };
 
+export type GetQuestionReviewFeedParams = {
+  search?: string;
+  /**
+   * Comma-separated question IDs to avoid in this batch
+   */
+  excludeIds?: string;
+  /**
+   * @minimum 1
+   * @maximum 16
+   */
+  limit?: number;
+};
+
+export type MarkQuestionReviewServed200 = {
+  ok: boolean;
+  deduped?: boolean;
+  nextEligibleAt?: string | null;
+};
+
 export type UpdateTestQuestionStatusBodyStatus =
   (typeof UpdateTestQuestionStatusBodyStatus)[keyof typeof UpdateTestQuestionStatusBodyStatus];
 
@@ -498,7 +606,4 @@ export const UpdateTestQuestionStatusBodyStatus = {
 export type UpdateTestQuestionStatusBody = {
   status: UpdateTestQuestionStatusBodyStatus;
 };
-
-
-
 

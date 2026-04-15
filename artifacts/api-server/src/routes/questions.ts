@@ -1,4 +1,4 @@
-import { Router, type IRouter } from "express";
+﻿import { Router, type IRouter, type Request } from "express";
 import { db } from "@workspace/db";
 import { questionsTable, drawingsTable } from "@workspace/db";
 import { eq, and, ilike, sql, or } from "drizzle-orm";
@@ -9,8 +9,16 @@ import {
   UploadQuestionImageBody,
   SaveDrawingBody,
 } from "@workspace/api-zod";
+import {
+  getQuestionReviewFeed,
+  markQuestionServed,
+  submitQuestionReviewFeedback,
+  type QuestionReviewFeedback,
+} from "../services/questionReviewService";
 import path from "path";
 import fs from "fs";
+import { randomUUID } from "crypto";
+import { promises as fsp } from "fs";
 
 const router: IRouter = Router();
 
@@ -19,17 +27,72 @@ if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
 
-/** Uploads dizininden dosya silme yardımcısı */
+const allowedImageTypes = new Map([
+  ["image/jpeg", "jpg"],
+  ["image/png", "png"],
+  ["image/webp", "webp"],
+]);
+const maxUploadBytes = Number.parseInt(process.env.MAX_UPLOAD_BYTES ?? "", 10) || 8 * 1024 * 1024;
+const uploadFilenamePattern = /^img_[a-f0-9-]+\.(jpg|png|webp)$/i;
+
+function resolveUploadPath(filename: string) {
+  if (!uploadFilenamePattern.test(filename)) return null;
+  const root = path.resolve(uploadsDir);
+  const candidate = path.resolve(root, filename);
+  return candidate.startsWith(`${root}${path.sep}`) ? candidate : null;
+}
+
+function decodeBase64Image(rawImageData: string) {
+  const base64Data = rawImageData.replace(/^data:image\/[a-zA-Z0-9.+-]+;base64,/, "");
+  if (!/^[a-zA-Z0-9+/=\r\n]+$/.test(base64Data)) {
+    throw new Error("invalid_base64");
+  }
+  const buffer = Buffer.from(base64Data, "base64");
+  if (buffer.length === 0) throw new Error("empty_image");
+  if (buffer.length > maxUploadBytes) throw new Error("image_too_large");
+  return buffer;
+}
+
+function isLikelyImage(buffer: Buffer, mimeType: string) {
+  if (mimeType === "image/jpeg") {
+    return buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff;
+  }
+  if (mimeType === "image/png") {
+    return (
+      buffer.length >= 8 &&
+      buffer[0] === 0x89 &&
+      buffer[1] === 0x50 &&
+      buffer[2] === 0x4e &&
+      buffer[3] === 0x47 &&
+      buffer[4] === 0x0d &&
+      buffer[5] === 0x0a &&
+      buffer[6] === 0x1a &&
+      buffer[7] === 0x0a
+    );
+  }
+  if (mimeType === "image/webp") {
+    return buffer.length >= 12 && buffer.subarray(0, 4).toString("ascii") === "RIFF" && buffer.subarray(8, 12).toString("ascii") === "WEBP";
+  }
+  return false;
+}
+
+function canRunAdminCleanup(req: Request) {
+  const adminToken = process.env.ADMIN_TOKEN;
+  if (adminToken) return req.header("x-admin-token") === adminToken;
+  return process.env.NODE_ENV !== "production";
+}
+
+/** Uploads dizininden g?venli dosya silme yard?mc?s?. */
 function deleteUploadFile(imageUrl: string | null | undefined): void {
   if (!imageUrl) return;
   try {
     const filename = path.basename(imageUrl);
-    const filepath = path.join(uploadsDir, filename);
-    if (fs.existsSync(filepath)) {
+    const filepath = resolveUploadPath(filename);
+    if (filepath && fs.existsSync(filepath)) {
       fs.unlinkSync(filepath);
     }
   } catch {
-    // Silme hatası kritik değil, devam et
+    // Silme hatas? kritik de?il, devam et.
   }
 }
 
@@ -53,6 +116,12 @@ function normalizeOptions(
     .filter((option) => option.label.length > 0 && option.text.length > 0)
     .slice(0, 5);
   return normalized.length > 0 ? normalized : null;
+}
+
+function normalizeYoutubeStartSecond(value: unknown) {
+  const parsed = typeof value === "number" ? value : Number.parseInt(String(value ?? ""), 10);
+  if (!Number.isFinite(parsed)) return null;
+  return Math.max(0, Math.floor(parsed));
 }
 
 router.get("/questions", async (req, res) => {
@@ -121,17 +190,45 @@ router.get("/questions", async (req, res) => {
 });
 
 router.post("/questions/image", async (req, res) => {
-  const body = UploadQuestionImageBody.parse(req.body);
-  const ext = body.mimeType.split("/")[1] || "jpg";
-  const filename = `img_${Date.now()}.${ext}`;
-  const filepath = path.join(uploadsDir, filename);
-  const base64Data = body.imageData.replace(/^data:image\/\w+;base64,/, "");
-  fs.writeFileSync(filepath, Buffer.from(base64Data, "base64"));
-  res.json({ url: `/api/uploads/${filename}` });
+  try {
+    const body = UploadQuestionImageBody.parse(req.body);
+    const mimeType = body.mimeType.toLowerCase();
+    const ext = allowedImageTypes.get(mimeType);
+    if (!ext) {
+      return res.status(400).json({ error: "Sadece JPEG, PNG veya WEBP görsel yüklenebilir." });
+    }
+
+    const imageBuffer = decodeBase64Image(body.imageData);
+    if (!isLikelyImage(imageBuffer, mimeType)) {
+      return res.status(400).json({ error: "Görsel içeriği seçilen dosya türüyle eşleşmiyor." });
+    }
+
+    const filename = `img_${randomUUID()}.${ext}`;
+    const filepath = resolveUploadPath(filename);
+    if (!filepath) {
+      return res.status(400).json({ error: "Geçersiz dosya adı." });
+    }
+
+    await fsp.writeFile(filepath, imageBuffer, { flag: "wx" });
+    return res.json({ url: `/api/uploads/${filename}` });
+  } catch (error) {
+    const message = (error as Error).message;
+    if (message === "image_too_large") {
+      return res.status(413).json({ error: `Görsel boyutu en fazla ${Math.floor(maxUploadBytes / 1024 / 1024)} MB olabilir.` });
+    }
+    if (message === "invalid_base64" || message === "empty_image") {
+      return res.status(400).json({ error: "Geçersiz görsel verisi." });
+    }
+    throw error;
+  }
 });
 
 router.get("/uploads/:filename", (req, res) => {
-  const filepath = path.join(uploadsDir, req.params.filename);
+  const filepath = resolveUploadPath(req.params.filename);
+  if (!filepath) {
+    res.status(400).json({ error: "Geçersiz dosya adı" });
+    return;
+  }
   if (!fs.existsSync(filepath)) {
     res.status(404).json({ error: "Not found" });
     return;
@@ -154,6 +251,8 @@ router.post("/questions", async (req, res) => {
       options: normalizeOptions(body.options ?? null),
       choice: body.choice ?? null,
       solutionUrl: body.solutionUrl ?? null,
+      solutionYoutubeUrl: body.solutionYoutubeUrl ?? null,
+      solutionYoutubeStartSecond: normalizeYoutubeStartSecond(body.solutionYoutubeStartSecond),
       category: body.category ?? "TYT",
       source: body.source ?? "Banka",
       status: body.status ?? "Cozulmedi",
@@ -164,6 +263,55 @@ router.post("/questions", async (req, res) => {
     .returning();
 
   res.status(201).json(serializeQuestion(question));
+});
+
+router.get("/questions/review/feed", async (req, res) => {
+  const rawLimit = typeof req.query.limit === "string" ? Number.parseInt(req.query.limit, 10) : Number.NaN;
+  const feed = await getQuestionReviewFeed({
+    limit: Number.isFinite(rawLimit) ? rawLimit : undefined,
+    search: typeof req.query.search === "string" ? req.query.search : undefined,
+    excludeIdsRaw: req.query.excludeIds,
+  });
+  res.json(feed);
+});
+
+router.post("/questions/review/serve/:id", async (req, res) => {
+  const id = Number.parseInt(req.params.id, 10);
+  if (!Number.isFinite(id) || id <= 0) {
+    res.status(400).json({ error: "Geçersiz soru ID" });
+    return;
+  }
+
+  const result = await markQuestionServed(id);
+  if (!result) {
+    res.status(404).json({ error: "Soru bulunamadı" });
+    return;
+  }
+
+  res.json(result);
+});
+
+router.post("/questions/review/feedback/:id", async (req, res) => {
+  const id = Number.parseInt(req.params.id, 10);
+  if (!Number.isFinite(id) || id <= 0) {
+    res.status(400).json({ error: "Geçersiz soru ID" });
+    return;
+  }
+
+  const feedback = typeof req.body?.feedback === "string" ? req.body.feedback : "";
+  const allowedFeedback = ["again", "wrong", "hard", "correct", "easy", "less_often", "more_often"];
+  if (!allowedFeedback.includes(feedback)) {
+    res.status(400).json({ error: "Geçersiz geri bildirim" });
+    return;
+  }
+
+  const result = await submitQuestionReviewFeedback(id, feedback as QuestionReviewFeedback);
+  if (!result) {
+    res.status(404).json({ error: "Soru bulunamadı" });
+    return;
+  }
+
+  res.json(result);
 });
 
 router.get("/questions/:id", async (req, res) => {
@@ -195,6 +343,10 @@ router.patch("/questions/:id", async (req, res) => {
   if (body.source !== undefined) updateData.source = body.source;
   if (body.status !== undefined) updateData.status = body.status;
   if (body.solutionUrl !== undefined) updateData.solutionUrl = body.solutionUrl;
+  if (body.solutionYoutubeUrl !== undefined) updateData.solutionYoutubeUrl = body.solutionYoutubeUrl;
+  if (body.solutionYoutubeStartSecond !== undefined) {
+    updateData.solutionYoutubeStartSecond = normalizeYoutubeStartSecond(body.solutionYoutubeStartSecond);
+  }
   if (body.isOsymBadge !== undefined) updateData.isOsymBadge = body.isOsymBadge;
   if (body.isPremiumBadge !== undefined) updateData.isPremiumBadge = body.isPremiumBadge;
 
@@ -296,8 +448,12 @@ router.get("/filters/options", async (req, res) => {
   });
 });
 
-/** Kullanılmayan (orphan) upload dosyalarını temizle */
-router.post("/admin/cleanup-uploads", async (_req, res) => {
+/** Kullan?lmayan (orphan) upload dosyalar?n? temizle */
+router.post("/admin/cleanup-uploads", async (req, res) => {
+  if (!canRunAdminCleanup(req)) {
+    return res.status(401).json({ error: "Yetkisiz admin i?lemi" });
+  }
+
   const questions = await db.select({ imageUrl: questionsTable.imageUrl }).from(questionsTable);
   const referencedFiles = new Set(
     questions
@@ -306,19 +462,20 @@ router.post("/admin/cleanup-uploads", async (_req, res) => {
       .map((url) => path.basename(url))
   );
 
-  const files = fs.readdirSync(uploadsDir);
+  const files = await fsp.readdir(uploadsDir);
   const deleted: string[] = [];
   const kept: string[] = [];
 
   for (const file of files) {
-    // Sadece img_ ile başlayan dosyaları kontrol et (sistem dosyalarını atla)
-    if (!file.startsWith("img_")) {
+    // Sadece uygulaman?n ?retti?i g?venli dosya adlar?n? temizle.
+    const filepath = resolveUploadPath(file);
+    if (!filepath) {
       kept.push(file);
       continue;
     }
     if (!referencedFiles.has(file)) {
       try {
-        fs.unlinkSync(path.join(uploadsDir, file));
+        await fsp.unlink(filepath);
         deleted.push(file);
       } catch {
         kept.push(file);
@@ -328,7 +485,8 @@ router.post("/admin/cleanup-uploads", async (_req, res) => {
     }
   }
 
-  res.json({ deleted, kept, deletedCount: deleted.length, keptCount: kept.length });
+  return res.json({ deleted, kept, deletedCount: deleted.length, keptCount: kept.length });
 });
 
 export default router;
+

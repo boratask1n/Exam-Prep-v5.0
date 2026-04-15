@@ -43,6 +43,15 @@ const formSchema = z.object({
     .optional()
     .or(z.literal(""))
     .refine((v) => !v || /^https?:\/\//i.test(v), "Ge\u00e7erli bir http(s) adresi girin"),
+  solutionYoutubeUrl: z
+    .string()
+    .optional()
+    .or(z.literal(""))
+    .refine((v) => !v || /^https?:\/\//i.test(v), "Ge\u00e7erli bir http(s) adresi girin"),
+  solutionYoutubeStartSecond: z.preprocess(
+    (value) => (value === "" || value == null ? null : Number(value)),
+    z.number().int("Saniye tam sayı olmalı").min(0, "Saniye 0 veya daha büyük olmalı").nullable().optional(),
+  ),
 });
 
 type FormValues = z.infer<typeof formSchema>;
@@ -57,6 +66,8 @@ interface QuestionForEdit {
   testName?: string | null;
   testNo?: string | null;
   solutionUrl?: string | null;
+  solutionYoutubeUrl?: string | null;
+  solutionYoutubeStartSecond?: number | null;
   options?: Array<{ label: string; text: string }> | null;
   choice?: string | null;
   category: string;
@@ -72,6 +83,53 @@ interface Props {
 
 function emptyOptionTexts(): Record<OptionLabel, string> {
   return { A: "", B: "", C: "", D: "", E: "" };
+}
+
+async function prepareQuestionImage(file: File) {
+  const supportedInput = ["image/jpeg", "image/png", "image/webp"].includes(file.type);
+  if (!supportedInput) {
+    throw new Error("Sadece JPEG, PNG veya WEBP görsel yükleyebilirsin.");
+  }
+
+  const dataUrl = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (event) => resolve(String(event.target?.result ?? ""));
+    reader.onerror = () => reject(new Error("Görsel okunamadı."));
+    reader.readAsDataURL(file);
+  });
+
+  const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error("Görsel işlenemedi."));
+    img.src = dataUrl;
+  });
+
+  const maxSide = 1800;
+  const scale = Math.min(1, maxSide / Math.max(image.naturalWidth, image.naturalHeight));
+  const width = Math.max(1, Math.round(image.naturalWidth * scale));
+  const height = Math.max(1, Math.round(image.naturalHeight * scale));
+
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext("2d");
+  if (!context) throw new Error("Görsel işlenemedi.");
+  context.drawImage(image, 0, 0, width, height);
+
+  const optimizedBlob = await new Promise<Blob | null>((resolve) => {
+    canvas.toBlob(resolve, "image/webp", 0.86);
+  });
+  if (!optimizedBlob) throw new Error("Görsel sıkıştırılamadı.");
+
+  const optimizedFile = new File(
+    [optimizedBlob],
+    file.name.replace(/\.[^.]+$/, "") || "question-image",
+    { type: "image/webp" },
+  );
+  const optimizedPreview = canvas.toDataURL("image/webp", 0.86);
+
+  return { file: optimizedFile, preview: optimizedPreview };
 }
 
 export function QuestionFormDialog({ question, trigger, onSaved }: Props) {
@@ -106,6 +164,8 @@ export function QuestionFormDialog({ question, trigger, onSaved }: Props) {
       source: QuestionSource.Deneme,
       status: QuestionStatus.Cozulmedi,
       solutionUrl: "",
+      solutionYoutubeUrl: "",
+      solutionYoutubeStartSecond: null,
     },
   });
 
@@ -161,6 +221,8 @@ export function QuestionFormDialog({ question, trigger, onSaved }: Props) {
         status: question.status as QuestionStatus,
         choice: (question.choice as QuestionChoice) ?? undefined,
         solutionUrl: question.solutionUrl ?? "",
+        solutionYoutubeUrl: question.solutionYoutubeUrl ?? question.solutionUrl ?? "",
+        solutionYoutubeStartSecond: question.solutionYoutubeStartSecond ?? null,
       });
 
       if (question.imageUrl) {
@@ -189,6 +251,8 @@ export function QuestionFormDialog({ question, trigger, onSaved }: Props) {
         source: QuestionSource.Deneme,
         status: QuestionStatus.Cozulmedi,
         solutionUrl: "",
+        solutionYoutubeUrl: "",
+        solutionYoutubeStartSecond: null,
       });
       setImagePreview(null);
       setImageFile(null);
@@ -200,11 +264,15 @@ export function QuestionFormDialog({ question, trigger, onSaved }: Props) {
   const onFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    setImageFile(file);
-    setKeepExistingImage(false);
-    const reader = new FileReader();
-    reader.onload = (ev) => setImagePreview(ev.target?.result as string);
-    reader.readAsDataURL(file);
+    void prepareQuestionImage(file)
+      .then((prepared) => {
+        setImageFile(prepared.file);
+        setImagePreview(prepared.preview);
+        setKeepExistingImage(false);
+      })
+      .catch((error) => {
+        toast({ title: "Görsel hazırlanamadı", description: (error as Error).message, variant: "destructive" });
+      });
   };
 
   const handlePaste = (e: React.ClipboardEvent) => {
@@ -212,11 +280,15 @@ export function QuestionFormDialog({ question, trigger, onSaved }: Props) {
       if (!e.clipboardData.items[i].type.includes("image")) continue;
       const file = e.clipboardData.items[i].getAsFile();
       if (!file) continue;
-      setImageFile(file);
-      setKeepExistingImage(false);
-      const reader = new FileReader();
-      reader.onload = (ev) => setImagePreview(ev.target?.result as string);
-      reader.readAsDataURL(file);
+      void prepareQuestionImage(file)
+        .then((prepared) => {
+          setImageFile(prepared.file);
+          setImagePreview(prepared.preview);
+          setKeepExistingImage(false);
+        })
+        .catch((error) => {
+          toast({ title: "Görsel hazırlanamadı", description: (error as Error).message, variant: "destructive" });
+        });
       break;
     }
   };
@@ -264,7 +336,9 @@ export function QuestionFormDialog({ question, trigger, onSaved }: Props) {
         imageUrl: isEdit ? imageUrl : imageUrl ?? null,
         options: manualOptions,
         choice: data.choice || null,
-        solutionUrl: data.solutionUrl?.trim() || null,
+        solutionUrl: data.solutionYoutubeUrl?.trim() || data.solutionUrl?.trim() || null,
+        solutionYoutubeUrl: data.solutionYoutubeUrl?.trim() || null,
+        solutionYoutubeStartSecond: data.solutionYoutubeStartSecond ?? null,
       };
 
       if (isEdit && question) {
@@ -519,11 +593,32 @@ export function QuestionFormDialog({ question, trigger, onSaved }: Props) {
             <Textarea {...register("description")} placeholder={"Bu soru hakk\u0131nda notlar\u0131n\u0131z..."} className="bg-muted/30 border-border/50 rounded-xl resize-none min-h-[80px]" />
           </div>
 
-          <div className="space-y-2">
-            <Label>{"\u00c7\u00f6z\u00fcm videosu (YouTube linki)"}</Label>
-            <Input {...register("solutionUrl")} type="url" placeholder="https://www.youtube.com/watch?v=..." className="bg-muted/30 border-border/50 rounded-xl" />
-            {errors.solutionUrl && <p className="text-destructive text-xs">{errors.solutionUrl.message}</p>}
-            <p className="text-[11px] text-muted-foreground">{"Test modunda bu soru i\u00e7in \u201c\u00c7\u00f6z\u00fcm videosu\u201d ile izlenebilir."}</p>
+          <div className="grid grid-cols-1 gap-3 rounded-xl border border-border/50 bg-muted/20 p-3 sm:grid-cols-[1fr_150px]">
+            <div className="space-y-2">
+              <Label>{"\u00c7\u00f6z\u00fcm videosu (YouTube linki)"}</Label>
+              <Input
+                {...register("solutionYoutubeUrl")}
+                type="url"
+                placeholder="https://www.youtube.com/watch?v=..."
+                className="bg-background/70 border-border/50 rounded-xl"
+              />
+              {errors.solutionYoutubeUrl && <p className="text-destructive text-xs">{errors.solutionYoutubeUrl.message}</p>}
+            </div>
+            <div className="space-y-2">
+              <Label>{"Ba\u015flang\u0131\u00e7 saniyesi"}</Label>
+              <Input
+                {...register("solutionYoutubeStartSecond")}
+                type="number"
+                min={0}
+                step={1}
+                placeholder="0"
+                className="bg-background/70 border-border/50 rounded-xl"
+              />
+              {errors.solutionYoutubeStartSecond && <p className="text-destructive text-xs">{errors.solutionYoutubeStartSecond.message}</p>}
+            </div>
+            <p className="text-[11px] text-muted-foreground sm:col-span-2">
+              {"Linke t\u0131kland\u0131\u011f\u0131nda video do\u011frudan bu saniyeden ba\u015flar. Eski \u00e7\u00f6z\u00fcm linkleri de otomatik korunur."}
+            </p>
           </div>
 
           <div className="pt-4 flex justify-end gap-3 border-t border-border/50">

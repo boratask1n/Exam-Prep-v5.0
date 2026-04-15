@@ -11,6 +11,8 @@ tags:
     description: Health operations
   - name: questions
     description: Question management
+  - name: question-review
+    description: Spaced repetition flow for questions
   - name: tests
     description: Test management
   - name: drawings
@@ -44,7 +46,7 @@ paths:
           in: query
           schema:
             type: string
-            enum: [Deneme, Banka]
+            enum: [Deneme, Banka, Fasikül, Ders Kitabı]
         - name: lesson
           in: query
           schema:
@@ -62,6 +64,29 @@ paths:
           in: query
           schema:
             type: string
+        - name: search
+          in: query
+          schema:
+            type: string
+        - name: isOsymBadge
+          in: query
+          schema:
+            type: boolean
+        - name: isPremiumBadge
+          in: query
+          schema:
+            type: boolean
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            minimum: 0
       responses:
         "200":
           description: List of questions
@@ -177,6 +202,89 @@ paths:
                     type: string
                 required:
                   - url
+
+  /questions/review/feed:
+    get:
+      operationId: getQuestionReviewFeed
+      tags: [question-review]
+      summary: Get a spaced repetition question feed
+      parameters:
+        - name: search
+          in: query
+          schema:
+            type: string
+        - name: excludeIds
+          in: query
+          schema:
+            type: string
+          description: Comma-separated question IDs to avoid in this batch
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 16
+      responses:
+        "200":
+          description: Question review feed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QuestionReviewFeedResponse"
+
+  /questions/review/serve/{id}:
+    post:
+      operationId: markQuestionReviewServed
+      tags: [question-review]
+      summary: Mark a question as shown in the review feed
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Served state stored
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  deduped:
+                    type: boolean
+                  nextEligibleAt:
+                    type: string
+                    nullable: true
+                required:
+                  - ok
+
+  /questions/review/feedback/{id}:
+    post:
+      operationId: submitQuestionReviewFeedback
+      tags: [question-review]
+      summary: Store review feedback for a question
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/QuestionReviewFeedbackInput"
+      responses:
+        "200":
+          description: Feedback stored
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QuestionReviewFeedbackResponse"
 
   /questions/{id}/drawing:
     get:
@@ -537,19 +645,42 @@ components:
           type: string
           nullable: true
           enum: [A, B, C, D, E, null]
+        options:
+          type: array
+          nullable: true
+          items:
+            type: object
+            properties:
+              label:
+                type: string
+              text:
+                type: string
+            required:
+              - label
+              - text
         solutionUrl:
           type: string
+          nullable: true
+        solutionYoutubeUrl:
+          type: string
+          nullable: true
+        solutionYoutubeStartSecond:
+          type: integer
           nullable: true
         category:
           type: string
           enum: [TYT, AYT, Geometri]
         source:
           type: string
-          enum: [Deneme, Banka]
+          enum: [Deneme, Banka, Fasikül, Ders Kitabı]
         status:
           type: string
           enum: [Cozulmedi, DogruCozuldu, YanlisHocayaSor]
         hasDrawing:
+          type: boolean
+        isOsymBadge:
+          type: boolean
+        isPremiumBadge:
           type: boolean
         createdAt:
           type: string
@@ -562,8 +693,112 @@ components:
         - source
         - status
         - hasDrawing
+        - isOsymBadge
+        - isPremiumBadge
         - createdAt
         - updatedAt
+
+    QuestionReviewItem:
+      allOf:
+        - $ref: "#/components/schemas/Question"
+        - type: object
+          properties:
+            totalServed:
+              type: integer
+              nullable: true
+            totalReviewed:
+              type: integer
+              nullable: true
+            correctReviewCount:
+              type: integer
+              nullable: true
+            wrongReviewCount:
+              type: integer
+              nullable: true
+            repetitionStage:
+              type: integer
+              nullable: true
+            lastServedAt:
+              type: string
+              nullable: true
+            lastReviewedAt:
+              type: string
+              nullable: true
+            nextEligibleAt:
+              type: string
+              nullable: true
+            lastOutcome:
+              type: string
+              nullable: true
+            score:
+              type: number
+              nullable: true
+
+    QuestionReviewFeedResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/QuestionReviewItem"
+        pagination:
+          type: object
+          properties:
+            total:
+              type: integer
+            limit:
+              type: integer
+            offset:
+              type: integer
+            hasMore:
+              type: boolean
+          required:
+            - total
+            - limit
+            - offset
+            - hasMore
+        algorithm:
+          type: object
+          properties:
+            name:
+              type: string
+            description:
+              type: string
+          required:
+            - name
+            - description
+      required:
+        - items
+        - pagination
+
+    QuestionReviewFeedbackInput:
+      type: object
+      properties:
+        feedback:
+          type: string
+          enum: [again, wrong, hard, correct, easy, less_often, more_often]
+      required:
+        - feedback
+
+    QuestionReviewFeedbackResponse:
+      type: object
+      properties:
+        ok:
+          type: boolean
+        feedback:
+          type: string
+        outcome:
+          type: string
+          nullable: true
+        repetitionStage:
+          type: integer
+        nextEligibleAt:
+          type: string
+      required:
+        - ok
+        - feedback
+        - repetitionStage
+        - nextEligibleAt
 
     CreateQuestionInput:
       type: object
@@ -592,18 +827,41 @@ components:
           type: string
           nullable: true
           enum: [A, B, C, D, E, null]
+        options:
+          type: array
+          nullable: true
+          items:
+            type: object
+            properties:
+              label:
+                type: string
+              text:
+                type: string
+            required:
+              - label
+              - text
         solutionUrl:
           type: string
+          nullable: true
+        solutionYoutubeUrl:
+          type: string
+          nullable: true
+        solutionYoutubeStartSecond:
+          type: integer
           nullable: true
         category:
           type: string
           enum: [TYT, AYT, Geometri]
         source:
           type: string
-          enum: [Deneme, Banka]
+          enum: [Deneme, Banka, Fasikül, Ders Kitabı]
         status:
           type: string
           enum: [Cozulmedi, DogruCozuldu, YanlisHocayaSor]
+        isOsymBadge:
+          type: boolean
+        isPremiumBadge:
+          type: boolean
       required:
         - lesson
         - category
@@ -636,18 +894,41 @@ components:
           type: string
           nullable: true
           enum: [A, B, C, D, E, null]
+        options:
+          type: array
+          nullable: true
+          items:
+            type: object
+            properties:
+              label:
+                type: string
+              text:
+                type: string
+            required:
+              - label
+              - text
         category:
           type: string
           enum: [TYT, AYT, Geometri]
         source:
           type: string
-          enum: [Deneme, Banka]
+          enum: [Deneme, Banka, Fasikül, Ders Kitabı]
         status:
           type: string
           enum: [Cozulmedi, DogruCozuldu, YanlisHocayaSor]
         solutionUrl:
           type: string
           nullable: true
+        solutionYoutubeUrl:
+          type: string
+          nullable: true
+        solutionYoutubeStartSecond:
+          type: integer
+          nullable: true
+        isOsymBadge:
+          type: boolean
+        isPremiumBadge:
+          type: boolean
 
     UpdateTestSessionInput:
       type: object
@@ -755,18 +1036,27 @@ components:
               enum: [TYT, AYT, Geometri]
             source:
               type: string
-              enum: [Deneme, Banka]
+              enum: [Deneme, Banka, Fasikül, Ders Kitabı]
             lessons:
               type: array
               items:
                 type: string
             topic:
               type: string
+            topics:
+              type: array
+              items:
+                type: string
             publisher:
               type: string
             status:
               type: string
               enum: [Cozulmedi, DogruCozuldu, YanlisHocayaSor]
+        distribution:
+          type: object
+          additionalProperties:
+            type: integer
+            minimum: 0
       required:
         - name
 

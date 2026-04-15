@@ -7,6 +7,7 @@
  */
 import type { UpdateQuestionInputCategory } from "./updateQuestionInputCategory";
 import type { UpdateQuestionInputChoice } from "./updateQuestionInputChoice";
+import type { UpdateQuestionInputOptionsItem } from "./updateQuestionInputOptionsItem";
 import type { UpdateQuestionInputSource } from "./updateQuestionInputSource";
 import type { UpdateQuestionInputStatus } from "./updateQuestionInputStatus";
 
@@ -19,8 +20,13 @@ export interface UpdateQuestionInput {
   testName?: string | null;
   testNo?: string | null;
   choice?: UpdateQuestionInputChoice;
+  options?: UpdateQuestionInputOptionsItem[] | null;
   category?: UpdateQuestionInputCategory;
   source?: UpdateQuestionInputSource;
   status?: UpdateQuestionInputStatus;
   solutionUrl?: string | null;
+  solutionYoutubeUrl?: string | null;
+  solutionYoutubeStartSecond?: number | null;
+  isOsymBadge?: boolean;
+  isPremiumBadge?: boolean;
 }

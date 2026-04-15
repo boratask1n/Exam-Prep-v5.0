@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState, useEffect, useMemo, useRef } from "react";
+﻿import { lazy, Suspense, useState, useEffect, useMemo, useRef } from "react";
 import {
   useListQuestions,
   useGetFilterOptions,
@@ -9,7 +9,7 @@ import {
   QuestionStatus,
 } from "@workspace/api-client-react";
 import { Badge } from "@/components/ui/badge";
-import { Filter, Book, FileText, CheckCircle2, XCircle, Trash2, Clock, Pencil, ChevronLeft, ChevronRight, Plus, Search } from "lucide-react";
+import { Filter, Book, FileText, CheckCircle2, XCircle, Trash2, Clock, Pencil, ChevronLeft, ChevronRight, Plus, Search, Youtube } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -30,6 +30,7 @@ import { useToast } from "@/hooks/use-toast";
 import { getLessonsForCategory, getTopicsForLesson } from "@/lib/lessonTopics";
 import { useUpdateQuestion } from "@workspace/api-client-react";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
+import { getYoutubeWatchUrl } from "@/lib/youtubeEmbed";
 
 const QuestionFormDialog = lazy(() =>
   import("@/components/QuestionFormDialog").then((module) => ({
@@ -529,6 +530,20 @@ export default function Pool() {
                   {(q as any).description && (
                     <p className="text-xs text-muted-foreground/70 line-clamp-2 mb-2 italic">{(q as any).description}</p>
                   )}
+                  {getYoutubeWatchUrl((q as any).solutionYoutubeUrl || (q as any).solutionUrl, (q as any).solutionYoutubeStartSecond) ? (
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        const url = getYoutubeWatchUrl((q as any).solutionYoutubeUrl || (q as any).solutionUrl, (q as any).solutionYoutubeStartSecond);
+                        if (url) window.open(url, "_blank", "noopener,noreferrer");
+                      }}
+                      className="mb-2 inline-flex w-fit items-center gap-1.5 rounded-full border border-red-300/50 bg-red-500/10 px-2.5 py-1 text-[11px] font-medium text-red-700 transition-colors hover:bg-red-500/15 dark:border-red-400/20 dark:text-red-200"
+                    >
+                      <Youtube className="h-3.5 w-3.5" />
+                      {(q as any).solutionYoutubeStartSecond ? `${(q as any).solutionYoutubeStartSecond}. saniyeden çözüm` : "Video çözümü"}
+                    </button>
+                  ) : null}
                   <div className="flex items-center justify-between text-xs text-muted-foreground/70 pt-3 border-t border-border/30 mt-auto">
                     <span className="flex items-center gap-1"><Book className="w-3 h-3" /> {q.publisher || "—"}</span>
                     <span className={cn(
@@ -607,6 +622,7 @@ export default function Pool() {
     </PageShell>
   );
 }
+
 
 
 

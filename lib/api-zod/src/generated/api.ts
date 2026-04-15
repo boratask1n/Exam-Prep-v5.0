@@ -17,6 +17,10 @@ export const HealthCheckResponse = zod.object({
 /**
  * @summary List all questions with optional filters
  */
+export const listQuestionsQueryLimitMax = 100;
+
+export const listQuestionsQueryOffsetMin = 0;
+
 export const ListQuestionsQueryParams = zod.object({
   category: zod.enum(["TYT", "AYT", "Geometri"]).optional(),
   source: zod.enum(["Deneme", "Banka", "Fasikül", "Ders Kitabı"]).optional(),
@@ -24,11 +28,11 @@ export const ListQuestionsQueryParams = zod.object({
   publisher: zod.coerce.string().optional(),
   status: zod.enum(["Cozulmedi", "DogruCozuldu", "YanlisHocayaSor"]).optional(),
   topic: zod.coerce.string().optional(),
+  search: zod.coerce.string().optional(),
   isOsymBadge: zod.coerce.boolean().optional(),
   isPremiumBadge: zod.coerce.boolean().optional(),
-  search: zod.coerce.string().optional(),
-  limit: zod.coerce.number().int().positive().optional(),
-  offset: zod.coerce.number().int().min(0).optional(),
+  limit: zod.coerce.number().min(1).max(listQuestionsQueryLimitMax).optional(),
+  offset: zod.coerce.number().min(listQuestionsQueryOffsetMin).optional(),
 });
 
 export const ListQuestionsResponseItem = zod.object({
@@ -40,7 +44,6 @@ export const ListQuestionsResponseItem = zod.object({
   publisher: zod.string().nullish(),
   testName: zod.string().nullish(),
   testNo: zod.string().nullish(),
-  options: zod.array(zod.object({ label: zod.string(), text: zod.string() })).nullish(),
   choice: zod
     .union([
       zod.literal("A"),
@@ -51,7 +54,17 @@ export const ListQuestionsResponseItem = zod.object({
       zod.literal(null),
     ])
     .nullish(),
+  options: zod
+    .array(
+      zod.object({
+        label: zod.string(),
+        text: zod.string(),
+      }),
+    )
+    .nullish(),
   solutionUrl: zod.string().nullish(),
+  solutionYoutubeUrl: zod.string().nullish(),
+  solutionYoutubeStartSecond: zod.number().nullish(),
   category: zod.enum(["TYT", "AYT", "Geometri"]),
   source: zod.enum(["Deneme", "Banka", "Fasikül", "Ders Kitabı"]),
   status: zod.enum(["Cozulmedi", "DogruCozuldu", "YanlisHocayaSor"]),
@@ -74,7 +87,6 @@ export const CreateQuestionBody = zod.object({
   publisher: zod.string().nullish(),
   testName: zod.string().nullish(),
   testNo: zod.string().nullish(),
-  options: zod.array(zod.object({ label: zod.string(), text: zod.string() })).nullish(),
   choice: zod
     .union([
       zod.literal("A"),
@@ -85,7 +97,17 @@ export const CreateQuestionBody = zod.object({
       zod.literal(null),
     ])
     .nullish(),
+  options: zod
+    .array(
+      zod.object({
+        label: zod.string(),
+        text: zod.string(),
+      }),
+    )
+    .nullish(),
   solutionUrl: zod.string().nullish(),
+  solutionYoutubeUrl: zod.string().nullish(),
+  solutionYoutubeStartSecond: zod.number().nullish(),
   category: zod.enum(["TYT", "AYT", "Geometri"]),
   source: zod.enum(["Deneme", "Banka", "Fasikül", "Ders Kitabı"]),
   status: zod.enum(["Cozulmedi", "DogruCozuldu", "YanlisHocayaSor"]).optional(),
@@ -109,7 +131,6 @@ export const GetQuestionResponse = zod.object({
   publisher: zod.string().nullish(),
   testName: zod.string().nullish(),
   testNo: zod.string().nullish(),
-  options: zod.array(zod.object({ label: zod.string(), text: zod.string() })).nullish(),
   choice: zod
     .union([
       zod.literal("A"),
@@ -120,7 +141,17 @@ export const GetQuestionResponse = zod.object({
       zod.literal(null),
     ])
     .nullish(),
+  options: zod
+    .array(
+      zod.object({
+        label: zod.string(),
+        text: zod.string(),
+      }),
+    )
+    .nullish(),
   solutionUrl: zod.string().nullish(),
+  solutionYoutubeUrl: zod.string().nullish(),
+  solutionYoutubeStartSecond: zod.number().nullish(),
   category: zod.enum(["TYT", "AYT", "Geometri"]),
   source: zod.enum(["Deneme", "Banka", "Fasikül", "Ders Kitabı"]),
   status: zod.enum(["Cozulmedi", "DogruCozuldu", "YanlisHocayaSor"]),
@@ -146,7 +177,6 @@ export const UpdateQuestionBody = zod.object({
   publisher: zod.string().nullish(),
   testName: zod.string().nullish(),
   testNo: zod.string().nullish(),
-  options: zod.array(zod.object({ label: zod.string(), text: zod.string() })).nullish(),
   choice: zod
     .union([
       zod.literal("A"),
@@ -157,10 +187,20 @@ export const UpdateQuestionBody = zod.object({
       zod.literal(null),
     ])
     .nullish(),
+  options: zod
+    .array(
+      zod.object({
+        label: zod.string(),
+        text: zod.string(),
+      }),
+    )
+    .nullish(),
   category: zod.enum(["TYT", "AYT", "Geometri"]).optional(),
   source: zod.enum(["Deneme", "Banka", "Fasikül", "Ders Kitabı"]).optional(),
   status: zod.enum(["Cozulmedi", "DogruCozuldu", "YanlisHocayaSor"]).optional(),
   solutionUrl: zod.string().nullish(),
+  solutionYoutubeUrl: zod.string().nullish(),
+  solutionYoutubeStartSecond: zod.number().nullish(),
   isOsymBadge: zod.boolean().optional(),
   isPremiumBadge: zod.boolean().optional(),
 });
@@ -174,7 +214,6 @@ export const UpdateQuestionResponse = zod.object({
   publisher: zod.string().nullish(),
   testName: zod.string().nullish(),
   testNo: zod.string().nullish(),
-  options: zod.array(zod.object({ label: zod.string(), text: zod.string() })).nullish(),
   choice: zod
     .union([
       zod.literal("A"),
@@ -185,7 +224,17 @@ export const UpdateQuestionResponse = zod.object({
       zod.literal(null),
     ])
     .nullish(),
+  options: zod
+    .array(
+      zod.object({
+        label: zod.string(),
+        text: zod.string(),
+      }),
+    )
+    .nullish(),
   solutionUrl: zod.string().nullish(),
+  solutionYoutubeUrl: zod.string().nullish(),
+  solutionYoutubeStartSecond: zod.number().nullish(),
   category: zod.enum(["TYT", "AYT", "Geometri"]),
   source: zod.enum(["Deneme", "Banka", "Fasikül", "Ders Kitabı"]),
   status: zod.enum(["Cozulmedi", "DogruCozuldu", "YanlisHocayaSor"]),
@@ -213,6 +262,135 @@ export const UploadQuestionImageBody = zod.object({
 
 export const UploadQuestionImageResponse = zod.object({
   url: zod.string(),
+});
+
+/**
+ * @summary Get a spaced repetition question feed
+ */
+export const getQuestionReviewFeedQueryLimitMax = 16;
+
+export const GetQuestionReviewFeedQueryParams = zod.object({
+  search: zod.coerce.string().optional(),
+  excludeIds: zod.coerce
+    .string()
+    .optional()
+    .describe("Comma-separated question IDs to avoid in this batch"),
+  limit: zod.coerce
+    .number()
+    .min(1)
+    .max(getQuestionReviewFeedQueryLimitMax)
+    .optional(),
+});
+
+export const GetQuestionReviewFeedResponse = zod.object({
+  items: zod.array(
+    zod
+      .object({
+        id: zod.number(),
+        imageUrl: zod.string().nullish(),
+        description: zod.string().nullish(),
+        lesson: zod.string(),
+        topic: zod.string().nullish(),
+        publisher: zod.string().nullish(),
+        testName: zod.string().nullish(),
+        testNo: zod.string().nullish(),
+        choice: zod
+          .union([
+            zod.literal("A"),
+            zod.literal("B"),
+            zod.literal("C"),
+            zod.literal("D"),
+            zod.literal("E"),
+            zod.literal(null),
+          ])
+          .nullish(),
+        options: zod
+          .array(
+            zod.object({
+              label: zod.string(),
+              text: zod.string(),
+            }),
+          )
+          .nullish(),
+        solutionUrl: zod.string().nullish(),
+        solutionYoutubeUrl: zod.string().nullish(),
+        solutionYoutubeStartSecond: zod.number().nullish(),
+        category: zod.enum(["TYT", "AYT", "Geometri"]),
+        source: zod.enum(["Deneme", "Banka", "Fasikül", "Ders Kitabı"]),
+        status: zod.enum(["Cozulmedi", "DogruCozuldu", "YanlisHocayaSor"]),
+        hasDrawing: zod.boolean(),
+        isOsymBadge: zod.boolean(),
+        isPremiumBadge: zod.boolean(),
+        createdAt: zod.string(),
+        updatedAt: zod.string(),
+      })
+      .and(
+        zod.object({
+          totalServed: zod.number().nullish(),
+          totalReviewed: zod.number().nullish(),
+          correctReviewCount: zod.number().nullish(),
+          wrongReviewCount: zod.number().nullish(),
+          repetitionStage: zod.number().nullish(),
+          lastServedAt: zod.string().nullish(),
+          lastReviewedAt: zod.string().nullish(),
+          nextEligibleAt: zod.string().nullish(),
+          lastOutcome: zod.string().nullish(),
+          score: zod.number().nullish(),
+        }),
+      ),
+  ),
+  pagination: zod.object({
+    total: zod.number(),
+    limit: zod.number(),
+    offset: zod.number(),
+    hasMore: zod.boolean(),
+  }),
+  algorithm: zod
+    .object({
+      name: zod.string(),
+      description: zod.string(),
+    })
+    .optional(),
+});
+
+/**
+ * @summary Mark a question as shown in the review feed
+ */
+export const MarkQuestionReviewServedParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const MarkQuestionReviewServedResponse = zod.object({
+  ok: zod.boolean(),
+  deduped: zod.boolean().optional(),
+  nextEligibleAt: zod.string().nullish(),
+});
+
+/**
+ * @summary Store review feedback for a question
+ */
+export const SubmitQuestionReviewFeedbackParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const SubmitQuestionReviewFeedbackBody = zod.object({
+  feedback: zod.enum([
+    "again",
+    "wrong",
+    "hard",
+    "correct",
+    "easy",
+    "less_often",
+    "more_often",
+  ]),
+});
+
+export const SubmitQuestionReviewFeedbackResponse = zod.object({
+  ok: zod.boolean(),
+  feedback: zod.string(),
+  outcome: zod.string().nullish(),
+  repetitionStage: zod.number(),
+  nextEligibleAt: zod.string(),
 });
 
 /**
@@ -264,6 +442,8 @@ export const ListTestsResponse = zod.array(ListTestsResponseItem);
 /**
  * @summary Create a test session
  */
+export const createTestBodyDistributionMinOne = 0;
+
 export const CreateTestBody = zod.object({
   name: zod.string(),
   count: zod.number().optional(),
@@ -272,7 +452,9 @@ export const CreateTestBody = zod.object({
   filters: zod
     .object({
       category: zod.enum(["TYT", "AYT", "Geometri"]).optional(),
-      source: zod.enum(["Deneme", "Banka", "Fasikül", "Ders Kitabı"]).optional(),
+      source: zod
+        .enum(["Deneme", "Banka", "Fasikül", "Ders Kitabı"])
+        .optional(),
       lessons: zod.array(zod.string()).optional(),
       topic: zod.string().optional(),
       topics: zod.array(zod.string()).optional(),
@@ -282,7 +464,9 @@ export const CreateTestBody = zod.object({
         .optional(),
     })
     .optional(),
-  distribution: zod.record(zod.string(), zod.number().int().positive()).optional(),
+  distribution: zod
+    .record(zod.string(), zod.number().min(createTestBodyDistributionMinOne))
+    .optional(),
 });
 
 /**
@@ -307,7 +491,6 @@ export const GetTestResponse = zod.object({
       publisher: zod.string().nullish(),
       testName: zod.string().nullish(),
       testNo: zod.string().nullish(),
-      options: zod.array(zod.object({ label: zod.string(), text: zod.string() })).nullish(),
       choice: zod
         .union([
           zod.literal("A"),
@@ -318,11 +501,23 @@ export const GetTestResponse = zod.object({
           zod.literal(null),
         ])
         .nullish(),
+      options: zod
+        .array(
+          zod.object({
+            label: zod.string(),
+            text: zod.string(),
+          }),
+        )
+        .nullish(),
       solutionUrl: zod.string().nullish(),
+      solutionYoutubeUrl: zod.string().nullish(),
+      solutionYoutubeStartSecond: zod.number().nullish(),
       category: zod.enum(["TYT", "AYT", "Geometri"]),
       source: zod.enum(["Deneme", "Banka", "Fasikül", "Ders Kitabı"]),
       status: zod.enum(["Cozulmedi", "DogruCozuldu", "YanlisHocayaSor"]),
       hasDrawing: zod.boolean(),
+      isOsymBadge: zod.boolean(),
+      isPremiumBadge: zod.boolean(),
       createdAt: zod.string(),
       updatedAt: zod.string(),
     }),
@@ -359,7 +554,6 @@ export const UpdateTestResponse = zod.object({
       publisher: zod.string().nullish(),
       testName: zod.string().nullish(),
       testNo: zod.string().nullish(),
-      options: zod.array(zod.object({ label: zod.string(), text: zod.string() })).nullish(),
       choice: zod
         .union([
           zod.literal("A"),
@@ -370,11 +564,23 @@ export const UpdateTestResponse = zod.object({
           zod.literal(null),
         ])
         .nullish(),
+      options: zod
+        .array(
+          zod.object({
+            label: zod.string(),
+            text: zod.string(),
+          }),
+        )
+        .nullish(),
       solutionUrl: zod.string().nullish(),
+      solutionYoutubeUrl: zod.string().nullish(),
+      solutionYoutubeStartSecond: zod.number().nullish(),
       category: zod.enum(["TYT", "AYT", "Geometri"]),
       source: zod.enum(["Deneme", "Banka", "Fasikül", "Ders Kitabı"]),
       status: zod.enum(["Cozulmedi", "DogruCozuldu", "YanlisHocayaSor"]),
       hasDrawing: zod.boolean(),
+      isOsymBadge: zod.boolean(),
+      isPremiumBadge: zod.boolean(),
       createdAt: zod.string(),
       updatedAt: zod.string(),
     }),
@@ -410,7 +616,6 @@ export const UpdateTestQuestionStatusResponse = zod.object({
   publisher: zod.string().nullish(),
   testName: zod.string().nullish(),
   testNo: zod.string().nullish(),
-  options: zod.array(zod.object({ label: zod.string(), text: zod.string() })).nullish(),
   choice: zod
     .union([
       zod.literal("A"),
@@ -421,11 +626,23 @@ export const UpdateTestQuestionStatusResponse = zod.object({
       zod.literal(null),
     ])
     .nullish(),
+  options: zod
+    .array(
+      zod.object({
+        label: zod.string(),
+        text: zod.string(),
+      }),
+    )
+    .nullish(),
   solutionUrl: zod.string().nullish(),
+  solutionYoutubeUrl: zod.string().nullish(),
+  solutionYoutubeStartSecond: zod.number().nullish(),
   category: zod.enum(["TYT", "AYT", "Geometri"]),
   source: zod.enum(["Deneme", "Banka", "Fasikül", "Ders Kitabı"]),
   status: zod.enum(["Cozulmedi", "DogruCozuldu", "YanlisHocayaSor"]),
   hasDrawing: zod.boolean(),
+  isOsymBadge: zod.boolean(),
+  isPremiumBadge: zod.boolean(),
   createdAt: zod.string(),
   updatedAt: zod.string(),
 });
@@ -718,5 +935,4 @@ export const GetFilterOptionsResponse = zod.object({
   topics: zod.array(zod.string()),
   publishers: zod.array(zod.string()),
 });
-
 

@@ -59,6 +59,7 @@ const defaultStart = new Date(defaultEnd.getTime() - 30 * 24 * 60 * 60 * 1000);
 export default function AnalysisCharts() {
   const [startDate, setStartDate] = useState(toDateInputValue(defaultStart));
   const [endDate, setEndDate] = useState(toDateInputValue(defaultEnd));
+  const [rangeMode, setRangeMode] = useState<"range" | "all">("range");
   const [selectedLessons, setSelectedLessons] = useState<string[]>([]);
   const [selectedTopics, setSelectedTopics] = useState<string[]>([]);
   const [data, setData] = useState<OverviewResponse | null>(null);
@@ -69,10 +70,11 @@ export default function AnalysisCharts() {
     const run = async () => {
       setLoading(true);
       try {
-        const response = await fetch(
-          `/api/analytics/overview?startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}`,
-          { signal: controller.signal },
-        );
+        const query =
+          rangeMode === "all"
+            ? ""
+            : `?startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}`;
+        const response = await fetch(`/api/analytics/overview${query}`, { signal: controller.signal });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         setData((await response.json()) as OverviewResponse);
       } catch (err) {
@@ -85,7 +87,7 @@ export default function AnalysisCharts() {
     };
     void run();
     return () => controller.abort();
-  }, [startDate, endDate]);
+  }, [startDate, endDate, rangeMode]);
 
   const lessonOptions = useMemo(() => {
     return [...(data?.subjectStats ?? [])]
@@ -109,7 +111,10 @@ export default function AnalysisCharts() {
     if (selectedLessons.length === 0) return [];
     const pool = (data?.topicStats ?? []).filter((item) => selectedLessons.includes(item.lesson));
     if (selectedTopics.length === 0) {
-      return [...pool].sort((a, b) => b.wrongRatio - a.wrongRatio).slice(0, 10);
+      const reliablePool = pool.filter((item) => item.answeredCount >= 3);
+      return [...(reliablePool.length > 0 ? reliablePool : pool)]
+        .sort((a, b) => b.wrongRatio - a.wrongRatio || b.wrongCount - a.wrongCount || b.answeredCount - a.answeredCount)
+        .slice(0, 10);
     }
     return pool.filter((item) => selectedTopics.includes(item.topic));
   }, [data?.topicStats, selectedLessons, selectedTopics]);
@@ -166,6 +171,9 @@ export default function AnalysisCharts() {
     setSelectedTopics([]);
   };
 
+  const activateRangeMode = () => setRangeMode("range");
+  const activateAllTimeMode = () => setRangeMode("all");
+
   return (
     <div className="relative min-h-full w-full overflow-x-hidden px-4 py-6 sm:px-6 sm:py-8">
       <div className="pointer-events-none absolute inset-0 overflow-hidden">
@@ -182,22 +190,58 @@ export default function AnalysisCharts() {
                 Grafik Karşılaştırma
               </h1>
               <p className="mt-1 text-sm text-muted-foreground">
-                Seçtiğin tarih aralığında ders ve konu başarını görsel olarak karşılaştır.
+                {rangeMode === "all"
+                  ? "Tüm test geçmişini kullanarak ders ve konu başarını görsel olarak karşılaştır."
+                  : "Seçtiğin tarih aralığında ders ve konu başarını görsel olarak karşılaştır."}
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
+              <div className="mr-1 inline-flex rounded-xl border border-border/60 bg-card/60 p-1">
+                <button
+                  type="button"
+                  onClick={activateRangeMode}
+                  className={cn(
+                    "rounded-lg px-3 py-1.5 text-xs font-medium transition",
+                    rangeMode === "range"
+                      ? "bg-primary/15 text-primary"
+                      : "text-muted-foreground hover:bg-foreground/[0.04] hover:text-foreground",
+                  )}
+                >
+                  Tarih Aralığı
+                </button>
+                <button
+                  type="button"
+                  onClick={activateAllTimeMode}
+                  className={cn(
+                    "rounded-lg px-3 py-1.5 text-xs font-medium transition",
+                    rangeMode === "all"
+                      ? "bg-primary/15 text-primary"
+                      : "text-muted-foreground hover:bg-foreground/[0.04] hover:text-foreground",
+                  )}
+                >
+                  Tüm Zamanlar
+                </button>
+              </div>
               <input
                 type="date"
                 value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
-                className="rounded-xl border border-border/60 bg-card/70 px-3 py-2 text-sm text-foreground outline-none transition focus:border-primary/60"
+                onChange={(e) => {
+                  setStartDate(e.target.value);
+                  activateRangeMode();
+                }}
+                disabled={rangeMode === "all"}
+                className="rounded-xl border border-border/60 bg-card/70 px-3 py-2 text-sm text-foreground outline-none transition disabled:cursor-not-allowed disabled:opacity-50 focus:border-primary/60"
               />
               <span className="text-xs text-muted-foreground">-</span>
               <input
                 type="date"
                 value={endDate}
-                onChange={(e) => setEndDate(e.target.value)}
-                className="rounded-xl border border-border/60 bg-card/70 px-3 py-2 text-sm text-foreground outline-none transition focus:border-primary/60"
+                onChange={(e) => {
+                  setEndDate(e.target.value);
+                  activateRangeMode();
+                }}
+                disabled={rangeMode === "all"}
+                className="rounded-xl border border-border/60 bg-card/70 px-3 py-2 text-sm text-foreground outline-none transition disabled:cursor-not-allowed disabled:opacity-50 focus:border-primary/60"
               />
               <Link
                 href="/"
@@ -396,7 +440,7 @@ export default function AnalysisCharts() {
             <div className="space-y-3">
               {topicCompare.length === 0 && (
                 <p className="rounded-xl border border-border/50 bg-card/50 p-4 text-sm text-muted-foreground">
-                  Önce ders seç. İstersen sonra belirli konuları ayrıca işaretleyebilirsin.
+                  Önce ders seç. Otomatik liste en az 3 çözümü olan konuları öne alır; istersen belirli konuları ayrıca işaretleyebilirsin.
                 </p>
               )}
               {topicCompare.map((item) => (

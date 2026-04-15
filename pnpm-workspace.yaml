@@ -33,6 +33,7 @@ offline: false
 
 onlyBuiltDependencies:
   - '@swc/core'
+  - electron
   - esbuild
   - msw
   - unrs-resolver

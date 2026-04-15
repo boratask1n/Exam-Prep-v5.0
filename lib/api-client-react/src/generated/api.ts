@@ -21,9 +21,14 @@ import type {
   CreateTestInput,
   Drawing,
   FilterOptions,
+  GetQuestionReviewFeedParams,
   HealthStatus,
   ListQuestionsParams,
+  MarkQuestionReviewServed200,
   Question,
+  QuestionReviewFeedResponse,
+  QuestionReviewFeedbackInput,
+  QuestionReviewFeedbackResponse,
   SaveDrawingInput,
   SaveTestProgressInput,
   SaveTestSolutionInput,
@@ -645,6 +650,287 @@ export const useUploadQuestionImage = <
   TContext
 > => {
   return useMutation(getUploadQuestionImageMutationOptions(options));
+};
+
+/**
+ * @summary Get a spaced repetition question feed
+ */
+export const getGetQuestionReviewFeedUrl = (
+  params?: GetQuestionReviewFeedParams,
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/questions/review/feed?${stringifiedParams}`
+    : `/api/questions/review/feed`;
+};
+
+export const getQuestionReviewFeed = async (
+  params?: GetQuestionReviewFeedParams,
+  options?: RequestInit,
+): Promise<QuestionReviewFeedResponse> => {
+  return customFetch<QuestionReviewFeedResponse>(
+    getGetQuestionReviewFeedUrl(params),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getGetQuestionReviewFeedQueryKey = (
+  params?: GetQuestionReviewFeedParams,
+) => {
+  return [`/api/questions/review/feed`, ...(params ? [params] : [])] as const;
+};
+
+export const getGetQuestionReviewFeedQueryOptions = <
+  TData = Awaited<ReturnType<typeof getQuestionReviewFeed>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: GetQuestionReviewFeedParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getQuestionReviewFeed>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetQuestionReviewFeedQueryKey(params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getQuestionReviewFeed>>
+  > = ({ signal }) =>
+    getQuestionReviewFeed(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getQuestionReviewFeed>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetQuestionReviewFeedQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getQuestionReviewFeed>>
+>;
+export type GetQuestionReviewFeedQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Get a spaced repetition question feed
+ */
+
+export function useGetQuestionReviewFeed<
+  TData = Awaited<ReturnType<typeof getQuestionReviewFeed>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: GetQuestionReviewFeedParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getQuestionReviewFeed>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetQuestionReviewFeedQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Mark a question as shown in the review feed
+ */
+export const getMarkQuestionReviewServedUrl = (id: number) => {
+  return `/api/questions/review/serve/${id}`;
+};
+
+export const markQuestionReviewServed = async (
+  id: number,
+  options?: RequestInit,
+): Promise<MarkQuestionReviewServed200> => {
+  return customFetch<MarkQuestionReviewServed200>(
+    getMarkQuestionReviewServedUrl(id),
+    {
+      ...options,
+      method: "POST",
+    },
+  );
+};
+
+export const getMarkQuestionReviewServedMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof markQuestionReviewServed>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof markQuestionReviewServed>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  const mutationKey = ["markQuestionReviewServed"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof markQuestionReviewServed>>,
+    { id: number }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return markQuestionReviewServed(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type MarkQuestionReviewServedMutationResult = NonNullable<
+  Awaited<ReturnType<typeof markQuestionReviewServed>>
+>;
+
+export type MarkQuestionReviewServedMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Mark a question as shown in the review feed
+ */
+export const useMarkQuestionReviewServed = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof markQuestionReviewServed>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof markQuestionReviewServed>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  return useMutation(getMarkQuestionReviewServedMutationOptions(options));
+};
+
+/**
+ * @summary Store review feedback for a question
+ */
+export const getSubmitQuestionReviewFeedbackUrl = (id: number) => {
+  return `/api/questions/review/feedback/${id}`;
+};
+
+export const submitQuestionReviewFeedback = async (
+  id: number,
+  questionReviewFeedbackInput: QuestionReviewFeedbackInput,
+  options?: RequestInit,
+): Promise<QuestionReviewFeedbackResponse> => {
+  return customFetch<QuestionReviewFeedbackResponse>(
+    getSubmitQuestionReviewFeedbackUrl(id),
+    {
+      ...options,
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(questionReviewFeedbackInput),
+    },
+  );
+};
+
+export const getSubmitQuestionReviewFeedbackMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof submitQuestionReviewFeedback>>,
+    TError,
+    { id: number; data: BodyType<QuestionReviewFeedbackInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof submitQuestionReviewFeedback>>,
+  TError,
+  { id: number; data: BodyType<QuestionReviewFeedbackInput> },
+  TContext
+> => {
+  const mutationKey = ["submitQuestionReviewFeedback"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof submitQuestionReviewFeedback>>,
+    { id: number; data: BodyType<QuestionReviewFeedbackInput> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return submitQuestionReviewFeedback(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type SubmitQuestionReviewFeedbackMutationResult = NonNullable<
+  Awaited<ReturnType<typeof submitQuestionReviewFeedback>>
+>;
+export type SubmitQuestionReviewFeedbackMutationBody =
+  BodyType<QuestionReviewFeedbackInput>;
+export type SubmitQuestionReviewFeedbackMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Store review feedback for a question
+ */
+export const useSubmitQuestionReviewFeedback = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof submitQuestionReviewFeedback>>,
+    TError,
+    { id: number; data: BodyType<QuestionReviewFeedbackInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof submitQuestionReviewFeedback>>,
+  TError,
+  { id: number; data: BodyType<QuestionReviewFeedbackInput> },
+  TContext
+> => {
+  return useMutation(getSubmitQuestionReviewFeedbackMutationOptions(options));
 };
 
 /**

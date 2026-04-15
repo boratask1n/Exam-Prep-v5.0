@@ -16,7 +16,16 @@ export type ListQuestionsParams = {
   publisher?: string;
   status?: ListQuestionsStatus;
   topic?: string;
+  search?: string;
+  isOsymBadge?: boolean;
+  isPremiumBadge?: boolean;
+  /**
+   * @minimum 1
+   * @maximum 100
+   */
   limit?: number;
+  /**
+   * @minimum 0
+   */
   offset?: number;
 };
-

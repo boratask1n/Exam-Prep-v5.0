@@ -12,7 +12,7 @@ export type ListQuestionsSource =
 export const ListQuestionsSource = {
   Deneme: "Deneme",
   Banka: "Banka",
-  "Ders Kitabı": "Ders Kitabı",
+  Fasikül: "Fasikül",
+  Ders_Kitabı: "Ders Kitabı",
 } as const;
-
 

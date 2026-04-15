@@ -9,6 +9,7 @@ import {
   testResultTopicStatsTable,
 } from "@workspace/db";
 import { and, eq, gte, inArray, lte, sql } from "drizzle-orm";
+import { applyQuestionReviewOutcomesFromTest } from "./questionReviewService";
 
 type QuestionStatus = "Cozulmedi" | "DogruCozuldu" | "YanlisHocayaSor";
 
@@ -217,6 +218,8 @@ export async function finalizeTestResult(testSessionId: number) {
     if (topicStatsValues.length > 0) {
       await tx.insert(testResultTopicStatsTable).values(topicStatsValues);
     }
+
+    await applyQuestionReviewOutcomesFromTest(tx, testSessionId, questions);
 
     return summaryRow;
   });

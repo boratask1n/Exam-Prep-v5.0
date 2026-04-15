@@ -7,6 +7,7 @@
  */
 import type { CreateQuestionInputCategory } from "./createQuestionInputCategory";
 import type { CreateQuestionInputChoice } from "./createQuestionInputChoice";
+import type { CreateQuestionInputOptionsItem } from "./createQuestionInputOptionsItem";
 import type { CreateQuestionInputSource } from "./createQuestionInputSource";
 import type { CreateQuestionInputStatus } from "./createQuestionInputStatus";
 
@@ -19,8 +20,13 @@ export interface CreateQuestionInput {
   testName?: string | null;
   testNo?: string | null;
   choice?: CreateQuestionInputChoice;
+  options?: CreateQuestionInputOptionsItem[] | null;
   solutionUrl?: string | null;
+  solutionYoutubeUrl?: string | null;
+  solutionYoutubeStartSecond?: number | null;
   category: CreateQuestionInputCategory;
   source: CreateQuestionInputSource;
   status?: CreateQuestionInputStatus;
+  isOsymBadge?: boolean;
+  isPremiumBadge?: boolean;
 }

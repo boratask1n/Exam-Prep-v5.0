@@ -5,6 +5,7 @@
  * YKS Soru Takibi API
  * OpenAPI spec version: 0.1.0
  */
+import type { CreateTestInputDistribution } from "./createTestInputDistribution";
 import type { CreateTestInputFilters } from "./createTestInputFilters";
 
 export interface CreateTestInput {
@@ -13,6 +14,5 @@ export interface CreateTestInput {
   timeLimitSeconds?: number | null;
   questionIds?: number[];
   filters?: CreateTestInputFilters;
-  distribution?: Record<string, number>;
+  distribution?: CreateTestInputDistribution;
 }
-

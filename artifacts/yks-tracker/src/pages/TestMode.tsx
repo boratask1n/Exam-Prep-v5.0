@@ -65,6 +65,8 @@ interface Question {
   status: string;
   description?: string | null;
   solutionUrl?: string | null;
+  solutionYoutubeUrl?: string | null;
+  solutionYoutubeStartSecond?: number | null;
 }
 interface LessonGroup {
   lesson: string;
@@ -1368,7 +1370,8 @@ export default function TestMode() {
 
   // Test Screen (çözüm veya gözden geçirme / kontrol)
   const answeredCount = Object.keys(answers).length;
-  const solutionEmbed = getYoutubeEmbedSrc(currentQuestion?.solutionUrl);
+  const solutionVideoUrl = currentQuestion?.solutionYoutubeUrl || currentQuestion?.solutionUrl;
+  const solutionEmbed = getYoutubeEmbedSrc(solutionVideoUrl, currentQuestion?.solutionYoutubeStartSecond);
   const hasManualOptionTexts = normalizeQuestionOptions(currentQuestion?.options).length > 0;
   const adaptiveImageFrameStyle = (() => {
     if (!currentQuestion?.imageUrl) {
@@ -2061,7 +2064,7 @@ export default function TestMode() {
             </div>
           ) : (
             <p className="text-sm text-muted-foreground leading-relaxed">
-              {currentQuestion?.solutionUrl?.trim()
+              {solutionVideoUrl?.trim()
                 ? "Bu adres YouTube olarak tanınmadı. Linki yeni sekmede açmayı deneyin."
                 : "Bu soru için havuzda çözüm videosu linki eklenmemiş."}
             </p>

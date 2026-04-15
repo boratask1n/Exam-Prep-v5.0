@@ -9,6 +9,7 @@ const NotFound = lazy(() => import("@/pages/not-found"));
 const Analysis = lazy(() => import("@/pages/Analysis"));
 const AnalysisCharts = lazy(() => import("@/pages/AnalysisCharts"));
 const Pool = lazy(() => import("@/pages/Pool"));
+const QuestionReviewFeed = lazy(() => import("@/pages/QuestionReviewFeed"));
 const Tests = lazy(() => import("@/pages/Tests"));
 const TestMode = lazy(() => import("@/pages/TestMode"));
 const TestResult = lazy(() => import("@/pages/TestResult"));
@@ -46,6 +47,7 @@ function Router() {
       <Route path="/" component={() => <RoutedSidebar><Analysis /></RoutedSidebar>} />
       <Route path="/analysis/charts" component={() => <RoutedSidebar><AnalysisCharts /></RoutedSidebar>} />
       <Route path="/pool" component={() => <RoutedSidebar><Pool /></RoutedSidebar>} />
+      <Route path="/questions/review" component={() => <RoutedSidebar><QuestionReviewFeed /></RoutedSidebar>} />
       <Route path="/notes/feed" component={() => <RoutedSidebar><NotesFeed /></RoutedSidebar>} />
       <Route path="/notes" component={() => <RoutedSidebar><Notes category="TYT" /></RoutedSidebar>} />
       <Route path="/notes/tyt" component={() => <RoutedSidebar><Notes category="TYT" /></RoutedSidebar>} />

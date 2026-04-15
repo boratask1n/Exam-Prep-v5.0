@@ -1,5 +1,5 @@
 ﻿import { Link, useLocation } from "wouter";
-import { PenTool, LayoutGrid, BookOpen, Sun, Moon, FolderKanban, BarChart3, NotebookPen } from "lucide-react";
+import { PenTool, LayoutGrid, BookOpen, Sun, Moon, FolderKanban, BarChart3, NotebookPen, Repeat2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useEffect, useState } from "react";
 
@@ -32,6 +32,7 @@ export function Sidebar({ children }: { children: React.ReactNode }) {
     { href: "/", icon: LayoutGrid, label: "Analiz" },
     { href: "/analysis/charts", icon: BarChart3, label: "Grafikler" },
     { href: "/pool", icon: FolderKanban, label: "Soru Havuzu" },
+    { href: "/questions/review", icon: Repeat2, label: "Soru Tekrarı" },
     { href: "/notes/feed", icon: NotebookPen, label: "Not Akışı" },
     { href: "/notes/tyt", icon: NotebookPen, label: "TYT Notlar" },
     { href: "/notes/ayt", icon: NotebookPen, label: "AYT Notlar" },

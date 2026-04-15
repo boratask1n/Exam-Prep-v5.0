@@ -1,0 +1,53 @@
+{
+  "name": "@workspace/desktop-shell",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Exam Prep desktop shell for Windows and macOS",
+  "author": "Exam Prep",
+  "main": "src/main.cjs",
+  "scripts": {
+    "dev": "electron ./src/main.cjs",
+    "pack": "electron-builder --dir",
+    "dist:win": "electron-builder --win portable nsis",
+    "dist:win:setup": "electron-builder --win nsis",
+    "dist:win:portable": "electron-builder --win portable",
+    "dist:mac": "electron-builder --mac dmg zip"
+  },
+  "devDependencies": {
+    "electron": "^34.5.8",
+    "electron-builder": "^25.1.8",
+    "electron-builder-squirrel-windows": "25.1.8"
+  },
+  "build": {
+    "appId": "com.examprep.desktop",
+    "productName": "Exam Prep",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "src/**/*",
+      "package.json"
+    ],
+    "win": {
+      "signAndEditExecutable": false,
+      "verifyUpdateCodeSignature": false,
+      "target": [
+        "nsis",
+        "portable"
+      ]
+    },
+    "mac": {
+      "category": "public.app-category.education",
+      "target": [
+        "dmg",
+        "zip"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
+  }
+}

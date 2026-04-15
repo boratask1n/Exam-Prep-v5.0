@@ -12,7 +12,7 @@ export type CreateQuestionInputSource =
 export const CreateQuestionInputSource = {
   Deneme: "Deneme",
   Banka: "Banka",
-  "Ders Kitabı": "Ders Kitabı",
+  Fasikül: "Fasikül",
+  Ders_Kitabı: "Ders Kitabı",
 } as const;
-
 
