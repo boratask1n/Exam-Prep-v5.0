@@ -1,23 +1,30 @@
-import { pgTable, serial, text, integer, timestamp, boolean, json } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, integer, timestamp, boolean, json, index } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { questionsTable } from "./questions";
+import { usersTable } from "./auth";
 
 export const testSessionsTable = pgTable("test_sessions", {
   id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => usersTable.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
   timeLimitSeconds: integer("time_limit_seconds"),
   /** Test tamamlandığında set edilir; gözden geçirme modu için */
   completedAt: timestamp("completed_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+}, (table) => ({
+  userIdIdx: index("test_sessions_user_id_idx").on(table.userId),
+}));
 
 export const testSessionQuestionsTable = pgTable("test_session_questions", {
   id: serial("id").primaryKey(),
   testSessionId: integer("test_session_id").notNull().references(() => testSessionsTable.id, { onDelete: "cascade" }),
   questionId: integer("question_id").notNull().references(() => questionsTable.id, { onDelete: "cascade" }),
   orderIndex: integer("order_index").notNull().default(0),
-});
+}, (table) => ({
+  testSessionIdIdx: index("test_session_questions_session_id_idx").on(table.testSessionId),
+  questionIdIdx: index("test_session_questions_question_id_idx").on(table.questionId),
+}));
 
 export const testSolutionsTable = pgTable("test_solutions", {
   id: serial("id").primaryKey(),
@@ -35,7 +42,10 @@ export const testSolutionsTable = pgTable("test_solutions", {
   inlineDrawEnabled: boolean("inline_draw_enabled").notNull().default(false),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
+}, (table) => ({
+  testSessionIdIdx: index("test_solutions_session_id_idx").on(table.testSessionId),
+  questionIdIdx: index("test_solutions_question_id_idx").on(table.questionId),
+}));
 
 export const testSessionProgressTable = pgTable("test_session_progress", {
   id: serial("id").primaryKey(),
@@ -49,7 +59,9 @@ export const testSessionProgressTable = pgTable("test_session_progress", {
   collapsedLessons: json("collapsed_lessons"), // Record<string, boolean>
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
+}, (table) => ({
+  testSessionIdIdx: index("test_session_progress_session_id_idx").on(table.testSessionId),
+}));
 
 export const insertTestSessionSchema = createInsertSchema(testSessionsTable).omit({
   id: true,

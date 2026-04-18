@@ -2,6 +2,7 @@
 import path from "node:path";
 import {
   db,
+  analyticsAiInsightsTable,
   notesTable,
   questionsTable,
   testResultSummariesTable,
@@ -331,8 +332,8 @@ function buildTopicSignal(attempts: TopicAttemptSnapshot[]): AiTopicSignal {
   };
 }
 
-async function buildAllTimeAiOverview(): Promise<AiAnalyticsOverview> {
-  const overview = await getAnalyticsOverview(AI_ALL_TIME_START, AI_ALL_TIME_END);
+async function buildAllTimeAiOverview(userId: number): Promise<AiAnalyticsOverview> {
+  const overview = await getAnalyticsOverview(userId, AI_ALL_TIME_START, AI_ALL_TIME_END);
   if (overview.summary.totalQuestions === 0) {
     return {
       ...overview,
@@ -346,7 +347,7 @@ async function buildAllTimeAiOverview(): Promise<AiAnalyticsOverview> {
     };
   }
 
-  const summaries = await db.select().from(testResultSummariesTable);
+  const summaries = await db.select().from(testResultSummariesTable).where(eq(testResultSummariesTable.userId, userId));
   if (summaries.length === 0) {
     return {
       ...overview,
@@ -481,6 +482,7 @@ async function loadAiRulesText() {
 }
 
 async function buildAiInsightsContext(
+  userId: number,
   overview: Awaited<ReturnType<typeof getAnalyticsOverview>>,
 ): Promise<AiInsightsContext> {
   const lessonPriority = new Set(overview.subjectStats.slice(0, 6).map((row) => row.lesson));
@@ -500,6 +502,7 @@ async function buildAiInsightsContext(
       updatedAt: notesTable.updatedAt,
     })
     .from(notesTable)
+    .where(eq(notesTable.userId, userId))
     .orderBy(desc(notesTable.pinned), desc(notesTable.updatedAt))
     .limit(40);
 
@@ -637,7 +640,7 @@ async function buildAiInsightsContext(
     overview.recentResults
       .slice(0, 3)
       .map(async (row) => {
-        const result = await getTestResultBySessionId(row.testSessionId);
+        const result = await getTestResultBySessionId(userId, row.testSessionId);
         if (!result) return null;
 
         const wrongQuestions = result.questionBreakdown
@@ -1131,22 +1134,64 @@ ${JSON.stringify(compact)}
   return normalizeAiResponse(raw);
 }
 
-export async function getAnalyticsAiInsights() {
-  const overview = await buildAllTimeAiOverview();
+export async function getAnalyticsAiInsights(userId: number) {
+  const overview = await buildAllTimeAiOverview(userId);
   const fallback = buildRuleBasedInsights(overview);
+  let insights: AiInsightsResponse = fallback;
+
   if (overview.summary.totalQuestions === 0) {
-    return fallback;
+    insights = fallback;
+  } else {
+    try {
+      const context = await buildAiInsightsContext(userId, overview);
+      const ai = await tryGeminiInsights(overview, context);
+      insights = ai ?? fallback;
+    } catch (error) {
+      console.error("Gemini insights fallback used:", error);
+      insights = fallback;
+    }
   }
 
-  try {
-    const context = await buildAiInsightsContext(overview);
-    const ai = await tryGeminiInsights(overview, context);
-    if (ai) return ai;
-    return fallback;
-  } catch (error) {
-    console.error("Gemini insights fallback used:", error);
-    return fallback;
-  }
+  const requestedAt = new Date();
+  await db
+    .insert(analyticsAiInsightsTable)
+    .values({
+      userId,
+      insights,
+      requestedAt,
+      updatedAt: requestedAt,
+    })
+    .onConflictDoUpdate({
+      target: analyticsAiInsightsTable.userId,
+      set: {
+        insights,
+        requestedAt,
+        updatedAt: requestedAt,
+      },
+    });
+
+  return { insights, requestedAt: requestedAt.toISOString() };
+}
+
+export async function getLatestAnalyticsAiInsights(userId: number) {
+  const [row] = await db
+    .select({
+      insights: analyticsAiInsightsTable.insights,
+      requestedAt: analyticsAiInsightsTable.requestedAt,
+    })
+    .from(analyticsAiInsightsTable)
+    .where(eq(analyticsAiInsightsTable.userId, userId))
+    .limit(1);
+
+  if (!row) return null;
+  return {
+    insights: row.insights as AiInsightsResponse,
+    requestedAt: row.requestedAt.toISOString(),
+  };
+}
+
+export async function deleteLatestAnalyticsAiInsights(userId: number) {
+  await db.delete(analyticsAiInsightsTable).where(eq(analyticsAiInsightsTable.userId, userId));
 }
 
 export async function getAiRuntimeStatus() {

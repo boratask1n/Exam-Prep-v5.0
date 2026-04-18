@@ -15,7 +15,7 @@ export interface CreateQuestionInput {
   imageUrl?: string | null;
   description?: string | null;
   lesson: string;
-  topic?: string | null;
+  topic: string;
   publisher?: string | null;
   testName?: string | null;
   testNo?: string | null;
@@ -24,6 +24,7 @@ export interface CreateQuestionInput {
   solutionUrl?: string | null;
   solutionYoutubeUrl?: string | null;
   solutionYoutubeStartSecond?: number | null;
+  solutionYoutubeEndSecond?: number | null;
   category: CreateQuestionInputCategory;
   source: CreateQuestionInputSource;
   status?: CreateQuestionInputStatus;

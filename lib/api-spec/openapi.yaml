@@ -667,6 +667,9 @@ components:
         solutionYoutubeStartSecond:
           type: integer
           nullable: true
+        solutionYoutubeEndSecond:
+          type: integer
+          nullable: true
         category:
           type: string
           enum: [TYT, AYT, Geometri]
@@ -849,6 +852,9 @@ components:
         solutionYoutubeStartSecond:
           type: integer
           nullable: true
+        solutionYoutubeEndSecond:
+          type: integer
+          nullable: true
         category:
           type: string
           enum: [TYT, AYT, Geometri]
@@ -864,6 +870,7 @@ components:
           type: boolean
       required:
         - lesson
+        - topic
         - category
         - source
 
@@ -923,6 +930,9 @@ components:
           type: string
           nullable: true
         solutionYoutubeStartSecond:
+          type: integer
+          nullable: true
+        solutionYoutubeEndSecond:
           type: integer
           nullable: true
         isOsymBadge:
@@ -1302,4 +1312,3 @@ components:
           additionalProperties:
             type: boolean
           nullable: true
-

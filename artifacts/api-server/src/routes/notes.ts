@@ -2,6 +2,7 @@
 import { and, desc, eq, ilike, or, sql } from "drizzle-orm";
 import { db } from "@workspace/db";
 import * as dbSchema from "@workspace/db";
+import { getAuthUserId } from "../middlewares/auth";
 
 const notesTable = (dbSchema as any).notesTable;
 const noteReviewStatsTable = (dbSchema as any).noteReviewStatsTable;
@@ -113,6 +114,7 @@ function getNextEligibleFromStage(stage: number, now: Date) {
 }
 
 router.get("/notes", async (req, res) => {
+  const userId = getAuthUserId(req);
   const category = parseNoteCategory(req.query.category, undefined);
   const lesson = parseOptionalString(req.query.lesson);
   const search = parseOptionalString(req.query.search);
@@ -120,7 +122,7 @@ router.get("/notes", async (req, res) => {
   const rawOffset = typeof req.query.offset === "string" ? Number.parseInt(req.query.offset, 10) : Number.NaN;
   const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(rawLimit, 1), 60) : 9;
   const offset = Number.isFinite(rawOffset) ? Math.max(rawOffset, 0) : 0;
-  const conditions = [];
+  const conditions = [eq(notesTable.userId, userId)];
 
   if (req.query.category) conditions.push(eq(notesTable.category, category));
   if (lesson) conditions.push(ilike(notesTable.lesson, `%${lesson}%`));
@@ -163,11 +165,12 @@ router.get("/notes", async (req, res) => {
 });
 
 router.get("/notes/feed", async (req, res) => {
+  const userId = getAuthUserId(req);
   const search = parseOptionalString(req.query.search);
   const excludeIds = parseExcludeIds(req.query.excludeIds);
   const rawLimit = typeof req.query.limit === "string" ? Number.parseInt(req.query.limit, 10) : Number.NaN;
   const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(rawLimit, 1), 12) : 6;
-  const conditions = [];
+  const conditions = [eq(notesTable.userId, userId)];
 
   if (search) {
     const pattern = `%${search}%`;
@@ -228,8 +231,9 @@ router.get("/notes/feed", async (req, res) => {
 });
 
 router.post("/notes/feed/serve/:id", async (req, res) => {
+  const userId = getAuthUserId(req);
   const noteId = req.params.id;
-  const noteRows = (await db.select().from(notesTable).where(eq(notesTable.id, noteId)).limit(1)) as any[];
+  const noteRows = (await db.select().from(notesTable).where(and(eq(notesTable.id, noteId), eq(notesTable.userId, userId))).limit(1)) as any[];
   const note = noteRows[0];
 
   if (!note) {
@@ -281,9 +285,10 @@ router.post("/notes/feed/serve/:id", async (req, res) => {
 });
 
 router.post("/notes/feed/feedback/:id", async (req, res) => {
+  const userId = getAuthUserId(req);
   const noteId = req.params.id;
   const feedback = typeof req.body?.feedback === "string" ? req.body.feedback : "";
-  const noteRows = (await db.select().from(notesTable).where(eq(notesTable.id, noteId)).limit(1)) as any[];
+  const noteRows = (await db.select().from(notesTable).where(and(eq(notesTable.id, noteId), eq(notesTable.userId, userId))).limit(1)) as any[];
   const note = noteRows[0];
 
   if (!note) {
@@ -350,6 +355,7 @@ router.post("/notes/feed/feedback/:id", async (req, res) => {
 });
 
 router.post("/notes", async (req, res) => {
+  const userId = getAuthUserId(req);
   const lesson = parseOptionalString(req.body.lesson)?.trim();
   if (!lesson) {
     res.status(400).json({ error: "Ders seçimi zorunludur" });
@@ -364,6 +370,7 @@ router.post("/notes", async (req, res) => {
     .insert(notesTable)
     .values({
       id: parseOptionalString(req.body.id) || createNoteId(),
+      userId,
       category,
       lesson,
       title,
@@ -379,7 +386,8 @@ router.post("/notes", async (req, res) => {
 });
 
 router.patch("/notes/:id", async (req, res) => {
-  const existingRows = (await db.select().from(notesTable).where(eq(notesTable.id, req.params.id))) as any[];
+  const userId = getAuthUserId(req);
+  const existingRows = (await db.select().from(notesTable).where(and(eq(notesTable.id, req.params.id), eq(notesTable.userId, userId)))) as any[];
   const existing = existingRows[0];
 
   if (!existing) {
@@ -401,15 +409,21 @@ router.patch("/notes/:id", async (req, res) => {
       pinned: parseBoolean(req.body.pinned, existing.pinned),
       updatedAt: new Date(),
     })
-    .where(eq(notesTable.id, req.params.id))
+    .where(and(eq(notesTable.id, req.params.id), eq(notesTable.userId, userId)))
     .returning()) as any[];
 
   res.json(serializeNote(updatedRows[0]));
 });
 
 router.delete("/notes/:id", async (req, res) => {
+  const userId = getAuthUserId(req);
+  const existingRows = (await db.select({ id: notesTable.id }).from(notesTable).where(and(eq(notesTable.id, req.params.id), eq(notesTable.userId, userId))).limit(1)) as any[];
+  if (!existingRows[0]) {
+    res.status(404).json({ error: "Not bulunamadı" });
+    return;
+  }
   await db.delete(noteReviewStatsTable).where(eq(noteReviewStatsTable.noteId, req.params.id));
-  await db.delete(notesTable).where(eq(notesTable.id, req.params.id));
+  await db.delete(notesTable).where(and(eq(notesTable.id, req.params.id), eq(notesTable.userId, userId)));
   res.status(204).send();
 });
 

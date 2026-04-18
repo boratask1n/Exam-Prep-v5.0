@@ -1,12 +1,31 @@
 import { Router } from "express";
-import { db, testSolutionsTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { db, questionsTable, testSessionsTable, testSolutionsTable } from "@workspace/db";
+import { and, eq, inArray } from "drizzle-orm";
+import { getAuthUserId } from "../middlewares/auth";
 
 const router = Router();
 
 function parseId(value: string) {
   const parsed = Number.parseInt(value, 10);
   return Number.isNaN(parsed) ? null : parsed;
+}
+
+async function testBelongsToUser(testId: number, userId: number) {
+  const [row] = await db
+    .select({ id: testSessionsTable.id })
+    .from(testSessionsTable)
+    .where(and(eq(testSessionsTable.id, testId), eq(testSessionsTable.userId, userId)))
+    .limit(1);
+  return Boolean(row);
+}
+
+async function getOwnedQuestionIds(questionIds: number[], userId: number) {
+  if (questionIds.length === 0) return new Set<number>();
+  const rows = await db
+    .select({ id: questionsTable.id })
+    .from(questionsTable)
+    .where(and(inArray(questionsTable.id, questionIds), eq(questionsTable.userId, userId)));
+  return new Set(rows.map((row) => row.id));
 }
 
 function toSolutionInsert(testId: number, questionId: number, solution: any) {
@@ -35,9 +54,13 @@ async function getSolutionsByTestId(testId: number) {
 
 router.get("/tests/:testId/solutions", async (req, res) => {
   try {
+    const userId = getAuthUserId(req);
     const testId = parseId(req.params.testId);
     if (testId === null) {
       return res.status(400).json({ error: "Invalid test ID" });
+    }
+    if (!(await testBelongsToUser(testId, userId))) {
+      return res.status(404).json({ error: "Test bulunamadı" });
     }
 
     const solutions = await getSolutionsByTestId(testId);
@@ -50,29 +73,38 @@ router.get("/tests/:testId/solutions", async (req, res) => {
 
 async function saveBulkSolutions(req: any, res: any) {
   try {
+    const userId = getAuthUserId(req);
     const testId = parseId(req.params.testId);
     if (testId === null) {
       return res.status(400).json({ error: "Invalid test ID" });
+    }
+    if (!(await testBelongsToUser(testId, userId))) {
+      return res.status(404).json({ error: "Test bulunamadı" });
     }
 
     const { solutions } = req.body;
     if (!Array.isArray(solutions)) {
       return res.status(400).json({ error: "Solutions must be an array" });
     }
+    const ownedQuestionIds = await getOwnedQuestionIds(
+      solutions.map((solution: any) => Number(solution.questionId)).filter((id: number) => Number.isFinite(id)),
+      userId,
+    );
+    const safeSolutions = solutions.filter((solution: any) => ownedQuestionIds.has(Number(solution.questionId)));
 
     const inserted = await db.transaction(async (tx) => {
       await tx
         .delete(testSolutionsTable)
         .where(eq(testSolutionsTable.testSessionId, testId));
 
-      if (solutions.length === 0) {
+      if (safeSolutions.length === 0) {
         return [];
       }
 
       return tx
         .insert(testSolutionsTable)
         .values(
-          solutions.map((solution: any) =>
+          safeSolutions.map((solution: any) =>
             toSolutionInsert(testId, solution.questionId, solution),
           ),
         )
@@ -91,10 +123,14 @@ router.put("/tests/:testId/solutions", saveBulkSolutions);
 
 router.get("/tests/:testId/questions/:questionId/solution", async (req, res) => {
   try {
+    const userId = getAuthUserId(req);
     const testId = parseId(req.params.testId);
     const questionId = parseId(req.params.questionId);
     if (testId === null || questionId === null) {
       return res.status(400).json({ error: "Invalid test or question ID" });
+    }
+    if (!(await testBelongsToUser(testId, userId))) {
+      return res.status(404).json({ error: "Test bulunamadı" });
     }
 
     const solutions = await getSolutionsByTestId(testId);
@@ -113,10 +149,18 @@ router.get("/tests/:testId/questions/:questionId/solution", async (req, res) => 
 
 router.put("/tests/:testId/questions/:questionId/solution", async (req, res) => {
   try {
+    const userId = getAuthUserId(req);
     const testId = parseId(req.params.testId);
     const questionId = parseId(req.params.questionId);
     if (testId === null || questionId === null) {
       return res.status(400).json({ error: "Invalid test or question ID" });
+    }
+    if (!(await testBelongsToUser(testId, userId))) {
+      return res.status(404).json({ error: "Test bulunamadı" });
+    }
+    const ownedQuestionIds = await getOwnedQuestionIds([questionId], userId);
+    if (!ownedQuestionIds.has(questionId)) {
+      return res.status(404).json({ error: "Soru bulunamadı" });
     }
 
     const solutions = await getSolutionsByTestId(testId);

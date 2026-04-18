@@ -52,6 +52,12 @@ export default defineConfig(async ({ mode }) => {
       port,
       host: "0.0.0.0",
       allowedHosts: true,
+      proxy: {
+        "/api": {
+          target: apiUrl,
+          changeOrigin: true,
+        },
+      },
     },
   };
 });

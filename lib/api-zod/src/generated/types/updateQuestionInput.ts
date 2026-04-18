@@ -27,6 +27,7 @@ export interface UpdateQuestionInput {
   solutionUrl?: string | null;
   solutionYoutubeUrl?: string | null;
   solutionYoutubeStartSecond?: number | null;
+  solutionYoutubeEndSecond?: number | null;
   isOsymBadge?: boolean;
   isPremiumBadge?: boolean;
 }

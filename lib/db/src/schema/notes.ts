@@ -1,9 +1,11 @@
 import { boolean, pgTable, text, timestamp, index, integer } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
+import { usersTable } from "./auth";
 
 export const notesTable = pgTable("notes", {
   id: text("id").primaryKey(),
+  userId: integer("user_id").references(() => usersTable.id, { onDelete: "cascade" }),
   category: text("category").notNull().default("TYT"),
   lesson: text("lesson").notNull(),
   title: text("title").notNull().default("Yeni Not"),
@@ -15,6 +17,7 @@ export const notesTable = pgTable("notes", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (table) => ({
+  userIdIdx: index("notes_user_id_idx").on(table.userId),
   categoryIdx: index("notes_category_idx").on(table.category),
   lessonIdx: index("notes_lesson_idx").on(table.lesson),
   updatedAtIdx: index("notes_updated_at_idx").on(table.updatedAt),

@@ -12,6 +12,7 @@ import {
   type SaveTestSolutionInput,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
+import { useMemo } from "react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 export interface CanvasPoint {
@@ -346,17 +347,21 @@ export class TestSessionDbStorage {
 // ─── React Hook ───────────────────────────────────────────────────────────────
 export function useTestSessionStorage(testId: number) {
   const queryClient = useQueryClient();
+  const storage = useMemo(
+    () => new TestSessionDbStorage(testId, queryClient),
+    [testId, queryClient],
+  );
   
   return {
-    storage: new TestSessionDbStorage(testId, queryClient),
+    storage,
     // Legacy compatibility functions
-    loadSolutions: () => new TestSessionDbStorage(testId, queryClient).loadSolutions(),
+    loadSolutions: () => storage.loadSolutions(),
     saveSolutions: (solutions: SaveTestSolutionsInput) => 
-      new TestSessionDbStorage(testId, queryClient).saveSolutions(solutions),
-    loadProgress: () => new TestSessionDbStorage(testId, queryClient).loadProgress(),
+      storage.saveSolutions(solutions),
+    loadProgress: () => storage.loadProgress(),
     saveProgress: (progress: SaveTestProgressInput) => 
-      new TestSessionDbStorage(testId, queryClient).saveProgress(progress),
+      storage.saveProgress(progress),
     migrateFromLocalStorage: () => 
-      new TestSessionDbStorage(testId, queryClient).migrateFromLocalStorage(),
+      storage.migrateFromLocalStorage(),
   };
 }

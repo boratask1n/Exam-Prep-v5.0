@@ -17,6 +17,7 @@ const child = spawn(command, ["--filter", "@workspace/api-server", "run", "start
     API_PORT: String(port),
     HOST: "127.0.0.1",
     UPLOADS_DIR: uploadsDir,
+    DISABLE_LEGACY_CLAIM: "1",
     DATABASE_URL: process.env.DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:5432/exam_prep",
   },
   stdio: ["ignore", "pipe", "pipe"],
@@ -51,10 +52,32 @@ async function waitForHealth(path) {
   throw new Error(`API smoke test timed out for ${path}`);
 }
 
-async function verifyImageUpload() {
-  const response = await fetch(`http://127.0.0.1:${port}/api/questions/image`, {
+async function createSmokeAccount() {
+  const email = `smoke-${Date.now()}@local.test`;
+  const response = await fetch(`http://127.0.0.1:${port}/api/auth/register`, {
     method: "POST",
     headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      name: "Smoke Test",
+      email,
+      password: "smoke-test-123",
+      remember: false,
+    }),
+  });
+  if (!response.ok) {
+    throw new Error(`Auth smoke test failed with HTTP ${response.status}`);
+  }
+  const body = await response.json();
+  if (!body.token || !body.user?.id) {
+    throw new Error("Auth smoke test returned an invalid session");
+  }
+  return body.token;
+}
+
+async function verifyImageUpload(token) {
+  const response = await fetch(`http://127.0.0.1:${port}/api/questions/image`, {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
     body: JSON.stringify({
       mimeType: "image/png",
       imageData: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAFgwJ/lLQZxwAAAABJRU5ErkJggg==",
@@ -74,10 +97,10 @@ async function verifyImageUpload() {
   }
 }
 
-async function verifyQuestionReviewFlow() {
+async function verifyQuestionReviewFlow(token) {
   const createResponse = await fetch(`http://127.0.0.1:${port}/api/questions`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
     body: JSON.stringify({
       lesson: "Smoke Test",
       topic: "Question Review",
@@ -106,7 +129,9 @@ async function verifyQuestionReviewFlow() {
     throw new Error("Question create smoke test did not persist extended metadata");
   }
   try {
-    const feedResponse = await fetch(`http://127.0.0.1:${port}/api/questions/review/feed?search=Smoke%20Test&limit=3`);
+    const feedResponse = await fetch(`http://127.0.0.1:${port}/api/questions/review/feed?search=Smoke%20Test&limit=3`, {
+      headers: { authorization: `Bearer ${token}` },
+    });
     if (!feedResponse.ok) {
       throw new Error(`Question review feed smoke test failed with HTTP ${feedResponse.status}`);
     }
@@ -117,6 +142,7 @@ async function verifyQuestionReviewFlow() {
 
     const serveResponse = await fetch(`http://127.0.0.1:${port}/api/questions/review/serve/${question.id}`, {
       method: "POST",
+      headers: { authorization: `Bearer ${token}` },
     });
     if (!serveResponse.ok) {
       throw new Error(`Question review serve smoke test failed with HTTP ${serveResponse.status}`);
@@ -124,7 +150,7 @@ async function verifyQuestionReviewFlow() {
 
     const feedbackResponse = await fetch(`http://127.0.0.1:${port}/api/questions/review/feedback/${question.id}`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
       body: JSON.stringify({ feedback: "correct" }),
     });
     if (!feedbackResponse.ok) {
@@ -132,7 +158,10 @@ async function verifyQuestionReviewFlow() {
     }
   } finally {
     if (question?.id) {
-      await fetch(`http://127.0.0.1:${port}/api/questions/${question.id}`, { method: "DELETE" }).catch(() => {});
+      await fetch(`http://127.0.0.1:${port}/api/questions/${question.id}`, {
+        method: "DELETE",
+        headers: { authorization: `Bearer ${token}` },
+      }).catch(() => {});
     }
   }
 }
@@ -141,8 +170,13 @@ let exitCode = 0;
 try {
   await waitForHealth("/api/health");
   await waitForHealth("/api/healthz");
-  await verifyImageUpload();
-  await verifyQuestionReviewFlow();
+  const token = await createSmokeAccount();
+  await verifyImageUpload(token);
+  await verifyQuestionReviewFlow(token);
+  await fetch(`http://127.0.0.1:${port}/api/auth/account`, {
+    method: "DELETE",
+    headers: { authorization: `Bearer ${token}` },
+  }).catch(() => {});
   console.log("API smoke test passed");
 } catch (error) {
   exitCode = 1;

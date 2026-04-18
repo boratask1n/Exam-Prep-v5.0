@@ -13,6 +13,8 @@ Exam-Prep, YKS çalışma sürecini tek yerde toplamak için geliştirilmiş yer
 - Yanlış ve zamanı gelen soruları öne alan `Soru Tekrarı`
 - Not ve soru üzerinde çizim
 - YouTube çözüm videosu ve videonun başlayacağı saniye bilgisi
+- Modern giriş ekranı, hesap oluşturma, `Beni hatırla` seçeneği ve cihaz bazlı oturum saklama
+- Kullanıcıya özel soru / not / test / analiz verisi ve hesap silme seçeneği
 - Windows / macOS için yerel sunucuya bağlanan masaüstü uygulama kabuğu
 - PostgreSQL tabanlı kalıcı veri saklama
 - Görsel yüklemelerde istemci tarafı küçültme ve API tarafı dosya doğrulama
@@ -20,6 +22,8 @@ Exam-Prep, YKS çalışma sürecini tek yerde toplamak için geliştirilmiş yer
 ## Klasör Yapısı
 
 - `artifacts/yks-tracker`: React + Vite web uygulaması
+  - `src/pages/Login.tsx`: giriş ekranı
+  - `src/lib/auth-session.ts`: oturum yardımcıları
 - `artifacts/api-server`: Express API
 - `artifacts/desktop-shell`: Electron tabanlı masaüstü uygulama kabuğu
 - `lib/db`: Drizzle schema ve veritabanı komutları
@@ -56,6 +60,13 @@ GEMINI_MODEL=gemini-1.5-flash
 ```
 
 `GEMINI_API_KEY` boş kalabilir. Bu durumda AI tarafında yerel / kural tabanlı fallback davranışı çalışır.
+
+## Oturum ve Veri İzolasyonu
+
+- Her kullanıcı kendi hesabıyla giriş yapar.
+- Soru havuzu, notlar, testler, çizimler, tekrar akışı ve analiz sonuçları oturumdaki kullanıcıya göre filtrelenir.
+- İlk kullanıcı girişinde eski sahipsiz yerel veriler otomatik olarak o hesaba bağlanır; yeni kullanıcılar bu verileri göremez.
+- Sol menüdeki `Hesabı Sil` seçeneği, ilgili kullanıcıya ait tüm soru, not, test, analiz ve oturum verilerini kalıcı olarak siler.
 
 ## Hızlı Başlat
 
@@ -186,7 +197,7 @@ pnpm --filter @workspace/db run push
 .\VERITABANI_TEMIZLE.bat
 ```
 
-- testler, sorular, soru tekrar istatistikleri, notlar, not tekrar istatistikleri, çizimler ve analiz tabloları sıfırlanır
+- kullanıcılar, oturumlar, testler, sorular, soru tekrar istatistikleri, notlar, not tekrar istatistikleri, çizimler ve analiz tabloları sıfırlanır
 - `artifacts/api-server/uploads` klasörü temizlenir
 - istenirse önce otomatik yedek alır
 

@@ -73,6 +73,7 @@
   },
   "dependencies": {
     "mathlive": "^0.109.1",
+    "perfect-freehand": "^1.2.3",
     "react-use-measure": "^2.1.7"
   }
 }

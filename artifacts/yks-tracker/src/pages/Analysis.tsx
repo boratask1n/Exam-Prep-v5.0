@@ -1,5 +1,7 @@
 ﻿import { useEffect, useMemo, useState } from "react";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
+import { useQueryClient } from "@tanstack/react-query";
+import { getListTestsQueryKey } from "@workspace/api-client-react";
 import {
   AlertTriangle,
   BarChart3,
@@ -15,6 +17,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { clearTestLocalStorage } from "@/lib/testSessionStorage";
 
 type OverviewResponse = {
   dateRange: { startDate: string; endDate: string };
@@ -116,6 +119,8 @@ type AiInsightsCache = {
   requestedAt: string;
 };
 
+type AiInsightsEnvelope = AiInsightsCache | null;
+
 function toDateInputValue(date: Date) {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -134,6 +139,8 @@ const defaultStart = new Date(defaultEnd.getTime() - 30 * 24 * 60 * 60 * 1000);
 const AI_INSIGHTS_CACHE_KEY = "analysis_ai_insights_cache_v3";
 
 export default function Analysis() {
+  const [, setLocation] = useLocation();
+  const queryClient = useQueryClient();
   const [dateMode, setDateMode] = useState<"range" | "all">("all");
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const [startDate, setStartDate] = useState(toDateInputValue(defaultStart));
@@ -152,18 +159,20 @@ export default function Analysis() {
 
   const [refreshKey, setRefreshKey] = useState(0);
 
-  useEffect(() => {
+  const loadCachedAiInsights = () => {
     try {
       const raw = window.localStorage.getItem(AI_INSIGHTS_CACHE_KEY);
-      if (!raw) return;
+      if (!raw) return false;
       const cached = JSON.parse(raw) as AiInsightsCache;
-      if (!cached?.insights || !cached?.requestedAt) return;
+      if (!cached?.insights || !cached?.requestedAt) return false;
       setAiInsights(cached.insights);
       setAiRequestedAt(cached.requestedAt);
+      return true;
     } catch {
       // ignore malformed cache
+      return false;
     }
-  }, []);
+  };
 
   const effectiveStartDate = dateMode === "all" ? "2000-01-01" : startDate;
   const effectiveEndDate = dateMode === "all" ? toDateInputValue(new Date()) : endDate;
@@ -175,12 +184,13 @@ export default function Analysis() {
       setLoading(true);
       setError(null);
       try {
-        const [overviewResult, statusResult] = await Promise.allSettled([
+        const [overviewResult, statusResult, latestAiResult] = await Promise.allSettled([
           fetch(
             `/api/analytics/overview?${analyticsQuery}`,
             { signal: controller.signal },
           ),
           fetch(`/api/analytics/ai-status`, { signal: controller.signal }),
+          fetch(`/api/analytics/ai-insights/latest`, { signal: controller.signal }),
         ]);
 
         if (overviewResult.status === "fulfilled" && overviewResult.value.ok) {
@@ -193,6 +203,21 @@ export default function Analysis() {
           setAiStatus((await statusResult.value.json()) as AiStatusResponse);
         } else {
           setAiStatus(null);
+        }
+
+        if (latestAiResult.status === "fulfilled" && latestAiResult.value.ok) {
+          const latest = (await latestAiResult.value.json()) as AiInsightsEnvelope;
+          if (latest?.insights && latest.requestedAt) {
+            setAiInsights(latest.insights);
+            setAiRequestedAt(latest.requestedAt);
+            window.localStorage.setItem(AI_INSIGHTS_CACHE_KEY, JSON.stringify(latest));
+          } else {
+            setAiInsights(null);
+            setAiRequestedAt(null);
+            window.localStorage.removeItem(AI_INSIGHTS_CACHE_KEY);
+          }
+        } else {
+          loadCachedAiInsights();
         }
       } catch (err) {
         if ((err as Error).name !== "AbortError") {
@@ -214,17 +239,14 @@ export default function Analysis() {
       const response = await fetch("/api/analytics/ai-insights");
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
-      const aiBody = (await response.json()) as AiInsightsResponse;
-      const requestedAt = new Date().toISOString();
+      const aiEnvelope = (await response.json()) as AiInsightsCache;
+      const aiBody = aiEnvelope.insights;
+      const requestedAt = aiEnvelope.requestedAt;
 
       setAiInsights(aiBody);
       setAiRequestedAt(requestedAt);
 
-      const cachePayload: AiInsightsCache = {
-        insights: aiBody,
-        requestedAt,
-      };
-      window.localStorage.setItem(AI_INSIGHTS_CACHE_KEY, JSON.stringify(cachePayload));
+      window.localStorage.setItem(AI_INSIGHTS_CACHE_KEY, JSON.stringify(aiEnvelope));
       setError(null);
       setInfoNotice(null);
     } catch (err) {
@@ -235,11 +257,16 @@ export default function Analysis() {
     }
   };
 
-  const clearAiInsightsCache = () => {
+  const clearAiInsightsCache = async () => {
+    try {
+      await fetch("/api/analytics/ai-insights/latest", { method: "DELETE" });
+    } catch {
+      // Yerel temizlik yine devam eder.
+    }
     window.localStorage.removeItem(AI_INSIGHTS_CACHE_KEY);
     setAiInsights(null);
     setAiRequestedAt(null);
-    setInfoNotice("Kaydedilmiş AI analizi bu cihazdan temizlendi.");
+    setInfoNotice("Kaydedilmiş AI analizi tüm cihazlar için temizlendi.");
   };
 
   const createTestFromAiSuggestion = async () => {
@@ -294,8 +321,11 @@ export default function Analysis() {
         throw new Error("AI suggested test created with zero questions");
       }
 
+      clearTestLocalStorage(created.id);
+      await queryClient.invalidateQueries({ queryKey: getListTestsQueryKey() });
       setError(null);
-      setInfoNotice(`AI test önerisi oluşturuldu (${created.questionCount} soru). Test merkezinden çözebilirsin.`);
+      setInfoNotice(`AI test önerisi oluşturuldu (${created.questionCount} soru). Test merkezine yönlendiriliyorsun.`);
+      setLocation("/tests");
     } catch (err) {
       console.error(err);
       setError("AI öneri testi oluşturulamadı.");
@@ -320,17 +350,20 @@ export default function Analysis() {
       });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
-      const created = (await response.json()) as { questionCount: number };
+      const created = (await response.json()) as { id: number; questionCount: number };
       if ((created.questionCount ?? 0) === 0) {
         setError("Tarama testi oluşturulamadı. Soru havuzunda yeterli soru yok.");
         setInfoNotice(null);
         return;
       }
 
+      clearTestLocalStorage(created.id);
+      await queryClient.invalidateQueries({ queryKey: getListTestsQueryKey() });
       setError(null);
       setInfoNotice(
-        `AI kazanım tarama testi oluşturuldu (${created.questionCount} soru). Test merkezinden çözüp ilk AI değerlendirmeyi alabilirsin.`,
+        `AI kazanım tarama testi oluşturuldu (${created.questionCount} soru). Test merkezine yönlendiriliyorsun.`,
       );
+      setLocation("/tests");
     } catch (err) {
       console.error(err);
       setError("Tarama testi oluşturulamadı.");
@@ -627,7 +660,7 @@ export default function Analysis() {
               {aiInsights && (
                 <button
                   type="button"
-                  onClick={clearAiInsightsCache}
+                  onClick={() => void clearAiInsightsCache()}
                   className="inline-flex items-center gap-2 rounded-xl border border-border/60 bg-card/60 px-3 py-1.5 text-xs text-muted-foreground hover:bg-foreground/[0.04] hover:text-foreground"
                 >
                   AI önbelleğini temizle
@@ -640,7 +673,7 @@ export default function Analysis() {
           </div>
 
           <p className="mb-3 text-xs text-muted-foreground">
-            Not: Gemini analizi sadece butona bastığında çağrılır. AI yorumu menüde seçtiğin tarih aralığından bağımsız olarak tüm geçmişi değerlendirir ve son sonuç bu cihazın yerel önbelleğinde korunur; istersen tek tuşla temizleyebilirsin.
+            Not: Gemini analizi sadece butona bastığında çağrılır. AI yorumu menüde seçtiğin tarih aralığından bağımsız olarak tüm geçmişi değerlendirir ve son sonuç hesabınla senkron şekilde tüm cihazlarda görünür; istersen tek tuşla temizleyebilirsin.
           </p>
           {showDiagnosticPrompt && (
             <div className="mb-3 rounded-xl border border-primary/40 bg-primary/10 p-3">

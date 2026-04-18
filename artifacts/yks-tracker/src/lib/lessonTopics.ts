@@ -273,7 +273,15 @@ Dik Üçgen ve Trigonometrik Bağıntılar
 
 Çokgenler ve Dörtgenler
 
-Özel Dörtgenler
+Yamuk
+
+Paralelkenar
+
+Eşkenar Dörtgen
+
+Dikdörtgen - Kare
+
+Deltoid
 
 Çember ve Daire
 
@@ -284,117 +292,132 @@ Analitik Geometri
 Çemberin Analitik İncelenmesi`;
 
 function parseDersListesi(): CategoryLessons {
-  const lines = DERS_LISTESI_RAW.split('\n').map(l => l.trim()).filter(l => l.length > 0);
-  
+  const lines = DERS_LISTESI_RAW.split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0);
+
   const result: CategoryLessons = {
-    'TYT': [],
-    'AYT': [],
-    'Geometri': []
+    TYT: [],
+    AYT: [],
+    Geometri: [],
   };
-  
+
   let currentCategory: string | null = null;
   let currentLesson: LessonWithTopics | null = null;
-  
+
   for (const line of lines) {
     // Kategori başlıkları
-    if (line === 'AYT DERSLERİ') {
-      currentCategory = 'AYT';
+    if (line === "AYT DERSLERİ") {
+      currentCategory = "AYT";
       currentLesson = null;
       continue;
     }
-    
-    if (line === 'GEOMETRİ (TYT & AYT)') {
-      currentCategory = 'Geometri';
+
+    if (line === "GEOMETRİ (TYT & AYT)") {
+      currentCategory = "Geometri";
       currentLesson = null;
       continue;
     }
-    
+
     // Ders başlıkları (TYT Xxxxx veya AYT Xxxxx formatında)
     const tytMatch = line.match(/^TYT\s+(.+)$/);
     const aytMatch = line.match(/^AYT\s+(.+)$/);
-    
-    if (line === 'Geometri' && currentCategory === 'Geometri') {
+
+    if (line === "Geometri" && currentCategory === "Geometri") {
       // Geometri dersi
-      currentLesson = { name: 'Geometri', topics: [] };
-      result['Geometri'].push(currentLesson);
+      currentLesson = { name: "Geometri", topics: [] };
+      result["Geometri"].push(currentLesson);
       continue;
     }
-    
+
     if (tytMatch) {
-      currentCategory = 'TYT';
+      currentCategory = "TYT";
       const lessonName = tytMatch[1];
       currentLesson = { name: lessonName, topics: [] };
-      result['TYT'].push(currentLesson);
+      result["TYT"].push(currentLesson);
       continue;
     }
-    
+
     if (aytMatch) {
-      currentCategory = 'AYT';
+      currentCategory = "AYT";
       const lessonName = aytMatch[1];
       currentLesson = { name: lessonName, topics: [] };
-      result['AYT'].push(currentLesson);
+      result["AYT"].push(currentLesson);
       continue;
     }
-    
+
     // Konular (boş satırlarla ayrılmış)
     if (currentLesson && line.length > 0) {
       currentLesson.topics.push(line);
     }
   }
-  
+
   // Derslistesinde olmayan dersleri ekle (konu listesi boş, elle girilecek)
   // TYT dersleri
-  const tytExtraLessons = ['Din Kültürü', 'Felsefe', 'Tarih', 'Coğrafya'];
-  tytExtraLessons.forEach(name => {
-    if (!result['TYT'].find(l => l.name === name)) {
-      result['TYT'].push({ name, topics: [] });
+  const tytExtraLessons = ["Din Kültürü", "Felsefe", "Tarih", "Coğrafya"];
+  tytExtraLessons.forEach((name) => {
+    if (!result["TYT"].find((l) => l.name === name)) {
+      result["TYT"].push({ name, topics: [] });
     }
   });
-  
+
   // TYT Geometri dersine konuları ekle
-  const tytGeometri = result['TYT'].find(l => l.name === 'Geometri');
+  const tytGeometri = result["TYT"].find((l) => l.name === "Geometri");
   if (tytGeometri) {
     tytGeometri.topics = [
-      'Doğruda ve Üçgende Açılar',
-      'Dik Üçgen ve Trigonometrik Bağıntılar',
-      'İkizkenar ve Eşkenar Üçgen',
-      'Üçgende Alan ve Benzerlik',
-      'Üçgende Yardımcı Elemanlar',
-      'Çokgenler ve Dörtgenler',
-      'Özel Dörtgenler',
-      'Çember ve Daire',
-      'Katı Cisimler',
-      'Analitik Geometri',
-      'Çemberin Analitik İncelenmesi'
+      "Doğruda ve Üçgende Açılar",
+      "Dik Üçgen ve Trigonometrik Bağıntılar",
+      "İkizkenar ve Eşkenar Üçgen",
+      "Üçgende Alan ve Benzerlik",
+      "Üçgende Yardımcı Elemanlar",
+      "Çokgenler ve Dörtgenler",
+      "Yamuk",
+      "Paralelkenar",
+      "Eşkenar Dörtgen",
+      "Dikdörtgen - Kare",
+      "Deltoid",
+      "Çember ve Daire",
+      "Katı Cisimler",
+      "Analitik Geometri",
+      "Çemberin Analitik İncelenmesi",
     ];
   }
-  
+
   // AYT dersleri
-  const aytExtraLessons = ['Türk Dili ve Edebiyatı', 'Felsefe', 'Tarih', 'Coğrafya'];
-  aytExtraLessons.forEach(name => {
-    if (!result['AYT'].find(l => l.name === name)) {
-      result['AYT'].push({ name, topics: [] });
+  const aytExtraLessons = [
+    "Türk Dili ve Edebiyatı",
+    "Felsefe",
+    "Tarih",
+    "Coğrafya",
+  ];
+  aytExtraLessons.forEach((name) => {
+    if (!result["AYT"].find((l) => l.name === name)) {
+      result["AYT"].push({ name, topics: [] });
     }
   });
-  
+
   // AYT Geometri dersine konuları ekle
-  const aytGeometri = result['AYT'].find(l => l.name === 'Geometri');
+  const aytGeometri = result["AYT"].find((l) => l.name === "Geometri");
   if (aytGeometri) {
     aytGeometri.topics = [
-      'Doğruda ve Üçgende Açılar',
-      'Dik Üçgen ve Trigonometrik Bağıntılar',
-      'İkizkenar ve Eşkenar Üçgen',
-      'Üçgende Alan ve Benzerlik',
-      'Üçgende Yardımcı Elemanlar',
-      'Çokgenler ve Dörtgenler',
-      'Özel Dörtgenler',
-      'Çember ve Daire',
-      'Katı Cisimler',
-      'Analitik Geometri',
-      'Çemberin Analitik İncelenmesi'
+      "Doğruda ve Üçgende Açılar",
+      "Dik Üçgen ve Trigonometrik Bağıntılar",
+      "İkizkenar ve Eşkenar Üçgen",
+      "Üçgende Alan ve Benzerlik",
+      "Üçgende Yardımcı Elemanlar",
+      "Çokgenler ve Dörtgenler",
+      "Yamuk",
+      "Paralelkenar",
+      "Eşkenar Dörtgen",
+      "Dikdörtgen - Kare",
+      "Deltoid",
+      "Çember ve Daire",
+      "Katı Cisimler",
+      "Analitik Geometri",
+      "Çemberin Analitik İncelenmesi",
     ];
   }
-  
+
   return result;
 }
 
@@ -413,57 +436,64 @@ export function getLessonsForCategory(category: string): LessonWithTopics[] {
   return data[category] || [];
 }
 
-export function getTopicsForLesson(category: string, lessonName: string): string[] {
+export function getTopicsForLesson(
+  category: string,
+  lessonName: string,
+): string[] {
   // Special case: Geometri lesson topics come from Geometri category
   if (lessonName === "Geometri") {
     const geometriLessons = getLessonsForCategory("Geometri");
-    const geometriLesson = geometriLessons.find(l => l.name === "Geometri");
+    const geometriLesson = geometriLessons.find((l) => l.name === "Geometri");
     if (geometriLesson && geometriLesson.topics.length > 0) {
       return geometriLesson.topics;
     }
     // Fallback to hardcoded topics if not found in Geometri category
     return [
-      'Doğruda ve Üçgende Açılar',
-      'Dik Üçgen ve Trigonometrik Bağıntılar',
-      'İkizkenar ve Eşkenar Üçgen',
-      'Üçgende Alan ve Benzerlik',
-      'Üçgende Yardımcı Elemanlar',
-      'Çokgenler ve Dörtgenler',
-      'Özel Dörtgenler',
-      'Çember ve Daire',
-      'Katı Cisimler',
-      'Analitik Geometri',
-      'Çemberin Analitik İncelenmesi'
+      "Doğruda ve Üçgende Açılar",
+      "Dik Üçgen ve Trigonometrik Bağıntılar",
+      "İkizkenar ve Eşkenar Üçgen",
+      "Üçgende Alan ve Benzerlik",
+      "Üçgende Yardımcı Elemanlar",
+      "Çokgenler ve Dörtgenler",
+      "Yamuk",
+      "Paralelkenar",
+      "Eşkenar Dörtgen",
+      "Dikdörtgen - Kare",
+      "Deltoid",
+      "Çember ve Daire",
+      "Katı Cisimler",
+      "Analitik Geometri",
+      "Çemberin Analitik İncelenmesi",
     ];
   }
-  
+
   const lessons = getLessonsForCategory(category);
-  const lesson = lessons.find(l => l.name === lessonName);
+  const lesson = lessons.find((l) => l.name === lessonName);
   return lesson?.topics || [];
 }
 
 export function getAllLessons(): string[] {
   const data = getLessonsByCategory();
   const lessons = new Set<string>();
-  
-  Object.values(data).forEach(categoryLessons => {
-    categoryLessons.forEach(lesson => {
+
+  Object.values(data).forEach((categoryLessons) => {
+    categoryLessons.forEach((lesson) => {
       lessons.add(lesson.name);
     });
   });
-  
+
   return Array.from(lessons).sort();
 }
 
 export function getAllTopics(): string[] {
   const data = getLessonsByCategory();
   const topics = new Set<string>();
-  
-  Object.values(data).forEach(categoryLessons => {
-    categoryLessons.forEach(lesson => {
-      lesson.topics.forEach(topic => topics.add(topic));
+
+  Object.values(data).forEach((categoryLessons) => {
+    categoryLessons.forEach((lesson) => {
+      lesson.topics.forEach((topic) => topics.add(topic));
     });
   });
-  
+
   return Array.from(topics).sort();
 }

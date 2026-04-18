@@ -11,7 +11,14 @@ function getInitialDark(): boolean {
   return false;
 }
 
-export function Sidebar({ children }: { children: React.ReactNode }) {
+type SidebarProps = {
+  children: React.ReactNode;
+  userName?: string;
+  onLogout?: () => void;
+  onDeleteAccount?: () => void;
+};
+
+export function Sidebar({ children, userName, onLogout, onDeleteAccount }: SidebarProps) {
   const [location] = useLocation();
   const [isDark, setIsDark] = useState(getInitialDark);
 
@@ -88,6 +95,12 @@ export function Sidebar({ children }: { children: React.ReactNode }) {
         </nav>
 
         <div className="mt-auto border-t border-border/50 p-3">
+          {userName ? (
+            <div className="mb-2 rounded-[1rem] border border-border/55 bg-background/70 px-3 py-2">
+              <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground/75">Aktif kullanıcı</p>
+              <p className="mt-1 text-sm font-semibold text-foreground">{userName}</p>
+            </div>
+          ) : null}
           <button
             onClick={() => setIsDark(!isDark)}
             className="flex w-full items-center gap-3 rounded-[1.15rem] px-4 py-3 text-[0.95rem] font-medium text-muted-foreground transition-all duration-200 hover:bg-foreground/[0.04] hover:text-foreground"
@@ -95,6 +108,22 @@ export function Sidebar({ children }: { children: React.ReactNode }) {
             {isDark ? <Sun className="h-4.5 w-4.5" /> : <Moon className="h-4.5 w-4.5" />}
             {isDark ? "Aydınlık Mod" : "Karanlık Mod"}
           </button>
+          {onLogout ? (
+            <button
+              onClick={onLogout}
+              className="mt-1.5 flex w-full items-center gap-3 rounded-[1.15rem] px-4 py-3 text-[0.95rem] font-medium text-rose-500 transition-all duration-200 hover:bg-rose-500/10 hover:text-rose-600 dark:text-rose-300 dark:hover:text-rose-200"
+            >
+              Oturumu Kapat
+            </button>
+          ) : null}
+          {onDeleteAccount ? (
+            <button
+              onClick={onDeleteAccount}
+              className="mt-1 flex w-full items-center gap-3 rounded-[1.15rem] px-4 py-2.5 text-[0.86rem] font-medium text-muted-foreground transition-all duration-200 hover:bg-rose-500/8 hover:text-rose-600 dark:hover:text-rose-200"
+            >
+              Hesabı Sil
+            </button>
+          ) : null}
         </div>
       </aside>
 

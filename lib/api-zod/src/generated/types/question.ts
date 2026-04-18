@@ -25,6 +25,7 @@ export interface Question {
   solutionUrl?: string | null;
   solutionYoutubeUrl?: string | null;
   solutionYoutubeStartSecond?: number | null;
+  solutionYoutubeEndSecond?: number | null;
   category: QuestionCategory;
   source: QuestionSource;
   status: QuestionStatus;

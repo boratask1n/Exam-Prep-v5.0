@@ -1,13 +1,26 @@
-﻿import { useEffect, useMemo, useRef, useState } from "react";
+﻿import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { PlusCircle, UploadCloud, X } from "lucide-react";
 import {
   useCreateQuestion,
@@ -21,38 +34,91 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
 import { getLessonsForCategory, getTopicsForLesson } from "@/lib/lessonTopics";
-import { MathLiveChoiceEditor } from "@/components/math/MathLiveChoiceEditor";
 import { convertLegacyMathValueToLatex } from "@/components/math/mathExpression";
+import {
+  formatVideoTimestamp,
+  parseVideoTimestampInput,
+} from "@/lib/youtubeEmbed";
+
+const MathLiveChoiceEditor = lazy(() =>
+  import("@/components/math/MathLiveChoiceEditor").then((module) => ({
+    default: module.MathLiveChoiceEditor,
+  })),
+);
 
 const OPTION_LABELS = ["A", "B", "C", "D", "E"] as const;
 type OptionLabel = (typeof OPTION_LABELS)[number];
 type OptionItem = { label: OptionLabel; text: string };
-const formSchema = z.object({
-  lesson: z.string().min(1, "Ders ad\u0131 zorunludur"),
-  topic: z.string().optional(),
-  description: z.string().optional(),
-  publisher: z.string().optional(),
-  testName: z.string().optional(),
-  testNo: z.string().optional(),
-  category: z.nativeEnum(QuestionCategory),
-  source: z.nativeEnum(QuestionSource),
-  status: z.nativeEnum(QuestionStatus).default(QuestionStatus.Cozulmedi),
-  choice: z.nativeEnum(QuestionChoice).optional().nullable(),
-  solutionUrl: z
-    .string()
-    .optional()
-    .or(z.literal(""))
-    .refine((v) => !v || /^https?:\/\//i.test(v), "Ge\u00e7erli bir http(s) adresi girin"),
-  solutionYoutubeUrl: z
-    .string()
-    .optional()
-    .or(z.literal(""))
-    .refine((v) => !v || /^https?:\/\//i.test(v), "Ge\u00e7erli bir http(s) adresi girin"),
-  solutionYoutubeStartSecond: z.preprocess(
-    (value) => (value === "" || value == null ? null : Number(value)),
-    z.number().int("Saniye tam sayı olmalı").min(0, "Saniye 0 veya daha büyük olmalı").nullable().optional(),
-  ),
-});
+const formSchema = z
+  .object({
+    lesson: z.string().min(1, "Ders ad\u0131 zorunludur"),
+    topic: z.string().min(1, "Konu seçimi zorunludur"),
+    description: z.string().optional(),
+    publisher: z.string().optional(),
+    testName: z.string().optional(),
+    testNo: z.string().optional(),
+    category: z.nativeEnum(QuestionCategory),
+    source: z.nativeEnum(QuestionSource),
+    status: z.nativeEnum(QuestionStatus).default(QuestionStatus.Cozulmedi),
+    choice: z.nativeEnum(QuestionChoice).optional().nullable(),
+    solutionUrl: z
+      .string()
+      .optional()
+      .or(z.literal(""))
+      .refine(
+        (v) => !v || /^https?:\/\//i.test(v),
+        "Ge\u00e7erli bir http(s) adresi girin",
+      ),
+    solutionYoutubeUrl: z
+      .string()
+      .optional()
+      .or(z.literal(""))
+      .refine(
+        (v) => !v || /^https?:\/\//i.test(v),
+        "Ge\u00e7erli bir http(s) adresi girin",
+      ),
+    solutionYoutubeStartSecond: z.string().optional().or(z.literal("")),
+    solutionYoutubeEndSecond: z.string().optional().or(z.literal("")),
+  })
+  .superRefine((value, ctx) => {
+    const hasVideo = !!value.solutionYoutubeUrl?.trim();
+    const start = parseVideoTimestampInput(value.solutionYoutubeStartSecond);
+    const end = parseVideoTimestampInput(value.solutionYoutubeEndSecond);
+
+    if (Number.isNaN(start)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["solutionYoutubeStartSecond"],
+        message: "Süre formatı 1:25 gibi olmalı",
+      });
+      return;
+    }
+
+    if (Number.isNaN(end)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["solutionYoutubeEndSecond"],
+        message: "Süre formatı 2:10 gibi olmalı",
+      });
+      return;
+    }
+
+    if (hasVideo && start == null) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["solutionYoutubeStartSecond"],
+        message: "Video linki varsa başlangıç zamanı zorunludur",
+      });
+    }
+
+    if (hasVideo && start != null && end != null && end <= start) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["solutionYoutubeEndSecond"],
+        message: "Bitiş saniyesi başlangıçtan büyük olmalıdır",
+      });
+    }
+  });
 
 type FormValues = z.infer<typeof formSchema>;
 
@@ -68,6 +134,7 @@ interface QuestionForEdit {
   solutionUrl?: string | null;
   solutionYoutubeUrl?: string | null;
   solutionYoutubeStartSecond?: number | null;
+  solutionYoutubeEndSecond?: number | null;
   options?: Array<{ label: string; text: string }> | null;
   choice?: string | null;
   category: string;
@@ -86,7 +153,9 @@ function emptyOptionTexts(): Record<OptionLabel, string> {
 }
 
 async function prepareQuestionImage(file: File) {
-  const supportedInput = ["image/jpeg", "image/png", "image/webp"].includes(file.type);
+  const supportedInput = ["image/jpeg", "image/png", "image/webp"].includes(
+    file.type,
+  );
   if (!supportedInput) {
     throw new Error("Sadece JPEG, PNG veya WEBP görsel yükleyebilirsin.");
   }
@@ -106,7 +175,10 @@ async function prepareQuestionImage(file: File) {
   });
 
   const maxSide = 1800;
-  const scale = Math.min(1, maxSide / Math.max(image.naturalWidth, image.naturalHeight));
+  const scale = Math.min(
+    1,
+    maxSide / Math.max(image.naturalWidth, image.naturalHeight),
+  );
   const width = Math.max(1, Math.round(image.naturalWidth * scale));
   const height = Math.max(1, Math.round(image.naturalHeight * scale));
 
@@ -139,7 +211,8 @@ export function QuestionFormDialog({ question, trigger, onSaved }: Props) {
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [keepExistingImage, setKeepExistingImage] = useState(true);
   const [useManualChoices, setUseManualChoices] = useState(false);
-  const [optionTexts, setOptionTexts] = useState<Record<OptionLabel, string>>(emptyOptionTexts());
+  const [optionTexts, setOptionTexts] =
+    useState<Record<OptionLabel, string>>(emptyOptionTexts());
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const { toast } = useToast();
@@ -165,37 +238,28 @@ export function QuestionFormDialog({ question, trigger, onSaved }: Props) {
       status: QuestionStatus.Cozulmedi,
       solutionUrl: "",
       solutionYoutubeUrl: "",
-      solutionYoutubeStartSecond: null,
+      solutionYoutubeStartSecond: "",
+      solutionYoutubeEndSecond: "",
     },
   });
 
   const category = watch("category");
   const lesson = watch("lesson");
 
-  const lessonOptions = useMemo(() => getLessonsForCategory(category).map((l) => l.name), [category]);
+  const lessonOptions = useMemo(
+    () => getLessonsForCategory(category).map((l) => l.name),
+    [category],
+  );
   const topicOptions = useMemo(() => {
     if (!lesson) return [];
-    if (category === "Geometri") {
-      return [
-        "Do\u011fruda ve \u00dc\u00e7gende A\u00e7\u0131lar",
-        "Dik \u00dc\u00e7gen ve Trigonometrik Ba\u011f\u0131nt\u0131lar",
-        "\u0130kizkenar ve E\u015fkenar \u00dc\u00e7gen",
-        "\u00dc\u00e7gende Alan ve Benzerlik",
-        "\u00dc\u00e7gende Yard\u0131mc\u0131 Elemanlar",
-        "\u00c7okgenler ve D\u00f6rtgenler",
-        "\u00d6zel D\u00f6rtgenler",
-        "\u00c7ember ve Daire",
-        "Kat\u0131 Cisimler",
-        "Analitik Geometri",
-        "\u00c7emberin Analitik \u0130ncelenmesi",
-      ];
-    }
     return getTopicsForLesson(category, lesson);
   }, [category, lesson]);
 
   const manualChoiceLabels = useMemo(() => {
     if (!useManualChoices) return OPTION_LABELS;
-    return OPTION_LABELS.filter((label) => optionTexts[label].trim().length > 0);
+    return OPTION_LABELS.filter(
+      (label) => optionTexts[label].trim().length > 0,
+    );
   }, [optionTexts, useManualChoices]);
 
   useEffect(() => {
@@ -221,8 +285,14 @@ export function QuestionFormDialog({ question, trigger, onSaved }: Props) {
         status: question.status as QuestionStatus,
         choice: (question.choice as QuestionChoice) ?? undefined,
         solutionUrl: question.solutionUrl ?? "",
-        solutionYoutubeUrl: question.solutionYoutubeUrl ?? question.solutionUrl ?? "",
-        solutionYoutubeStartSecond: question.solutionYoutubeStartSecond ?? null,
+        solutionYoutubeUrl:
+          question.solutionYoutubeUrl ?? question.solutionUrl ?? "",
+        solutionYoutubeStartSecond: formatVideoTimestamp(
+          question.solutionYoutubeStartSecond,
+        ),
+        solutionYoutubeEndSecond: formatVideoTimestamp(
+          question.solutionYoutubeEndSecond,
+        ),
       });
 
       if (question.imageUrl) {
@@ -237,7 +307,8 @@ export function QuestionFormDialog({ question, trigger, onSaved }: Props) {
         const next = emptyOptionTexts();
         for (const option of question.options) {
           const label = (option.label || "").toUpperCase() as OptionLabel;
-          if (OPTION_LABELS.includes(label)) next[label] = convertLegacyMathValueToLatex(option.text ?? "");
+          if (OPTION_LABELS.includes(label))
+            next[label] = convertLegacyMathValueToLatex(option.text ?? "");
         }
         setOptionTexts(next);
         setUseManualChoices(true);
@@ -252,7 +323,8 @@ export function QuestionFormDialog({ question, trigger, onSaved }: Props) {
         status: QuestionStatus.Cozulmedi,
         solutionUrl: "",
         solutionYoutubeUrl: "",
-        solutionYoutubeStartSecond: null,
+        solutionYoutubeStartSecond: "",
+        solutionYoutubeEndSecond: "",
       });
       setImagePreview(null);
       setImageFile(null);
@@ -271,7 +343,11 @@ export function QuestionFormDialog({ question, trigger, onSaved }: Props) {
         setKeepExistingImage(false);
       })
       .catch((error) => {
-        toast({ title: "Görsel hazırlanamadı", description: (error as Error).message, variant: "destructive" });
+        toast({
+          title: "Görsel hazırlanamadı",
+          description: (error as Error).message,
+          variant: "destructive",
+        });
       });
   };
 
@@ -287,7 +363,11 @@ export function QuestionFormDialog({ question, trigger, onSaved }: Props) {
           setKeepExistingImage(false);
         })
         .catch((error) => {
-          toast({ title: "Görsel hazırlanamadı", description: (error as Error).message, variant: "destructive" });
+          toast({
+            title: "Görsel hazırlanamadı",
+            description: (error as Error).message,
+            variant: "destructive",
+          });
         });
       break;
     }
@@ -305,16 +385,27 @@ export function QuestionFormDialog({ question, trigger, onSaved }: Props) {
         setError("lesson", { type: "manual", message: "Ders adı zorunludur" });
         return;
       }
+      if (!data.topic?.trim()) {
+        setError("topic", {
+          type: "manual",
+          message: "Konu seçimi zorunludur",
+        });
+        return;
+      }
 
       let imageUrl: string | null | undefined = undefined;
       const manualOptions: OptionItem[] | null = useManualChoices
-        ? OPTION_LABELS.map((label) => ({ label, text: optionTexts[label].trim() })).filter((item) => item.text.length > 0)
+        ? OPTION_LABELS.map((label) => ({
+            label,
+            text: optionTexts[label].trim(),
+          })).filter((item) => item.text.length > 0)
         : null;
 
       if (useManualChoices && (!manualOptions || manualOptions.length < 2)) {
         toast({
           title: "En az 2 \u015f\u0131k girin",
-          description: "Manuel \u015f\u0131k modunda en az iki \u015f\u0131k metni doldurmal\u0131s\u0131n.",
+          description:
+            "Manuel \u015f\u0131k modunda en az iki \u015f\u0131k metni doldurmal\u0131s\u0131n.",
           variant: "destructive",
         });
         return;
@@ -322,7 +413,9 @@ export function QuestionFormDialog({ question, trigger, onSaved }: Props) {
 
       if (imageFile && imagePreview && !keepExistingImage) {
         const base64Data = imagePreview.split(",")[1];
-        const res = await uploadMutation.mutateAsync({ data: { imageData: base64Data, mimeType: imageFile.type } });
+        const res = await uploadMutation.mutateAsync({
+          data: { imageData: base64Data, mimeType: imageFile.type },
+        });
         imageUrl = res.url;
       } else if (!keepExistingImage && !imageFile) {
         imageUrl = null;
@@ -330,15 +423,29 @@ export function QuestionFormDialog({ question, trigger, onSaved }: Props) {
         imageUrl = question?.imageUrl ?? null;
       }
 
+      const startSecond = parseVideoTimestampInput(
+        data.solutionYoutubeStartSecond,
+      );
+      const endSecond = parseVideoTimestampInput(data.solutionYoutubeEndSecond);
+      const hasYoutubeUrl = !!data.solutionYoutubeUrl?.trim();
+
       const payload = {
         ...data,
         source: data.source as any,
-        imageUrl: isEdit ? imageUrl : imageUrl ?? null,
+        imageUrl: isEdit ? imageUrl : (imageUrl ?? null),
         options: manualOptions,
         choice: data.choice || null,
-        solutionUrl: data.solutionYoutubeUrl?.trim() || data.solutionUrl?.trim() || null,
+        solutionUrl:
+          data.solutionYoutubeUrl?.trim() || data.solutionUrl?.trim() || null,
         solutionYoutubeUrl: data.solutionYoutubeUrl?.trim() || null,
-        solutionYoutubeStartSecond: data.solutionYoutubeStartSecond ?? null,
+        solutionYoutubeStartSecond:
+          hasYoutubeUrl && startSecond != null && !Number.isNaN(startSecond)
+            ? startSecond
+            : null,
+        solutionYoutubeEndSecond:
+          hasYoutubeUrl && endSecond != null && !Number.isNaN(endSecond)
+            ? endSecond
+            : null,
       };
 
       if (isEdit && question) {
@@ -359,11 +466,19 @@ export function QuestionFormDialog({ question, trigger, onSaved }: Props) {
       setUseManualChoices(false);
       setOptionTexts(emptyOptionTexts());
     } catch {
-      toast({ title: "Hata", description: "\u0130\u015flem s\u0131ras\u0131nda bir hata olu\u015ftu.", variant: "destructive" });
+      toast({
+        title: "Hata",
+        description:
+          "\u0130\u015flem s\u0131ras\u0131nda bir hata olu\u015ftu.",
+        variant: "destructive",
+      });
     }
   };
 
-  const isPending = createMutation.isPending || updateMutation.isPending || uploadMutation.isPending;
+  const isPending =
+    createMutation.isPending ||
+    updateMutation.isPending ||
+    uploadMutation.isPending;
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -391,16 +506,24 @@ export function QuestionFormDialog({ question, trigger, onSaved }: Props) {
         }}
       >
         <DialogHeader>
-          <DialogTitle className="text-2xl font-display">{isEdit ? "Soruyu D\u00fczenle" : "Yeni Soru Ekle"}</DialogTitle>
+          <DialogTitle className="text-2xl font-display">
+            {isEdit ? "Soruyu D\u00fczenle" : "Yeni Soru Ekle"}
+          </DialogTitle>
           <DialogDescription className="text-sm text-muted-foreground">
-            Soru bilgilerini, görseli ve gerekiyorsa matematiksel şıklarını bu pencereden düzenleyebilirsin.
+            Soru bilgilerini, görseli ve gerekiyorsa matematiksel şıklarını bu
+            pencereden düzenleyebilirsin.
           </DialogDescription>
         </DialogHeader>
 
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-5 mt-4">
           <div className="space-y-2">
             <Label>
-              {"Soru G\u00f6rseli"} <span className="text-muted-foreground text-xs">{"(S\u00fcr\u00fckle b\u0131rak veya Ctrl+V ile yap\u0131\u015ft\u0131r)"}</span>
+              {"Soru G\u00f6rseli"}{" "}
+              <span className="text-muted-foreground text-xs">
+                {
+                  "(S\u00fcr\u00fckle b\u0131rak veya Ctrl+V ile yap\u0131\u015ft\u0131r)"
+                }
+              </span>
             </Label>
             {!imagePreview ? (
               <div
@@ -410,14 +533,32 @@ export function QuestionFormDialog({ question, trigger, onSaved }: Props) {
                 <div className="p-3 bg-primary/10 rounded-full group-hover:scale-110 transition-transform mb-2">
                   <UploadCloud className="w-6 h-6 text-primary" />
                 </div>
-                <p className="text-sm text-muted-foreground font-medium">{"G\u00f6rsel Y\u00fckle"}</p>
-                <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={onFileSelect} />
+                <p className="text-sm text-muted-foreground font-medium">
+                  {"G\u00f6rsel Y\u00fckle"}
+                </p>
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  className="hidden"
+                  accept="image/*"
+                  onChange={onFileSelect}
+                />
               </div>
             ) : (
               <div className="relative w-full rounded-xl overflow-hidden border border-border/50 bg-foreground/10 group flex justify-center">
-                <img src={imagePreview} alt={"\u00d6nizleme"} className="max-h-56 object-contain" />
+                <img
+                  src={imagePreview}
+                  alt={"\u00d6nizleme"}
+                  className="max-h-56 object-contain"
+                />
                 <div className="absolute inset-0 bg-foreground/45 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                  <Button type="button" variant="destructive" size="sm" onClick={clearImage} className="rounded-xl">
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    size="sm"
+                    onClick={clearImage}
+                    className="rounded-xl"
+                  >
                     <X className="w-4 h-4 mr-2" /> {"Kald\u0131r"}
                   </Button>
                 </div>
@@ -428,7 +569,12 @@ export function QuestionFormDialog({ question, trigger, onSaved }: Props) {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label>Kategori *</Label>
-              <Select value={watch("category")} onValueChange={(val) => setValue("category", val as QuestionCategory)}>
+              <Select
+                value={watch("category")}
+                onValueChange={(val) =>
+                  setValue("category", val as QuestionCategory)
+                }
+              >
                 <SelectTrigger className="bg-muted/30 border-border/50 rounded-xl">
                   <SelectValue />
                 </SelectTrigger>
@@ -454,7 +600,13 @@ export function QuestionFormDialog({ question, trigger, onSaved }: Props) {
                 disabled={category === "Geometri"}
               >
                 <SelectTrigger className="bg-muted/30 border-border/50 rounded-xl">
-                  <SelectValue placeholder={category === "Geometri" ? "Geometri" : "Ders se\u00e7in..."} />
+                  <SelectValue
+                    placeholder={
+                      category === "Geometri"
+                        ? "Geometri"
+                        : "Ders se\u00e7in..."
+                    }
+                  />
                 </SelectTrigger>
                 <SelectContent>
                   {lessonOptions.map((l) => (
@@ -464,18 +616,35 @@ export function QuestionFormDialog({ question, trigger, onSaved }: Props) {
                   ))}
                 </SelectContent>
               </Select>
-              {errors.lesson && <p className="text-destructive text-xs">{errors.lesson.message}</p>}
+              {errors.lesson && (
+                <p className="text-destructive text-xs">
+                  {errors.lesson.message}
+                </p>
+              )}
             </div>
 
             <div className="space-y-2">
-              <Label>Konu</Label>
+              <Label>Konu *</Label>
               <Select
                 value={watch("topic") || "NONE"}
-                onValueChange={(val) => setValue("topic", val === "NONE" ? "" : val)}
+                onValueChange={(val) => {
+                  setValue("topic", val === "NONE" ? "" : val, {
+                    shouldValidate: true,
+                  });
+                  clearErrors("topic");
+                }}
                 disabled={!lesson && category !== "Geometri"}
               >
                 <SelectTrigger className="bg-muted/30 border-border/50 rounded-xl">
-                  <SelectValue placeholder={lesson ? "Konu se\u00e7in..." : category === "Geometri" ? "Konu se\u00e7in..." : "\u00d6nce ders se\u00e7in"} />
+                  <SelectValue
+                    placeholder={
+                      lesson
+                        ? "Konu se\u00e7in..."
+                        : category === "Geometri"
+                          ? "Konu se\u00e7in..."
+                          : "\u00d6nce ders se\u00e7in"
+                    }
+                  />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="NONE">{"Konu se\u00e7ilmedi"}</SelectItem>
@@ -492,11 +661,21 @@ export function QuestionFormDialog({ question, trigger, onSaved }: Props) {
                       )}
                 </SelectContent>
               </Select>
+              {errors.topic && (
+                <p className="text-destructive text-xs">
+                  {errors.topic.message}
+                </p>
+              )}
             </div>
 
             <div className="space-y-2">
               <Label>Kaynak Tipi *</Label>
-              <Select value={watch("source")} onValueChange={(val) => setValue("source", val as QuestionSource)}>
+              <Select
+                value={watch("source")}
+                onValueChange={(val) =>
+                  setValue("source", val as QuestionSource)
+                }
+              >
                 <SelectTrigger className="bg-muted/30 border-border/50 rounded-xl">
                   <SelectValue />
                 </SelectTrigger>
@@ -512,46 +691,79 @@ export function QuestionFormDialog({ question, trigger, onSaved }: Props) {
 
             <div className="space-y-2">
               <Label>{"Yay\u0131nevi"}</Label>
-              <Input {...register("publisher")} placeholder="3D, Bilgi Sarmal..." className="bg-muted/30 border-border/50 rounded-xl" />
+              <Input
+                {...register("publisher")}
+                placeholder="3D, Bilgi Sarmal..."
+                className="bg-muted/30 border-border/50 rounded-xl"
+              />
             </div>
 
             <div className="space-y-2">
               <Label>{"Do\u011fru \u015e\u0131k"}</Label>
-              <Select value={watch("choice") || "NONE"} onValueChange={(val) => setValue("choice", val === "NONE" ? null : (val as QuestionChoice))}>
+              <Select
+                value={watch("choice") || "NONE"}
+                onValueChange={(val) =>
+                  setValue(
+                    "choice",
+                    val === "NONE" ? null : (val as QuestionChoice),
+                  )
+                }
+              >
                 <SelectTrigger className="bg-muted/30 border-border/50 rounded-xl">
                   <SelectValue placeholder="Belirtilmedi" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="NONE">Belirtilmedi</SelectItem>
-                  {(useManualChoices ? manualChoiceLabels : OPTION_LABELS).map((c) => (
-                    <SelectItem key={c} value={c}>
-                      {c}
-                    </SelectItem>
-                  ))}
+                  {(useManualChoices ? manualChoiceLabels : OPTION_LABELS).map(
+                    (c) => (
+                      <SelectItem key={c} value={c}>
+                        {c}
+                      </SelectItem>
+                    ),
+                  )}
                 </SelectContent>
               </Select>
             </div>
 
             <div className="space-y-2">
               <Label>{"Test Ad\u0131"}</Label>
-              <Input {...register("testName")} placeholder={"Deneme ad\u0131"} className="bg-muted/30 border-border/50 rounded-xl" />
+              <Input
+                {...register("testName")}
+                placeholder={"Deneme ad\u0131"}
+                className="bg-muted/30 border-border/50 rounded-xl"
+              />
             </div>
 
             <div className="space-y-2">
               <Label>Test No</Label>
-              <Input {...register("testNo")} placeholder="42" className="bg-muted/30 border-border/50 rounded-xl" />
+              <Input
+                {...register("testNo")}
+                placeholder="42"
+                className="bg-muted/30 border-border/50 rounded-xl"
+              />
             </div>
 
             <div className="space-y-2 md:col-span-2">
               <Label>Durum</Label>
-              <Select value={watch("status")} onValueChange={(val) => setValue("status", val as QuestionStatus)}>
+              <Select
+                value={watch("status")}
+                onValueChange={(val) =>
+                  setValue("status", val as QuestionStatus)
+                }
+              >
                 <SelectTrigger className="bg-muted/30 border-border/50 rounded-xl">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value={QuestionStatus.Cozulmedi}>{"\u00c7\u00f6z\u00fclmedi"}</SelectItem>
-                  <SelectItem value={QuestionStatus.DogruCozuldu}>{"Do\u011fru \u00c7\u00f6z\u00fcld\u00fc"}</SelectItem>
-                  <SelectItem value={QuestionStatus.YanlisHocayaSor}>{"Yanl\u0131\u015f / Hocaya Sor"}</SelectItem>
+                  <SelectItem value={QuestionStatus.Cozulmedi}>
+                    {"\u00c7\u00f6z\u00fclmedi"}
+                  </SelectItem>
+                  <SelectItem value={QuestionStatus.DogruCozuldu}>
+                    {"Do\u011fru \u00c7\u00f6z\u00fcld\u00fc"}
+                  </SelectItem>
+                  <SelectItem value={QuestionStatus.YanlisHocayaSor}>
+                    {"Yanl\u0131\u015f / Hocaya Sor"}
+                  </SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -569,20 +781,37 @@ export function QuestionFormDialog({ question, trigger, onSaved }: Props) {
             </label>
             {useManualChoices && (
               <div className="space-y-3">
-                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                  {OPTION_LABELS.map((label) => (
-                    <div key={label} className="space-y-1">
-                      <Label className="text-xs">{label} {"\u015e\u0131kk\u0131"}</Label>
-                      <MathLiveChoiceEditor
-                        value={optionTexts[label]}
-                        onChange={(nextValue) => setOptionTexts((prev) => ({ ...prev, [label]: nextValue }))}
-                        placeholder={`${label}\u00A0\u015f\u0131k\u00A0metni`}
-                      />
+                <Suspense
+                  fallback={
+                    <div className="rounded-xl border border-border/50 bg-background/70 p-4 text-sm text-muted-foreground">
+                      Matematik editörü hazırlanıyor...
                     </div>
-                  ))}
-                </div>
+                  }
+                >
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    {OPTION_LABELS.map((label) => (
+                      <div key={label} className="space-y-1">
+                        <Label className="text-xs">
+                          {label} {"\u015e\u0131kk\u0131"}
+                        </Label>
+                        <MathLiveChoiceEditor
+                          value={optionTexts[label]}
+                          onChange={(nextValue) =>
+                            setOptionTexts((prev) => ({
+                              ...prev,
+                              [label]: nextValue,
+                            }))
+                          }
+                          placeholder={`${label}\u00A0\u015f\u0131k\u00A0metni`}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </Suspense>
                 <p className="text-[11px] text-muted-foreground">
-                  MathLive editörü odaklandığında matematik klavyesi açılır. Limit, kesir, integral ve iç içe ifadeleri doğrudan bu alanda yazabilirsin.
+                  MathLive editörü odaklandığında matematik klavyesi açılır.
+                  Limit, kesir, integral ve iç içe ifadeleri doğrudan bu alanda
+                  yazabilirsin.
                 </p>
               </div>
             )}
@@ -590,10 +819,14 @@ export function QuestionFormDialog({ question, trigger, onSaved }: Props) {
 
           <div className="space-y-2">
             <Label>{"A\u00e7\u0131klama / Notlar"}</Label>
-            <Textarea {...register("description")} placeholder={"Bu soru hakk\u0131nda notlar\u0131n\u0131z..."} className="bg-muted/30 border-border/50 rounded-xl resize-none min-h-[80px]" />
+            <Textarea
+              {...register("description")}
+              placeholder={"Bu soru hakk\u0131nda notlar\u0131n\u0131z..."}
+              className="bg-muted/30 border-border/50 rounded-xl resize-none min-h-[80px]"
+            />
           </div>
 
-          <div className="grid grid-cols-1 gap-3 rounded-xl border border-border/50 bg-muted/20 p-3 sm:grid-cols-[1fr_150px]">
+          <div className="grid grid-cols-1 gap-3 rounded-xl border border-border/50 bg-muted/20 p-3 sm:grid-cols-[1fr_150px_150px]">
             <div className="space-y-2">
               <Label>{"\u00c7\u00f6z\u00fcm videosu (YouTube linki)"}</Label>
               <Input
@@ -602,31 +835,68 @@ export function QuestionFormDialog({ question, trigger, onSaved }: Props) {
                 placeholder="https://www.youtube.com/watch?v=..."
                 className="bg-background/70 border-border/50 rounded-xl"
               />
-              {errors.solutionYoutubeUrl && <p className="text-destructive text-xs">{errors.solutionYoutubeUrl.message}</p>}
+              {errors.solutionYoutubeUrl && (
+                <p className="text-destructive text-xs">
+                  {errors.solutionYoutubeUrl.message}
+                </p>
+              )}
             </div>
             <div className="space-y-2">
-              <Label>{"Ba\u015flang\u0131\u00e7 saniyesi"}</Label>
+              <Label>{"Başlangıç (dk:sn)"}</Label>
               <Input
                 {...register("solutionYoutubeStartSecond")}
-                type="number"
-                min={0}
-                step={1}
-                placeholder="0"
+                type="text"
+                inputMode="numeric"
+                placeholder="1:25"
                 className="bg-background/70 border-border/50 rounded-xl"
               />
-              {errors.solutionYoutubeStartSecond && <p className="text-destructive text-xs">{errors.solutionYoutubeStartSecond.message}</p>}
+              {errors.solutionYoutubeStartSecond && (
+                <p className="text-destructive text-xs">
+                  {errors.solutionYoutubeStartSecond.message}
+                </p>
+              )}
             </div>
-            <p className="text-[11px] text-muted-foreground sm:col-span-2">
-              {"Linke t\u0131kland\u0131\u011f\u0131nda video do\u011frudan bu saniyeden ba\u015flar. Eski \u00e7\u00f6z\u00fcm linkleri de otomatik korunur."}
+            <div className="space-y-2">
+              <Label>{"Bitiş (dk:sn)"}</Label>
+              <Input
+                {...register("solutionYoutubeEndSecond")}
+                type="text"
+                inputMode="numeric"
+                placeholder="Opsiyonel"
+                className="bg-background/70 border-border/50 rounded-xl"
+              />
+              {errors.solutionYoutubeEndSecond && (
+                <p className="text-destructive text-xs">
+                  {errors.solutionYoutubeEndSecond.message}
+                </p>
+              )}
+            </div>
+            <p className="text-[11px] text-muted-foreground sm:col-span-3">
+              {
+                "Süreleri 1:25 veya 01:12:05 gibi yazabilirsin. Video linki eklersen başlangıç zorunludur; bitiş boşsa video sonuna kadar oynar, girilirse sadece seçilen kesitte durur."
+              }
             </p>
           </div>
 
           <div className="pt-4 flex justify-end gap-3 border-t border-border/50">
-            <Button type="button" variant="ghost" onClick={() => setOpen(false)} className="rounded-xl font-medium">
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => setOpen(false)}
+              className="rounded-xl font-medium"
+            >
               {"\u0130ptal"}
             </Button>
-            <Button type="submit" disabled={isPending} className="rounded-xl px-8 font-semibold">
-              {isPending ? "Kaydediliyor..." : isEdit ? "G\u00fcncelle" : "Kaydet"}
+            <Button
+              type="submit"
+              disabled={isPending}
+              className="rounded-xl px-8 font-semibold"
+            >
+              {isPending
+                ? "Kaydediliyor..."
+                : isEdit
+                  ? "G\u00fcncelle"
+                  : "Kaydet"}
             </Button>
           </div>
         </form>
@@ -634,4 +904,3 @@ export function QuestionFormDialog({ question, trigger, onSaved }: Props) {
     </Dialog>
   );
 }
-

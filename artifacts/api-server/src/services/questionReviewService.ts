@@ -1,8 +1,4 @@
-import {
-  db,
-  questionReviewStatsTable,
-  questionsTable,
-} from "@workspace/db";
+import { db, questionReviewStatsTable, questionsTable } from "@workspace/db";
 import { and, eq, inArray, or, sql } from "drizzle-orm";
 
 type QuestionStatus = "Cozulmedi" | "DogruCozuldu" | "YanlisHocayaSor";
@@ -30,6 +26,7 @@ type ReviewQuestionRow = {
   solutionUrl: string | null;
   solutionYoutubeUrl: string | null;
   solutionYoutubeStartSecond: number | null;
+  solutionYoutubeEndSecond: number | null;
   category: string;
   source: string;
   status: QuestionStatus;
@@ -55,11 +52,17 @@ type QuestionWithSolution = {
   status: QuestionStatus;
 };
 
-const REVIEW_INTERVAL_MINUTES = [0, 15, 120, 720, 1440, 4320, 10080, 20160, 43200];
+const REVIEW_INTERVAL_MINUTES = [
+  0, 15, 120, 720, 1440, 4320, 10080, 20160, 43200,
+];
 const MIN_SERVE_GAP_MS = 45 * 1000;
 
-function getReviewDueAt(row: Pick<ReviewQuestionRow, "nextEligibleAt" | "createdAt">) {
-  return row.nextEligibleAt instanceof Date ? row.nextEligibleAt : row.createdAt;
+function getReviewDueAt(
+  row: Pick<ReviewQuestionRow, "nextEligibleAt" | "createdAt">,
+) {
+  return row.nextEligibleAt instanceof Date
+    ? row.nextEligibleAt
+    : row.createdAt;
 }
 
 function clampStage(stage: number) {
@@ -68,7 +71,9 @@ function clampStage(stage: number) {
 
 function getNextEligibleFromStage(stage: number, now: Date) {
   const normalizedStage = clampStage(stage);
-  return new Date(now.getTime() + REVIEW_INTERVAL_MINUTES[normalizedStage] * 60 * 1000);
+  return new Date(
+    now.getTime() + REVIEW_INTERVAL_MINUTES[normalizedStage] * 60 * 1000,
+  );
 }
 
 function parseQuestionIds(value: unknown) {
@@ -82,27 +87,54 @@ function parseQuestionIds(value: unknown) {
 function buildQuestionReviewScore(row: ReviewQuestionRow, now: Date) {
   const dueAt = getReviewDueAt(row);
   const totalServed = typeof row.totalServed === "number" ? row.totalServed : 0;
-  const totalReviewed = typeof row.totalReviewed === "number" ? row.totalReviewed : 0;
-  const repetitionStage = typeof row.repetitionStage === "number" ? row.repetitionStage : 0;
-  const lastServedAt = row.lastServedAt instanceof Date ? row.lastServedAt : null;
+  const totalReviewed =
+    typeof row.totalReviewed === "number" ? row.totalReviewed : 0;
+  const repetitionStage =
+    typeof row.repetitionStage === "number" ? row.repetitionStage : 0;
+  const lastServedAt =
+    row.lastServedAt instanceof Date ? row.lastServedAt : null;
   const isDue = dueAt.getTime() <= now.getTime();
-  const minutesOverdue = isDue ? Math.max(0, (now.getTime() - dueAt.getTime()) / 60000) : 0;
-  const minutesUntilDue = !isDue ? Math.max(0, (dueAt.getTime() - now.getTime()) / 60000) : 0;
+  const minutesOverdue = isDue
+    ? Math.max(0, (now.getTime() - dueAt.getTime()) / 60000)
+    : 0;
+  const minutesUntilDue = !isDue
+    ? Math.max(0, (dueAt.getTime() - now.getTime()) / 60000)
+    : 0;
 
   const statusBoost =
-    row.status === "YanlisHocayaSor" ? 170 : row.status === "Cozulmedi" ? 70 : -25;
+    row.status === "YanlisHocayaSor"
+      ? 170
+      : row.status === "Cozulmedi"
+        ? 70
+        : -25;
   const unseenBoost = totalServed === 0 ? 95 : 0;
   const neverReviewedBoost = totalReviewed === 0 ? 60 : 0;
   const badgeBoost = (row.isOsymBadge ? 10 : 0) + (row.isPremiumBadge ? 8 : 0);
   const cooldownPenalty =
-    lastServedAt && now.getTime() - lastServedAt.getTime() < MIN_SERVE_GAP_MS * 6 ? -160 : 0;
+    lastServedAt &&
+    now.getTime() - lastServedAt.getTime() < MIN_SERVE_GAP_MS * 6
+      ? -160
+      : 0;
   const stagePenalty = repetitionStage * 10;
-  const dueBoost = isDue ? 150 + Math.min(90, minutesOverdue / 12) : Math.max(-80, -(minutesUntilDue / 20));
+  const dueBoost = isDue
+    ? 150 + Math.min(90, minutesOverdue / 12)
+    : Math.max(-80, -(minutesUntilDue / 20));
 
-  return statusBoost + unseenBoost + neverReviewedBoost + badgeBoost + cooldownPenalty + dueBoost - stagePenalty;
+  return (
+    statusBoost +
+    unseenBoost +
+    neverReviewedBoost +
+    badgeBoost +
+    cooldownPenalty +
+    dueBoost -
+    stagePenalty
+  );
 }
 
-function pickWeightedQuestions<T extends { score: number }>(rows: T[], limit: number) {
+function pickWeightedQuestions<T extends { score: number }>(
+  rows: T[],
+  limit: number,
+) {
   const pool = [...rows];
   const selected: T[] = [];
 
@@ -132,9 +164,16 @@ function serializeReviewQuestion(row: ReviewQuestionRow & { score?: number }) {
     ...row,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
-    lastServedAt: row.lastServedAt instanceof Date ? row.lastServedAt.toISOString() : null,
-    lastReviewedAt: row.lastReviewedAt instanceof Date ? row.lastReviewedAt.toISOString() : null,
-    nextEligibleAt: row.nextEligibleAt instanceof Date ? row.nextEligibleAt.toISOString() : null,
+    lastServedAt:
+      row.lastServedAt instanceof Date ? row.lastServedAt.toISOString() : null,
+    lastReviewedAt:
+      row.lastReviewedAt instanceof Date
+        ? row.lastReviewedAt.toISOString()
+        : null,
+    nextEligibleAt:
+      row.nextEligibleAt instanceof Date
+        ? row.nextEligibleAt.toISOString()
+        : null,
   };
 }
 
@@ -146,7 +185,18 @@ async function getQuestionById(questionId: number) {
     .then((rows) => rows[0] ?? null);
 }
 
+async function getOwnedQuestionById(userId: number, questionId: number) {
+  return db
+    .select({ id: questionsTable.id })
+    .from(questionsTable)
+    .where(
+      and(eq(questionsTable.id, questionId), eq(questionsTable.userId, userId)),
+    )
+    .then((rows) => rows[0] ?? null);
+}
+
 export async function getQuestionReviewFeed(params: {
+  userId: number;
   limit?: number;
   search?: string;
   excludeIdsRaw?: unknown;
@@ -154,7 +204,7 @@ export async function getQuestionReviewFeed(params: {
   const limit = Math.min(Math.max(params.limit ?? 8, 1), 16);
   const search = params.search?.trim();
   const excludeIds = parseQuestionIds(params.excludeIdsRaw);
-  const conditions = [];
+  const conditions = [eq(questionsTable.userId, params.userId)];
 
   if (search) {
     const pattern = `%${search}%`;
@@ -162,16 +212,27 @@ export async function getQuestionReviewFeed(params: {
       or(
         sql`coalesce(${questionsTable.lesson}, '') ilike ${pattern}`,
         sql`coalesce(${questionsTable.topic}, '') ilike ${pattern}`,
+        sql`coalesce(${questionsTable.category}, '') ilike ${pattern}`,
+        sql`coalesce(${questionsTable.source}, '') ilike ${pattern}`,
         sql`coalesce(${questionsTable.publisher}, '') ilike ${pattern}`,
         sql`coalesce(${questionsTable.testName}, '') ilike ${pattern}`,
         sql`coalesce(${questionsTable.testNo}, '') ilike ${pattern}`,
+        sql`coalesce(${questionsTable.choice}, '') ilike ${pattern}`,
+        sql`coalesce(${questionsTable.solutionUrl}, '') ilike ${pattern}`,
+        sql`coalesce(${questionsTable.solutionYoutubeUrl}, '') ilike ${pattern}`,
         sql`coalesce(${questionsTable.description}, '') ilike ${pattern}`,
+        sql`coalesce(${questionsTable.options}::text, '') ilike ${pattern}`,
       )!,
     );
   }
 
   if (excludeIds.length > 0) {
-    conditions.push(sql`${questionsTable.id} not in (${sql.join(excludeIds.map((id) => sql`${id}`), sql`, `)})`);
+    conditions.push(
+      sql`${questionsTable.id} not in (${sql.join(
+        excludeIds.map((id) => sql`${id}`),
+        sql`, `,
+      )})`,
+    );
   }
 
   const rows = (await db
@@ -188,6 +249,7 @@ export async function getQuestionReviewFeed(params: {
       solutionUrl: questionsTable.solutionUrl,
       solutionYoutubeUrl: questionsTable.solutionYoutubeUrl,
       solutionYoutubeStartSecond: questionsTable.solutionYoutubeStartSecond,
+      solutionYoutubeEndSecond: questionsTable.solutionYoutubeEndSecond,
       category: questionsTable.category,
       source: questionsTable.source,
       status: questionsTable.status,
@@ -208,8 +270,13 @@ export async function getQuestionReviewFeed(params: {
       lastTestSessionId: questionReviewStatsTable.lastTestSessionId,
     })
     .from(questionsTable)
-    .leftJoin(questionReviewStatsTable, eq(questionReviewStatsTable.questionId, questionsTable.id))
-    .where(conditions.length > 0 ? and(...conditions) : undefined)) as ReviewQuestionRow[];
+    .leftJoin(
+      questionReviewStatsTable,
+      eq(questionReviewStatsTable.questionId, questionsTable.id),
+    )
+    .where(
+      conditions.length > 0 ? and(...conditions) : undefined,
+    )) as ReviewQuestionRow[];
 
   const now = new Date();
   const scoredRows = rows
@@ -236,8 +303,8 @@ export async function getQuestionReviewFeed(params: {
   };
 }
 
-export async function markQuestionServed(questionId: number) {
-  const question = await getQuestionById(questionId);
+export async function markQuestionServed(userId: number, questionId: number) {
+  const question = await getOwnedQuestionById(userId, questionId);
   if (!question) return null;
 
   const existing = await db
@@ -247,12 +314,21 @@ export async function markQuestionServed(questionId: number) {
     .then((rows) => rows[0] ?? null);
   const now = new Date();
 
-  if (existing?.lastServedAt instanceof Date && now.getTime() - existing.lastServedAt.getTime() < MIN_SERVE_GAP_MS) {
+  if (
+    existing?.lastServedAt instanceof Date &&
+    now.getTime() - existing.lastServedAt.getTime() < MIN_SERVE_GAP_MS
+  ) {
     return { ok: true, deduped: true };
   }
 
-  const currentStage = typeof existing?.repetitionStage === "number" ? existing.repetitionStage : 0;
-  const nextEligibleAt = getNextEligibleFromStage(Math.max(1, currentStage), now);
+  const currentStage =
+    typeof existing?.repetitionStage === "number"
+      ? existing.repetitionStage
+      : 0;
+  const nextEligibleAt = getNextEligibleFromStage(
+    Math.max(1, currentStage),
+    now,
+  );
 
   if (existing) {
     await db
@@ -278,8 +354,12 @@ export async function markQuestionServed(questionId: number) {
   return { ok: true, nextEligibleAt: nextEligibleAt.toISOString() };
 }
 
-export async function submitQuestionReviewFeedback(questionId: number, feedback: QuestionReviewFeedback) {
-  const question = await getQuestionById(questionId);
+export async function submitQuestionReviewFeedback(
+  userId: number,
+  questionId: number,
+  feedback: QuestionReviewFeedback,
+) {
+  const question = await getOwnedQuestionById(userId, questionId);
   if (!question) return null;
 
   const existing = await db
@@ -288,7 +368,10 @@ export async function submitQuestionReviewFeedback(questionId: number, feedback:
     .where(eq(questionReviewStatsTable.questionId, questionId))
     .then((rows) => rows[0] ?? null);
   const now = new Date();
-  const baseStage = typeof existing?.repetitionStage === "number" ? existing.repetitionStage : 0;
+  const baseStage =
+    typeof existing?.repetitionStage === "number"
+      ? existing.repetitionStage
+      : 0;
 
   const outcome: QuestionReviewOutcome | null =
     feedback === "correct" || feedback === "easy"
@@ -300,19 +383,27 @@ export async function submitQuestionReviewFeedback(questionId: number, feedback:
   let nextStage = baseStage;
   if (feedback === "again" || feedback === "wrong") nextStage = 0;
   if (feedback === "hard") nextStage = Math.max(1, baseStage);
-  if (feedback === "correct" || feedback === "easy") nextStage = Math.min(baseStage + 2, REVIEW_INTERVAL_MINUTES.length - 1);
-  if (feedback === "less_often") nextStage = Math.min(baseStage + 3, REVIEW_INTERVAL_MINUTES.length - 1);
+  if (feedback === "correct" || feedback === "easy")
+    nextStage = Math.min(baseStage + 2, REVIEW_INTERVAL_MINUTES.length - 1);
+  if (feedback === "less_often")
+    nextStage = Math.min(baseStage + 3, REVIEW_INTERVAL_MINUTES.length - 1);
   if (feedback === "more_often") nextStage = Math.max(0, baseStage - 1);
 
   const nextEligibleAt =
     feedback === "again" || feedback === "wrong"
       ? new Date(now.getTime() + 10 * 60 * 1000)
       : feedback === "hard"
-        ? new Date(now.getTime() + Math.max(30, REVIEW_INTERVAL_MINUTES[nextStage]) * 60 * 1000)
+        ? new Date(
+            now.getTime() +
+              Math.max(30, REVIEW_INTERVAL_MINUTES[nextStage]) * 60 * 1000,
+          )
         : feedback === "more_often"
           ? new Date(now.getTime() + 25 * 60 * 1000)
           : feedback === "less_often"
-            ? new Date(now.getTime() + Math.max(720, REVIEW_INTERVAL_MINUTES[nextStage]) * 60 * 1000)
+            ? new Date(
+                now.getTime() +
+                  Math.max(720, REVIEW_INTERVAL_MINUTES[nextStage]) * 60 * 1000,
+              )
             : getNextEligibleFromStage(nextStage, now);
 
   if (existing) {
@@ -320,8 +411,10 @@ export async function submitQuestionReviewFeedback(questionId: number, feedback:
       .update(questionReviewStatsTable)
       .set({
         totalReviewed: (existing.totalReviewed ?? 0) + (outcome ? 1 : 0),
-        correctReviewCount: (existing.correctReviewCount ?? 0) + (outcome === "correct" ? 1 : 0),
-        wrongReviewCount: (existing.wrongReviewCount ?? 0) + (outcome === "wrong" ? 1 : 0),
+        correctReviewCount:
+          (existing.correctReviewCount ?? 0) + (outcome === "correct" ? 1 : 0),
+        wrongReviewCount:
+          (existing.wrongReviewCount ?? 0) + (outcome === "wrong" ? 1 : 0),
         repetitionStage: nextStage,
         lastReviewedAt: outcome ? now : existing.lastReviewedAt,
         nextEligibleAt,
@@ -350,7 +443,12 @@ export async function submitQuestionReviewFeedback(questionId: number, feedback:
         status: outcome === "correct" ? "DogruCozuldu" : "YanlisHocayaSor",
         updatedAt: now,
       })
-      .where(eq(questionsTable.id, questionId));
+      .where(
+        and(
+          eq(questionsTable.id, questionId),
+          eq(questionsTable.userId, userId),
+        ),
+      );
   }
 
   return {
@@ -368,7 +466,9 @@ export async function applyQuestionReviewOutcomesFromTest(
   questions: QuestionWithSolution[],
 ) {
   const reviewedQuestions = questions.filter(
-    (question) => question.status === "DogruCozuldu" || question.status === "YanlisHocayaSor",
+    (question) =>
+      question.status === "DogruCozuldu" ||
+      question.status === "YanlisHocayaSor",
   );
   if (reviewedQuestions.length === 0) return;
 
@@ -376,18 +476,25 @@ export async function applyQuestionReviewOutcomesFromTest(
   const existingRows = (await tx
     .select()
     .from(questionReviewStatsTable)
-    .where(inArray(questionReviewStatsTable.questionId, questionIds))) as Array<typeof questionReviewStatsTable.$inferSelect>;
-  const existingByQuestionId = new Map<number, typeof questionReviewStatsTable.$inferSelect>(
-    existingRows.map((row) => [row.questionId, row]),
-  );
+    .where(inArray(questionReviewStatsTable.questionId, questionIds))) as Array<
+    typeof questionReviewStatsTable.$inferSelect
+  >;
+  const existingByQuestionId = new Map<
+    number,
+    typeof questionReviewStatsTable.$inferSelect
+  >(existingRows.map((row) => [row.questionId, row]));
   const now = new Date();
 
   for (const question of reviewedQuestions) {
-    const outcome: QuestionReviewOutcome = question.status === "DogruCozuldu" ? "correct" : "wrong";
+    const outcome: QuestionReviewOutcome =
+      question.status === "DogruCozuldu" ? "correct" : "wrong";
     const existing = existingByQuestionId.get(question.questionId);
     if (existing?.lastTestSessionId === testSessionId) continue;
 
-    const baseStage = typeof existing?.repetitionStage === "number" ? existing.repetitionStage : 0;
+    const baseStage =
+      typeof existing?.repetitionStage === "number"
+        ? existing.repetitionStage
+        : 0;
     const nextStage =
       outcome === "correct"
         ? Math.min(baseStage + 1, REVIEW_INTERVAL_MINUTES.length - 1)
@@ -402,8 +509,11 @@ export async function applyQuestionReviewOutcomesFromTest(
         .update(questionReviewStatsTable)
         .set({
           totalReviewed: (existing.totalReviewed ?? 0) + 1,
-          correctReviewCount: (existing.correctReviewCount ?? 0) + (outcome === "correct" ? 1 : 0),
-          wrongReviewCount: (existing.wrongReviewCount ?? 0) + (outcome === "wrong" ? 1 : 0),
+          correctReviewCount:
+            (existing.correctReviewCount ?? 0) +
+            (outcome === "correct" ? 1 : 0),
+          wrongReviewCount:
+            (existing.wrongReviewCount ?? 0) + (outcome === "wrong" ? 1 : 0),
           repetitionStage: nextStage,
           lastReviewedAt: now,
           nextEligibleAt,

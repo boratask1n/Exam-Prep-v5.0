@@ -40,7 +40,7 @@ function inferStatus(
   return "YanlisHocayaSor";
 }
 
-async function getQuestionRowsForTest(testSessionId: number) {
+async function getQuestionRowsForTest(userId: number, testSessionId: number) {
   const sessionQuestions = await db
     .select({
       questionId: testSessionQuestionsTable.questionId,
@@ -62,7 +62,7 @@ async function getQuestionRowsForTest(testSessionId: number) {
         choice: questionsTable.choice,
       })
       .from(questionsTable)
-      .where(inArray(questionsTable.id, questionIds)),
+      .where(and(inArray(questionsTable.id, questionIds), eq(questionsTable.userId, userId))),
     db
       .select({
         questionId: testSolutionsTable.questionId,
@@ -99,7 +99,7 @@ function topicKey(lesson: string, topic: string) {
   return `${lesson}__${topic}`;
 }
 
-export async function finalizeTestResult(testSessionId: number) {
+export async function finalizeTestResult(userId: number, testSessionId: number) {
   const [session, progress] = await Promise.all([
     db
       .select({
@@ -108,7 +108,7 @@ export async function finalizeTestResult(testSessionId: number) {
         completedAt: testSessionsTable.completedAt,
       })
       .from(testSessionsTable)
-      .where(eq(testSessionsTable.id, testSessionId))
+      .where(and(eq(testSessionsTable.id, testSessionId), eq(testSessionsTable.userId, userId)))
       .then((rows) => rows[0]),
     db
       .select({ elapsed: testSessionProgressTable.elapsed })
@@ -119,7 +119,7 @@ export async function finalizeTestResult(testSessionId: number) {
 
   if (!session) return null;
 
-  const questions = await getQuestionRowsForTest(testSessionId);
+  const questions = await getQuestionRowsForTest(userId, testSessionId);
   const totalQuestions = questions.length;
   const correctCount = questions.filter((q) => q.status === "DogruCozuldu").length;
   const wrongCount = questions.filter((q) => q.status === "YanlisHocayaSor").length;
@@ -171,6 +171,7 @@ export async function finalizeTestResult(testSessionId: number) {
       const [updated] = await tx
         .update(testResultSummariesTable)
         .set({
+          userId,
           testName: session.name,
           totalQuestions,
           correctCount,
@@ -191,6 +192,7 @@ export async function finalizeTestResult(testSessionId: number) {
       const [created] = await tx
         .insert(testResultSummariesTable)
         .values({
+          userId,
           testSessionId,
           testName: session.name,
           totalQuestions,
@@ -224,7 +226,7 @@ export async function finalizeTestResult(testSessionId: number) {
     return summaryRow;
   });
 
-  return getTestResultBySessionId(testSessionId, summary.id, questions);
+  return getTestResultBySessionId(userId, testSessionId, summary.id, questions);
 }
 
 function formatRepeatPriority(wrongRatio: number) {
@@ -242,6 +244,7 @@ function shouldFlagWeakTopic(answeredCount: number, wrongCount: number, wrongRat
 }
 
 export async function getTestResultBySessionId(
+  userId: number,
   testSessionId: number,
   knownResultId?: number,
   knownQuestions?: QuestionWithSolution[],
@@ -250,12 +253,12 @@ export async function getTestResultBySessionId(
     db
       .select()
       .from(testResultSummariesTable)
-      .where(eq(testResultSummariesTable.testSessionId, testSessionId))
+      .where(and(eq(testResultSummariesTable.testSessionId, testSessionId), eq(testResultSummariesTable.userId, userId)))
       .then((rows) => rows[0] ?? null),
     db
       .select({ id: testSessionsTable.id })
       .from(testSessionsTable)
-      .where(eq(testSessionsTable.id, testSessionId))
+      .where(and(eq(testSessionsTable.id, testSessionId), eq(testSessionsTable.userId, userId)))
       .then((rows) => rows[0] ?? null),
   ]);
   if (!summary) return null;
@@ -265,7 +268,7 @@ export async function getTestResultBySessionId(
     .from(testResultTopicStatsTable)
     .where(eq(testResultTopicStatsTable.testResultId, knownResultId ?? summary.id));
 
-  const questionRows = knownQuestions ?? (await getQuestionRowsForTest(testSessionId));
+  const questionRows = knownQuestions ?? (await getQuestionRowsForTest(userId, testSessionId));
   const lessonStatsMap = new Map<
     string,
     { lesson: string; totalQuestions: number; correctCount: number; wrongCount: number; skippedCount: number }
@@ -363,36 +366,75 @@ export function resolveDateRange(startDateRaw?: string, endDateRaw?: string) {
   return { start, end };
 }
 
-async function ensureCompletedTestsHaveSnapshots() {
+async function ensureCompletedTestsHaveSnapshots(userId: number) {
   const completedSessions = await db
     .select({
       id: testSessionsTable.id,
+      completedAt: testSessionsTable.completedAt,
     })
     .from(testSessionsTable)
-    .where(sql`${testSessionsTable.completedAt} is not null`);
+    .where(and(eq(testSessionsTable.userId, userId), sql`${testSessionsTable.completedAt} is not null`));
 
   if (completedSessions.length === 0) return;
 
   const completedIds = completedSessions.map((s) => s.id);
   const existingSnapshots = await db
-    .select({ testSessionId: testResultSummariesTable.testSessionId })
+    .select({
+      testSessionId: testResultSummariesTable.testSessionId,
+      updatedAt: testResultSummariesTable.updatedAt,
+    })
     .from(testResultSummariesTable)
-    .where(inArray(testResultSummariesTable.testSessionId, completedIds));
+    .where(and(inArray(testResultSummariesTable.testSessionId, completedIds), eq(testResultSummariesTable.userId, userId)));
 
-  const existingIds = new Set(existingSnapshots.map((s) => s.testSessionId));
-  const missingIds = completedIds.filter((id) => !existingIds.has(id));
+  const snapshotBySessionId = new Map(existingSnapshots.map((s) => [s.testSessionId, s]));
 
-  for (const missingId of missingIds) {
+  const solutionUpdates = await db
+    .select({
+      testSessionId: testSolutionsTable.testSessionId,
+      updatedAt: testSolutionsTable.updatedAt,
+    })
+    .from(testSolutionsTable)
+    .where(inArray(testSolutionsTable.testSessionId, completedIds));
+
+  const progressUpdates = await db
+    .select({
+      testSessionId: testSessionProgressTable.testSessionId,
+      updatedAt: testSessionProgressTable.updatedAt,
+    })
+    .from(testSessionProgressTable)
+    .where(inArray(testSessionProgressTable.testSessionId, completedIds));
+
+  const latestInputUpdateBySessionId = new Map<number, Date>();
+  const rememberLatest = (testSessionId: number, updatedAt: Date | null | undefined) => {
+    if (!updatedAt) return;
+    const previous = latestInputUpdateBySessionId.get(testSessionId);
+    if (!previous || updatedAt.getTime() > previous.getTime()) {
+      latestInputUpdateBySessionId.set(testSessionId, updatedAt);
+    }
+  };
+
+  for (const session of completedSessions) rememberLatest(session.id, session.completedAt);
+  for (const row of solutionUpdates) rememberLatest(row.testSessionId, row.updatedAt);
+  for (const row of progressUpdates) rememberLatest(row.testSessionId, row.updatedAt);
+
+  const staleOrMissingIds = completedIds.filter((id) => {
+    const snapshot = snapshotBySessionId.get(id);
+    if (!snapshot) return true;
+    const latestInputUpdate = latestInputUpdateBySessionId.get(id);
+    return !!latestInputUpdate && latestInputUpdate.getTime() > snapshot.updatedAt.getTime();
+  });
+
+  for (const testSessionId of staleOrMissingIds) {
     try {
-      await finalizeTestResult(missingId);
+      await finalizeTestResult(userId, testSessionId);
     } catch (error) {
-      console.error("Failed to backfill snapshot for completed test:", { missingId, error });
+      console.error("Failed to refresh analytics snapshot for completed test:", { testSessionId, error });
     }
   }
 }
 
-export async function getAnalyticsOverview(startDateRaw?: string, endDateRaw?: string) {
-  await ensureCompletedTestsHaveSnapshots();
+export async function getAnalyticsOverview(userId: number, startDateRaw?: string, endDateRaw?: string) {
+  await ensureCompletedTestsHaveSnapshots(userId);
 
   const { start, end } = resolveDateRange(startDateRaw, endDateRaw);
 
@@ -401,6 +443,7 @@ export async function getAnalyticsOverview(startDateRaw?: string, endDateRaw?: s
     .from(testResultSummariesTable)
     .where(
       and(
+        eq(testResultSummariesTable.userId, userId),
         gte(testResultSummariesTable.completedAt, start),
         lte(testResultSummariesTable.completedAt, end),
       ),
@@ -428,7 +471,7 @@ export async function getAnalyticsOverview(startDateRaw?: string, endDateRaw?: s
   const existingSessions = await db
     .select({ id: testSessionsTable.id })
     .from(testSessionsTable)
-    .where(inArray(testSessionsTable.id, summaries.map((s) => s.testSessionId)));
+    .where(and(inArray(testSessionsTable.id, summaries.map((s) => s.testSessionId)), eq(testSessionsTable.userId, userId)));
   const existingSessionIds = new Set(existingSessions.map((s) => s.id));
 
   const resultIds = summaries.map((s) => s.id);
@@ -621,8 +664,8 @@ export async function getAnalyticsOverview(startDateRaw?: string, endDateRaw?: s
   };
 }
 
-export async function getAnalyticsCharts(startDateRaw?: string, endDateRaw?: string) {
-  const overview = await getAnalyticsOverview(startDateRaw, endDateRaw);
+export async function getAnalyticsCharts(userId: number, startDateRaw?: string, endDateRaw?: string) {
+  const overview = await getAnalyticsOverview(userId, startDateRaw, endDateRaw);
   return {
     dateRange: overview.dateRange,
     lessonStats: overview.subjectStats,

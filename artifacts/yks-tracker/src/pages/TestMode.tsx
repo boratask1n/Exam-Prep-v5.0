@@ -40,7 +40,12 @@ import {
   ClipboardCheck,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   testDraftKey,
   testReviewKey,
@@ -50,7 +55,11 @@ import {
   buildTestSolutionsInput,
   useTestSessionStorage,
 } from "@/lib/testSessionDbStorage";
-import { getYoutubeEmbedSrc } from "@/lib/youtubeEmbed";
+import {
+  formatVideoTimestampRange,
+  getYoutubeEmbedSrc,
+} from "@/lib/youtubeEmbed";
+import { curvePressure, renderDrawingStroke } from "@/lib/drawing-engine";
 
 // Types
 type QStatus = "Cozulmedi" | "DogruCozuldu" | "YanlisHocayaSor";
@@ -67,6 +76,7 @@ interface Question {
   solutionUrl?: string | null;
   solutionYoutubeUrl?: string | null;
   solutionYoutubeStartSecond?: number | null;
+  solutionYoutubeEndSecond?: number | null;
 }
 interface LessonGroup {
   lesson: string;
@@ -75,6 +85,7 @@ interface LessonGroup {
 interface CanvasPoint {
   x: number;
   y: number;
+  pressure?: number;
 }
 interface InlineStroke {
   tool: "pen" | "eraser";
@@ -85,220 +96,37 @@ interface InlineStroke {
 }
 type InlineEraserMode = "area" | "stroke";
 
-function inlineDistance(a: CanvasPoint, b: CanvasPoint) {
-  return Math.hypot(a.x - b.x, a.y - b.y);
+function getInlineCanvasDpr() {
+  if (typeof window === "undefined") return 1;
+  const device = window.devicePixelRatio || 1;
+  const ua =
+    typeof navigator !== "undefined" ? (navigator.userAgent ?? "") : "";
+  const isApple = /Mac|iPhone|iPad|iPod/i.test(ua);
+  return Math.min(device, isApple ? 2 : 2);
 }
 
-function inlinePointToSegmentDistance(point: CanvasPoint, start: CanvasPoint, end: CanvasPoint) {
-  const dx = end.x - start.x;
-  const dy = end.y - start.y;
-  if (dx === 0 && dy === 0) return inlineDistance(point, start);
-  const t = Math.max(
-    0,
-    Math.min(1, ((point.x - start.x) * dx + (point.y - start.y) * dy) / (dx * dx + dy * dy)),
-  );
-  return Math.hypot(point.x - (start.x + dx * t), point.y - (start.y + dy * t));
+function curveInlinePressure(raw: number): number {
+  return curvePressure(raw);
 }
 
-function inlinePathLength(points: CanvasPoint[]) {
-  let total = 0;
-  for (let i = 1; i < points.length; i++) total += inlineDistance(points[i - 1], points[i]);
-  return total;
-}
-
-function makeInlineLinePoints(start: CanvasPoint, end: CanvasPoint): CanvasPoint[] {
-  return [start, end];
-}
-
-function makeInlineRectPoints(points: CanvasPoint[]): CanvasPoint[] {
-  const xs = points.map((p) => p.x);
-  const ys = points.map((p) => p.y);
-  const minX = Math.min(...xs);
-  const maxX = Math.max(...xs);
-  const minY = Math.min(...ys);
-  const maxY = Math.max(...ys);
-  return [
-    { x: minX, y: minY },
-    { x: maxX, y: minY },
-    { x: maxX, y: maxY },
-    { x: minX, y: maxY },
-    { x: minX, y: minY },
-  ];
-}
-
-function makeInlineCirclePoints(points: CanvasPoint[]): CanvasPoint[] {
-  const xs = points.map((p) => p.x);
-  const ys = points.map((p) => p.y);
-  const minX = Math.min(...xs);
-  const maxX = Math.max(...xs);
-  const minY = Math.min(...ys);
-  const maxY = Math.max(...ys);
-  const cx = (minX + maxX) / 2;
-  const cy = (minY + maxY) / 2;
-  const rx = Math.max(6, (maxX - minX) / 2);
-  const ry = Math.max(6, (maxY - minY) / 2);
-  const startAngle = Math.atan2(points[0].y - cy, points[0].x - cx);
-  const out: CanvasPoint[] = [];
-  for (let i = 0; i <= 32; i++) {
-    const t = startAngle + (Math.PI * 2 * i) / 32;
-    out.push({ x: cx + Math.cos(t) * rx, y: cy + Math.sin(t) * ry });
+function prepareInlineCanvas(canvas: HTMLCanvasElement) {
+  const rect = canvas.getBoundingClientRect();
+  if (rect.width <= 0 || rect.height <= 0) return null;
+  const dpr = getInlineCanvasDpr();
+  const targetWidth = Math.round(rect.width * dpr);
+  const targetHeight = Math.round(rect.height * dpr);
+  if (canvas.width !== targetWidth || canvas.height !== targetHeight) {
+    canvas.width = targetWidth;
+    canvas.height = targetHeight;
+    canvas.style.width = `${rect.width}px`;
+    canvas.style.height = `${rect.height}px`;
   }
-  return out;
-}
-
-function makeInlinePolygonPoints(points: CanvasPoint[]): CanvasPoint[] {
-  const out = points.map((point) => ({ x: point.x, y: point.y }));
-  if (out.length > 0) out.push({ ...out[0] });
-  return out;
-}
-
-function simplifyInlinePath(points: CanvasPoint[], epsilon: number): CanvasPoint[] {
-  if (points.length <= 2) return points.slice();
-
-  let maxDistance = 0;
-  let index = 0;
-  const start = points[0];
-  const end = points[points.length - 1];
-
-  for (let i = 1; i < points.length - 1; i++) {
-    const d = inlinePointToSegmentDistance(points[i], start, end);
-    if (d > maxDistance) {
-      maxDistance = d;
-      index = i;
-    }
-  }
-
-  if (maxDistance <= epsilon) return [start, end];
-
-  const left = simplifyInlinePath(points.slice(0, index + 1), epsilon);
-  const right = simplifyInlinePath(points.slice(index), epsilon);
-  return [...left.slice(0, -1), ...right];
-}
-
-function dedupeInlinePoints(points: CanvasPoint[], minDistance: number) {
-  const out: CanvasPoint[] = [];
-  for (const point of points) {
-    if (out.length === 0 || inlineDistance(out[out.length - 1], point) > minDistance) {
-      out.push(point);
-    }
-  }
-  return out;
-}
-
-function detectInlinePolygonVertices(points: CanvasPoint[], diag: number): CanvasPoint[] | null {
-  if (points.length < 6) return null;
-
-  const loop = inlineDistance(points[0], points[points.length - 1]) < Math.max(18, diag * 0.16)
-    ? points.slice(0, -1)
-    : points.slice();
-  const simplified = dedupeInlinePoints(
-    simplifyInlinePath(loop, Math.max(6, diag * 0.032)),
-    Math.max(6, diag * 0.035),
-  );
-
-  if (simplified.length < 3 || simplified.length > 6) return null;
-
-  const sides: number[] = [];
-  for (let i = 0; i < simplified.length; i++) {
-    const next = simplified[(i + 1) % simplified.length];
-    sides.push(inlineDistance(simplified[i], next));
-  }
-
-  if (Math.min(...sides) < diag * 0.08) return null;
-  return simplified;
-}
-
-function normalizeInlinePolygonVertices(points: CanvasPoint[], diag: number): CanvasPoint[] {
-  let normalized = points.slice();
-
-  while (normalized.length > 3) {
-    const sides = normalized.map((point, index) =>
-      inlineDistance(point, normalized[(index + 1) % normalized.length]),
-    );
-    const shortest = Math.min(...sides);
-    const longest = Math.max(...sides);
-    const shortIndex = sides.findIndex((side) => side === shortest);
-
-    if (normalized.length > 4 || shortest <= Math.max(diag * 0.12, longest * 0.28)) {
-      normalized = normalized.filter((_, index) => index !== (shortIndex + 1) % normalized.length);
-      continue;
-    }
-
-    break;
-  }
-
-  return normalized;
-}
-
-function inlinePolygonInteriorAngles(points: CanvasPoint[]) {
-  return points.map((point, index) => {
-    const prev = points[(index - 1 + points.length) % points.length];
-    const next = points[(index + 1) % points.length];
-    const v1x = prev.x - point.x;
-    const v1y = prev.y - point.y;
-    const v2x = next.x - point.x;
-    const v2y = next.y - point.y;
-    const len1 = Math.hypot(v1x, v1y);
-    const len2 = Math.hypot(v2x, v2y);
-    if (len1 === 0 || len2 === 0) return 180;
-    const dot = (v1x * v2x + v1y * v2y) / (len1 * len2);
-    return (Math.acos(Math.max(-1, Math.min(1, dot))) * 180) / Math.PI;
-  });
-}
-
-function smoothInlinePoints(points: CanvasPoint[]): CanvasPoint[] {
-  if (points.length < 3) return points;
-  if (points.length > 1200) return points;
-
-  const passes = points.length > 260 ? 1 : 2;
-  const alpha = 0.34;
-  let current = points.map((p) => ({ ...p }));
-
-  for (let pass = 0; pass < passes; pass++) {
-    const next = current.map((p) => ({ ...p }));
-    for (let i = 1; i < current.length - 1; i++) {
-      const prev = current[i - 1];
-      const cur = current[i];
-      const after = current[i + 1];
-      const avgX = (prev.x + after.x) / 2;
-      const avgY = (prev.y + after.y) / 2;
-      next[i] = {
-        x: cur.x * (1 - alpha) + avgX * alpha,
-        y: cur.y * (1 - alpha) + avgY * alpha,
-      };
-    }
-    current = next;
-  }
-
-  return current;
-}
-
-function maybeSnapInlineStroke(stroke: InlineStroke): InlineStroke | null {
-  if (stroke.tool !== "pen" || stroke.points.length < 8) return null;
-
-  const points = stroke.points;
-  const start = points[0];
-  const end = points[points.length - 1];
-  const direct = Math.max(1, inlineDistance(start, end));
-  const total = Math.max(direct, inlinePathLength(points));
-  if (direct < 18) return null;
-
-  let maxDeviation = 0;
-  for (const point of points) {
-    const num = Math.abs(
-      (end.y - start.y) * point.x -
-      (end.x - start.x) * point.y +
-      end.x * start.y -
-      end.y * start.x,
-    );
-    maxDeviation = Math.max(maxDeviation, num / direct);
-  }
-
-  if (total / direct < 1.11 && maxDeviation < Math.max(6, stroke.width * 1.1)) {
-    return { ...stroke, points: [start, end], snapShape: "line" };
-  }
-
-  return null;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return null;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+  return { ctx, width: rect.width, height: rect.height };
 }
 
 function renderInlineEraserTrail(
@@ -385,10 +213,15 @@ function getQuestionChoiceLabels(question: Question | undefined): string[] {
   return labels.length > 0 ? labels : [...CHOICES];
 }
 
-function getOptionText(question: Question | undefined, label: string): string | null {
+function getOptionText(
+  question: Question | undefined,
+  label: string,
+): string | null {
   const options = normalizeQuestionOptions(question?.options);
   if (!options || options.length === 0) return null;
-  const found = options.find((option) => option.label?.toUpperCase() === label.toUpperCase());
+  const found = options.find(
+    (option) => option.label?.toUpperCase() === label.toUpperCase(),
+  );
   return found?.text?.trim() || null;
 }
 
@@ -457,54 +290,12 @@ function groupByLesson(questions: Question[]): LessonGroup[] {
   return Array.from(map.values());
 }
 
-function renderInlineStroke(ctx: CanvasRenderingContext2D, stroke: InlineStroke) {
-  if (stroke.points.length === 0) return;
-  const points =
-    stroke.tool === "pen" ? smoothInlinePoints(stroke.points) : stroke.points;
-  ctx.save();
-  ctx.lineCap = "round";
-  ctx.lineJoin = "round";
-  ctx.globalCompositeOperation =
-    stroke.tool === "eraser" ? "destination-out" : "source-over";
-  ctx.strokeStyle = stroke.color;
-
-  if (points.length === 1) {
-    ctx.beginPath();
-    ctx.arc(points[0].x, points[0].y, Math.max(1, stroke.width / 2), 0, Math.PI * 2);
-    ctx.fillStyle = stroke.color;
-    ctx.fill();
-    ctx.restore();
-    return;
-  }
-
-  if (stroke.snapShape === "line" && points.length >= 2) {
-    ctx.beginPath();
-    ctx.lineWidth = stroke.width;
-    ctx.moveTo(points[0].x, points[0].y);
-    ctx.lineTo(points[points.length - 1].x, points[points.length - 1].y);
-    ctx.stroke();
-    ctx.restore();
-    return;
-  }
-
-  // Use quadraticCurveTo for smooth curves like in DrawingCanvas
-  for (let i = 0; i < points.length - 1; i++) {
-    const p0 = points[i];
-    const p1 = points[i + 1];
-
-    ctx.beginPath();
-    ctx.lineWidth = stroke.width;
-    ctx.strokeStyle = stroke.color;
-
-    if (i === 0) {
-      ctx.moveTo(p0.x, p0.y);
-    } else {
-      ctx.moveTo((points[i - 1].x + p0.x) / 2, (points[i - 1].y + p0.y) / 2);
-    }
-    ctx.quadraticCurveTo(p0.x, p0.y, (p0.x + p1.x) / 2, (p0.y + p1.y) / 2);
-    ctx.stroke();
-  }
-  ctx.restore();
+function renderInlineStroke(
+  ctx: CanvasRenderingContext2D,
+  stroke: InlineStroke,
+  cache = true,
+) {
+  renderDrawingStroke(ctx, stroke, { widthMode: "raw", cache });
 }
 
 function redrawInlineCanvas(
@@ -522,9 +313,13 @@ function redrawInlineCanvas(
       renderInlineEraserTrail(ctx, previewStroke.points, previewStroke.width);
     }
     if (previewStroke.tool === "eraser" && eraserMode === "area") {
-      renderInlineAreaEraserPreview(ctx, previewStroke.points, previewStroke.width);
+      renderInlineAreaEraserPreview(
+        ctx,
+        previewStroke.points,
+        previewStroke.width,
+      );
     }
-    renderInlineStroke(ctx, previewStroke);
+    renderInlineStroke(ctx, previewStroke, false);
   }
 }
 
@@ -564,7 +359,9 @@ export default function TestMode() {
   const statusMutation = useUpdateTestQuestionStatus();
   const updateTestMutation = useUpdateTest();
   const queryClient = useQueryClient();
-  const sessionCompleted = !!(test as { completedAt?: string | null } | undefined)?.completedAt;
+  const sessionCompleted = !!(
+    test as { completedAt?: string | null } | undefined
+  )?.completedAt;
 
   // Database Storage for Sync
   const { storage } = useTestSessionStorage(testId);
@@ -577,32 +374,54 @@ export default function TestMode() {
   // Selected answers: questionId -> choice letter
   const [answers, setAnswers] = useState<Record<number, string>>({});
   // Manual status overrides after result
-  const [manualStatuses, setManualStatuses] = useState<Record<number, QStatus>>({});
+  const [manualStatuses, setManualStatuses] = useState<Record<number, QStatus>>(
+    {},
+  );
   const [finished, setFinished] = useState(false);
   /** Bitirdikten sonra veya tamamlanmış teste girince: özet kartları vs. soru soru kontrol */
-  const [reviewViewMode, setReviewViewMode] = useState<"summary" | "kontrol">("summary");
+  const [reviewViewMode, setReviewViewMode] = useState<"summary" | "kontrol">(
+    "summary",
+  );
   const [showSolutionDialog, setShowSolutionDialog] = useState(false);
-  const [collapsedLessons, setCollapsedLessons] = useState<Record<string, boolean>>({});
+  const [collapsedLessons, setCollapsedLessons] = useState<
+    Record<string, boolean>
+  >({});
   // Temporary drawings (not saved to DB): questionId -> canvasData JSON string
   const [tempDrawings, setTempDrawings] = useState<Record<number, string>>({});
   const [inlineDrawEnabled, setInlineDrawEnabled] = useState(false);
   const [inlineTool, setInlineTool] = useState<"pen" | "eraser">("pen");
-  const [inlineEraserMode, setInlineEraserMode] = useState<InlineEraserMode>("stroke");
+  const inlineToolRef = useRef<"pen" | "eraser">("pen");
+  inlineToolRef.current = inlineTool;
+  const setInlineToolIfChanged = useCallback((nextTool: "pen" | "eraser") => {
+    if (inlineToolRef.current === nextTool) return;
+    inlineToolRef.current = nextTool;
+    setInlineTool(nextTool);
+  }, []);
+  const [inlineEraserMode, setInlineEraserMode] =
+    useState<InlineEraserMode>("stroke");
   const [inlinePenWidth, setInlinePenWidth] = useState(3);
   const [inlineEraserWidth, setInlineEraserWidth] = useState(16);
   const [inlineColor, setInlineColor] = useState("#111111");
   const [isInlineDrawing, setIsInlineDrawing] = useState(false);
   const isInlineDrawingRef = useRef(false);
-  const [inlineDrawingsByQuestion, setInlineDrawingsByQuestion] = useState<Record<number, InlineStroke[]>>({});
-  const [inlineCursorPos, setInlineCursorPos] = useState<CanvasPoint | null>(null);
+  const [inlineDrawingsByQuestion, setInlineDrawingsByQuestion] = useState<
+    Record<number, InlineStroke[]>
+  >({});
+  const [inlineCursorPos, setInlineCursorPos] = useState<CanvasPoint | null>(
+    null,
+  );
   const [inlineCursorInCanvas, setInlineCursorInCanvas] = useState(false);
   const inlineCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const inlineImageRef = useRef<HTMLImageElement | null>(null);
   const inlineImageWrapRef = useRef<HTMLDivElement | null>(null);
+  const inlineCanvasHostRef = useRef<HTMLDivElement | null>(null);
   const inlineLastPointRef = useRef<CanvasPoint | null>(null);
   const inlineCurrentStrokeRef = useRef<InlineStroke | null>(null);
   const inlineRawStrokeRef = useRef<InlineStroke | null>(null);
-  const inlineSnapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [imageNaturalSizes, setImageNaturalSizes] = useState<Record<number, { width: number; height: number }>>({});
+  const inlineDrawFrameRef = useRef<number | null>(null);
+  const [imageNaturalSizes, setImageNaturalSizes] = useState<
+    Record<number, { width: number; height: number }>
+  >({});
   const [viewportSize, setViewportSize] = useState({
     width: typeof window !== "undefined" ? window.innerWidth : 1366,
     height: typeof window !== "undefined" ? window.innerHeight : 768,
@@ -610,66 +429,86 @@ export default function TestMode() {
 
   const groups = groupByLesson(questions);
   const currentQuestion = questions[currentIndex];
-  const currentImageNaturalSize = currentQuestion ? imageNaturalSizes[currentQuestion.id] : undefined;
+  const currentImageNaturalSize = currentQuestion
+    ? imageNaturalSizes[currentQuestion.id]
+    : undefined;
   const currentInlineStrokes = currentQuestion
-    ? inlineDrawingsByQuestion[currentQuestion.id] ?? []
+    ? (inlineDrawingsByQuestion[currentQuestion.id] ?? [])
     : [];
+  const shouldShowInlineCanvas =
+    inlineDrawEnabled || finished || currentInlineStrokes.length > 0;
+  const inlineImageDisplaySize = useMemo(() => {
+    if (!currentImageNaturalSize?.width || !currentImageNaturalSize?.height)
+      return null;
+    const padding = viewportSize.width >= 640 ? 24 : 16;
+    const frameMaxWidth = Math.max(
+      320,
+      viewportSize.width - (viewportSize.width >= 1024 ? 440 : 28),
+    );
+    const frameMaxHeight = clamp(
+      viewportSize.width >= 1024
+        ? viewportSize.height - 250
+        : viewportSize.height - 320,
+      340,
+      860,
+    );
+    const availableWidth = Math.max(240, frameMaxWidth - padding * 2 - 4);
+    const availableHeight = Math.max(240, frameMaxHeight - padding * 2 - 4);
+    const scale = Math.min(
+      1,
+      availableWidth / currentImageNaturalSize.width,
+      availableHeight / currentImageNaturalSize.height,
+    );
 
-  const handleTempCanvasSave = useCallback((data: string) => {
-    if (!currentQuestion) return;
-    setTempDrawings((prev) => {
-      if (prev[currentQuestion.id] === data) return prev;
-      return {
-        ...prev,
-        [currentQuestion.id]: data,
-      };
-    });
-  }, [currentQuestion]);
+    return {
+      width: Math.max(1, Math.round(currentImageNaturalSize.width * scale)),
+      height: Math.max(1, Math.round(currentImageNaturalSize.height * scale)),
+    };
+  }, [currentImageNaturalSize, viewportSize.height, viewportSize.width]);
 
-  const clearInlineSnapTimer = useCallback(() => {
-    if (inlineSnapTimerRef.current) {
-      clearTimeout(inlineSnapTimerRef.current);
-      inlineSnapTimerRef.current = null;
+  const cancelInlineDrawFrame = useCallback(() => {
+    if (inlineDrawFrameRef.current !== null) {
+      window.cancelAnimationFrame(inlineDrawFrameRef.current);
+      inlineDrawFrameRef.current = null;
     }
   }, []);
 
-  const scheduleInlineSnap = useCallback(() => {
-    clearInlineSnapTimer();
-    inlineSnapTimerRef.current = setTimeout(() => {
-      if (!isInlineDrawingRef.current || !inlineRawStrokeRef.current) return;
-      const snapped = maybeSnapInlineStroke(inlineRawStrokeRef.current);
-      if (!snapped) return;
-      inlineCurrentStrokeRef.current = snapped;
-      const canvas = inlineCanvasRef.current;
-      if (!canvas || !currentQuestion) return;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return;
-      const existingStrokes = inlineDrawingsByQuestion[currentQuestion.id] ?? [];
-      redrawInlineCanvas(
-        ctx,
-        existingStrokes,
-        canvas.width,
-        canvas.height,
-        snapped,
-        inlineEraserMode,
-      );
-    }, 360);
-  }, [clearInlineSnapTimer, currentQuestion, inlineDrawingsByQuestion, inlineEraserMode]);
+  const handleTempCanvasSave = useCallback(
+    (data: string) => {
+      if (!currentQuestion) return;
+      setTempDrawings((prev) => {
+        if (prev[currentQuestion.id] === data) return prev;
+        return {
+          ...prev,
+          [currentQuestion.id]: data,
+        };
+      });
+    },
+    [currentQuestion],
+  );
 
   // Timer
-  const timeLimitSeconds: number | null = (test as any)?.timeLimitSeconds ?? null;
+  const timeLimitSeconds: number | null =
+    (test as any)?.timeLimitSeconds ?? null;
   const [elapsed, setElapsed] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const handleFinishRef = useRef<((forced?: boolean) => Promise<void>) | null>(null);
+  const handleFinishRef = useRef<((forced?: boolean) => Promise<void>) | null>(
+    null,
+  );
   const finishRef = useRef(false);
   const draftHydratedRef = useRef(false);
-  const solutionsPersistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const progressPersistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const reviewPersistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const solutionsPersistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+  const progressPersistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+  const reviewPersistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
   const [showExitDialog, setShowExitDialog] = useState(false);
   /** Taslak okunana kadar kaydetme - boş state ile üzerine yazmayı önler */
   const [draftReady, setDraftReady] = useState(false);
-
 
   useEffect(() => {
     draftHydratedRef.current = false;
@@ -713,41 +552,16 @@ export default function TestMode() {
       }
 
       try {
-        await Promise.all(
-          questions.map(async (q) => {
-            const userAnswer = answers[q.id];
-            const status = snapshotStatuses[q.id];
-            if (userAnswer || q.status !== "Cozulmedi") {
-              await statusMutation.mutateAsync({
-                id: testId,
-                questionId: q.id,
-                data: { status },
-              });
-            }
-          })
-        );
-        try {
-          await updateTestMutation.mutateAsync({
-            id: testId,
-            data: { completedAt: new Date().toISOString() },
-          });
-        } catch {
-          /* Sunucu hatasi - yine de yerel gozden gecirme kaydi tutulur */
-        }
-
-        try {
-          await fetch(`/api/tests/${testId}/finalize`, { method: "POST" });
-        } catch {
-          /* finalize endpoint basarisiz olsa da test kapanisi devam etmeli */
-        }
-
         const snapshot: TestReviewSnapshotV1 = {
           version: 1,
           answers: { ...answers },
           manualStatuses: snapshotStatuses as Record<number, string>,
           currentIndex,
           tempDrawings: { ...tempDrawings },
-          inlineDrawingsByQuestion: { ...inlineDrawingsByQuestion } as Record<number, InlineStroke[]>,
+          inlineDrawingsByQuestion: { ...inlineDrawingsByQuestion } as Record<
+            number,
+            InlineStroke[]
+          >,
           elapsed,
           collapsedLessons: { ...collapsedLessons },
           inlineDrawEnabled: false,
@@ -773,6 +587,34 @@ export default function TestMode() {
           }),
         ]);
 
+        await Promise.all(
+          questions.map(async (q) => {
+            const userAnswer = answers[q.id];
+            const status = snapshotStatuses[q.id];
+            if (userAnswer || q.status !== "Cozulmedi") {
+              await statusMutation.mutateAsync({
+                id: testId,
+                questionId: q.id,
+                data: { status },
+              });
+            }
+          }),
+        );
+        try {
+          await updateTestMutation.mutateAsync({
+            id: testId,
+            data: { completedAt: new Date().toISOString() },
+          });
+        } catch {
+          /* Sunucu hatasi - yine de yerel gozden gecirme kaydi tutulur */
+        }
+
+        try {
+          await fetch(`/api/tests/${testId}/finalize`, { method: "POST" });
+        } catch {
+          /* finalize endpoint basarisiz olsa da test kapanisi devam etmeli */
+        }
+
         try {
           localStorage.setItem(testReviewKey(testId), JSON.stringify(snapshot));
         } catch {
@@ -783,9 +625,15 @@ export default function TestMode() {
         setInlineDrawEnabled(false);
         setReviewViewMode("summary");
 
-        await queryClient.invalidateQueries({ queryKey: getListQuestionsQueryKey() });
-        await queryClient.invalidateQueries({ queryKey: getListTestsQueryKey() });
-        await queryClient.invalidateQueries({ queryKey: getGetTestQueryKey(testId) });
+        await queryClient.invalidateQueries({
+          queryKey: getListQuestionsQueryKey(),
+        });
+        await queryClient.invalidateQueries({
+          queryKey: getListTestsQueryKey(),
+        });
+        await queryClient.invalidateQueries({
+          queryKey: getGetTestQueryKey(testId),
+        });
         setFinished(true);
         setLocation(`/tests/${testId}/result`);
       } catch (error) {
@@ -805,7 +653,7 @@ export default function TestMode() {
       inlineDrawingsByQuestion,
       elapsed,
       collapsedLessons,
-    ]
+    ],
   );
 
   useEffect(() => {
@@ -819,7 +667,11 @@ export default function TestMode() {
     timerRef.current = setInterval(() => {
       setElapsed((prev) => {
         const next = prev + 1;
-        if (timeLimitSeconds && next >= timeLimitSeconds && !finishRef.current) {
+        if (
+          timeLimitSeconds &&
+          next >= timeLimitSeconds &&
+          !finishRef.current
+        ) {
           void handleFinishRef.current?.(true);
         }
         return next;
@@ -855,10 +707,15 @@ export default function TestMode() {
           const dbInlineDrawings: Record<number, InlineStroke[]> = {};
 
           solutions.forEach((solution) => {
-            if (solution.userAnswer) dbAnswers[solution.questionId] = solution.userAnswer;
-            dbManualStatuses[solution.questionId] = (solution.status as QStatus) || "Cozulmedi";
-            if (solution.tempDrawing) dbTempDrawings[solution.questionId] = solution.tempDrawing;
-            if (solution.inlineDrawings) dbInlineDrawings[solution.questionId] = solution.inlineDrawings as InlineStroke[];
+            if (solution.userAnswer)
+              dbAnswers[solution.questionId] = solution.userAnswer;
+            dbManualStatuses[solution.questionId] =
+              (solution.status as QStatus) || "Cozulmedi";
+            if (solution.tempDrawing)
+              dbTempDrawings[solution.questionId] = solution.tempDrawing;
+            if (solution.inlineDrawings)
+              dbInlineDrawings[solution.questionId] =
+                solution.inlineDrawings as InlineStroke[];
           });
 
           setAnswers(dbAnswers);
@@ -867,9 +724,15 @@ export default function TestMode() {
           setInlineDrawingsByQuestion(dbInlineDrawings);
 
           if (progress) {
-            setCurrentIndex(Math.min(Math.max(0, progress.currentIndex ?? 0), questions.length - 1));
+            setCurrentIndex(
+              Math.min(
+                Math.max(0, progress.currentIndex ?? 0),
+                questions.length - 1,
+              ),
+            );
             setElapsed(Math.max(0, progress.elapsed ?? 0));
-            if (progress.collapsedLessons) setCollapsedLessons(progress.collapsedLessons);
+            if (progress.collapsedLessons)
+              setCollapsedLessons(progress.collapsedLessons);
           }
         } catch (error) {
           console.error("Failed to load completed review data:", error);
@@ -891,7 +754,9 @@ export default function TestMode() {
         const d = JSON.parse(raw) as TestDraftV1;
         if (d.version === 1) {
           setAnswers(d.answers ?? {});
-          setCurrentIndex(Math.min(Math.max(0, d.currentIndex ?? 0), questions.length - 1));
+          setCurrentIndex(
+            Math.min(Math.max(0, d.currentIndex ?? 0), questions.length - 1),
+          );
           setTempDrawings(d.tempDrawings ?? {});
           setInlineDrawingsByQuestion(d.inlineDrawingsByQuestion ?? {});
           setElapsed(Math.max(0, d.elapsed ?? 0));
@@ -902,22 +767,22 @@ export default function TestMode() {
     } catch {
       /* ignore */
     }
-    
+
     // Load from database if localStorage is empty or for cross-device sync
     const loadFromDatabase = async () => {
       try {
         const [solutions, progress] = await Promise.all([
           storage.loadSolutions(),
-          storage.loadProgress()
+          storage.loadProgress(),
         ]);
-        
+
         // Merge database data with localStorage (localStorage takes priority)
         if (solutions.length > 0 || progress) {
           const dbAnswers: Record<number, string> = {};
           const dbTempDrawings: Record<number, string> = {};
           const dbInlineDrawings: Record<number, InlineStroke[]> = {};
-          
-          solutions.forEach(solution => {
+
+          solutions.forEach((solution) => {
             if (solution.userAnswer) {
               dbAnswers[solution.questionId] = solution.userAnswer;
             }
@@ -925,14 +790,15 @@ export default function TestMode() {
               dbTempDrawings[solution.questionId] = solution.tempDrawing;
             }
             if (solution.inlineDrawings) {
-              dbInlineDrawings[solution.questionId] = solution.inlineDrawings as InlineStroke[];
+              dbInlineDrawings[solution.questionId] =
+                solution.inlineDrawings as InlineStroke[];
             }
           });
-          
+
           // Use database data if it's newer or localStorage is empty
           const localStorageData = localStorage.getItem(testDraftKey(testId));
           let shouldUseDatabase = !localStorageData;
-          
+
           if (localStorageData) {
             try {
               const localDraft = JSON.parse(localStorageData) as TestDraftV1;
@@ -944,16 +810,22 @@ export default function TestMode() {
               shouldUseDatabase = true;
             }
           }
-          
+
           if (shouldUseDatabase) {
             setAnswers(dbAnswers);
             setTempDrawings(dbTempDrawings);
             setInlineDrawingsByQuestion(dbInlineDrawings);
-            
+
             if (progress) {
-              setCurrentIndex(Math.min(Math.max(0, progress.currentIndex ?? 0), questions.length - 1));
+              setCurrentIndex(
+                Math.min(
+                  Math.max(0, progress.currentIndex ?? 0),
+                  questions.length - 1,
+                ),
+              );
               setElapsed(Math.max(0, progress.elapsed ?? 0));
-              if (progress.collapsedLessons) setCollapsedLessons(progress.collapsedLessons);
+              if (progress.collapsedLessons)
+                setCollapsedLessons(progress.collapsedLessons);
               setInlineDrawEnabled(!!progress.inlineDrawEnabled);
             }
           }
@@ -962,16 +834,23 @@ export default function TestMode() {
         console.error("Failed to load from database:", error);
       }
     };
-    
+
     void loadFromDatabase().finally(() => {
       setDraftReady(true);
     });
-  }, [test?.id, testId, questions.length, sessionCompleted, allowCompletedReview]);
+  }, [
+    test?.id,
+    testId,
+    questions.length,
+    sessionCompleted,
+    allowCompletedReview,
+  ]);
 
   // Taslak kaydet (test bitene kadar; tamamlanmış testte taslak yok)
   useEffect(() => {
     if (!testId || finished || !draftReady || sessionCompleted) return;
-    if (solutionsPersistTimerRef.current) clearTimeout(solutionsPersistTimerRef.current);
+    if (solutionsPersistTimerRef.current)
+      clearTimeout(solutionsPersistTimerRef.current);
     solutionsPersistTimerRef.current = setTimeout(() => {
       const draft: TestDraftV1 = {
         version: 1,
@@ -985,21 +864,24 @@ export default function TestMode() {
       };
       try {
         localStorage.setItem(testDraftKey(testId), JSON.stringify(draft));
-        storage.saveSolutions(
-          buildTestSolutionsInput({
-            answers: draft.answers,
-            tempDrawings: draft.tempDrawings,
-            inlineDrawingsByQuestion: draft.inlineDrawingsByQuestion,
-            inlineDrawEnabled: draft.inlineDrawEnabled,
-            isCompleted: false,
-          }),
-        ).catch(() => {});
+        storage
+          .saveSolutions(
+            buildTestSolutionsInput({
+              answers: draft.answers,
+              tempDrawings: draft.tempDrawings,
+              inlineDrawingsByQuestion: draft.inlineDrawingsByQuestion,
+              inlineDrawEnabled: draft.inlineDrawEnabled,
+              isCompleted: false,
+            }),
+          )
+          .catch(() => {});
       } catch {
         /* quota */
       }
     }, 700);
     return () => {
-      if (solutionsPersistTimerRef.current) clearTimeout(solutionsPersistTimerRef.current);
+      if (solutionsPersistTimerRef.current)
+        clearTimeout(solutionsPersistTimerRef.current);
     };
   }, [
     testId,
@@ -1014,7 +896,8 @@ export default function TestMode() {
 
   useEffect(() => {
     if (!testId || finished || !draftReady || sessionCompleted) return;
-    if (progressPersistTimerRef.current) clearTimeout(progressPersistTimerRef.current);
+    if (progressPersistTimerRef.current)
+      clearTimeout(progressPersistTimerRef.current);
     progressPersistTimerRef.current = setTimeout(() => {
       try {
         localStorage.setItem(
@@ -1030,18 +913,21 @@ export default function TestMode() {
             inlineDrawEnabled,
           } satisfies TestDraftV1),
         );
-        storage.saveProgress({
-          currentIndex,
-          elapsed,
-          collapsedLessons,
-          inlineDrawEnabled,
-        }).catch(() => {});
+        storage
+          .saveProgress({
+            currentIndex,
+            elapsed,
+            collapsedLessons,
+            inlineDrawEnabled,
+          })
+          .catch(() => {});
       } catch {
         /* quota */
       }
     }, 1200);
     return () => {
-      if (progressPersistTimerRef.current) clearTimeout(progressPersistTimerRef.current);
+      if (progressPersistTimerRef.current)
+        clearTimeout(progressPersistTimerRef.current);
     };
   }, [
     testId,
@@ -1059,8 +945,10 @@ export default function TestMode() {
 
   // Gözden geçirme (kontrol) sırasında indeks / çizimleri yerelde güncelle
   useEffect(() => {
-    if (!testId || !finished || reviewViewMode !== "kontrol" || !draftReady) return;
-    if (reviewPersistTimerRef.current) clearTimeout(reviewPersistTimerRef.current);
+    if (!testId || !finished || reviewViewMode !== "kontrol" || !draftReady)
+      return;
+    if (reviewPersistTimerRef.current)
+      clearTimeout(reviewPersistTimerRef.current);
     reviewPersistTimerRef.current = setTimeout(() => {
       const snap: TestReviewSnapshotV1 = {
         version: 1,
@@ -1068,7 +956,10 @@ export default function TestMode() {
         manualStatuses: manualStatuses as Record<number, string>,
         currentIndex,
         tempDrawings: { ...tempDrawings },
-        inlineDrawingsByQuestion: { ...inlineDrawingsByQuestion } as Record<number, InlineStroke[]>,
+        inlineDrawingsByQuestion: { ...inlineDrawingsByQuestion } as Record<
+          number,
+          InlineStroke[]
+        >,
         elapsed,
         collapsedLessons: { ...collapsedLessons },
         inlineDrawEnabled: false,
@@ -1080,7 +971,8 @@ export default function TestMode() {
       }
     }, 400);
     return () => {
-      if (reviewPersistTimerRef.current) clearTimeout(reviewPersistTimerRef.current);
+      if (reviewPersistTimerRef.current)
+        clearTimeout(reviewPersistTimerRef.current);
     };
   }, [
     testId,
@@ -1103,25 +995,19 @@ export default function TestMode() {
   const drawingReadOnly = false; // Her zaman çizim yapılabilir
 
   useEffect(() => {
-    const wrap = inlineImageWrapRef.current;
+    const wrap = inlineCanvasHostRef.current;
     const canvas = inlineCanvasRef.current;
     if (!wrap || !canvas || !currentQuestion?.imageUrl) return;
 
     const resize = () => {
-      const rect = wrap.getBoundingClientRect();
-      if (rect.width <= 0 || rect.height <= 0) return;
-
-      canvas.width = rect.width;
-      canvas.height = rect.height;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return;
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      const prepared = prepareInlineCanvas(canvas);
+      if (!prepared) return;
 
       redrawInlineCanvas(
-        ctx,
+        prepared.ctx,
         currentInlineStrokes,
-        canvas.width,
-        canvas.height,
+        prepared.width,
+        prepared.height,
         inlineCurrentStrokeRef.current,
         inlineEraserMode,
       );
@@ -1131,30 +1017,94 @@ export default function TestMode() {
     const ro = new ResizeObserver(resize);
     ro.observe(wrap);
     return () => ro.disconnect();
-  }, [currentQuestion?.id, currentQuestion?.imageUrl, inlineDrawEnabled, readOnly]);
+  }, [
+    currentQuestion?.id,
+    currentQuestion?.imageUrl,
+    currentInlineStrokes,
+    inlineDrawEnabled,
+    inlineEraserMode,
+    readOnly,
+    shouldShowInlineCanvas,
+  ]);
 
   useEffect(() => {
     const canvas = inlineCanvasRef.current;
     if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
+    const prepared = prepareInlineCanvas(canvas);
+    if (!prepared) return;
     redrawInlineCanvas(
-      ctx,
+      prepared.ctx,
       currentInlineStrokes,
-      canvas.width,
-      canvas.height,
+      prepared.width,
+      prepared.height,
       inlineCurrentStrokeRef.current,
       inlineEraserMode,
     );
   }, [currentQuestion?.id, currentInlineStrokes, inlineEraserMode]);
 
-  const getInlinePoint = (e: React.PointerEvent<HTMLCanvasElement>): CanvasPoint => {
+  const scheduleInlineCanvasRedraw = useCallback(() => {
+    if (typeof window === "undefined") return;
+    if (inlineDrawFrameRef.current !== null) return;
+    inlineDrawFrameRef.current = window.requestAnimationFrame(() => {
+      inlineDrawFrameRef.current = null;
+      const canvas = inlineCanvasRef.current;
+      if (!canvas || !currentQuestion) return;
+      const prepared = prepareInlineCanvas(canvas);
+      if (!prepared) return;
+      const existingStrokes =
+        inlineDrawingsByQuestion[currentQuestion.id] ?? [];
+      redrawInlineCanvas(
+        prepared.ctx,
+        existingStrokes,
+        prepared.width,
+        prepared.height,
+        inlineCurrentStrokeRef.current,
+        inlineEraserMode,
+      );
+    });
+  }, [currentQuestion, inlineDrawingsByQuestion, inlineEraserMode]);
+
+  useEffect(() => cancelInlineDrawFrame, [cancelInlineDrawFrame]);
+
+  const getInlinePointFromClient = (
+    clientX: number,
+    clientY: number,
+    pressure = 0.5,
+  ): CanvasPoint => {
     const canvas = inlineCanvasRef.current!;
     const rect = canvas.getBoundingClientRect();
-    return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+    const rawPressure = pressure > 0 ? pressure : 0.5;
+    const x = clamp(clientX - rect.left, 0, rect.width);
+    const y = clamp(clientY - rect.top, 0, rect.height);
+    return {
+      x,
+      y,
+      pressure: curveInlinePressure(rawPressure),
+    };
   };
 
-  const drawInlineSegment = (from: CanvasPoint, to: CanvasPoint, stroke: InlineStroke) => {
+  const getInlinePoint = (
+    e: React.PointerEvent<HTMLCanvasElement>,
+  ): CanvasPoint => getInlinePointFromClient(e.clientX, e.clientY, e.pressure);
+
+  const releaseInlinePointerCaptureSafely = (
+    target: EventTarget | null,
+    pointerId: number,
+  ) => {
+    if (!(target instanceof HTMLElement)) return;
+    try {
+      if (target.hasPointerCapture(pointerId))
+        target.releasePointerCapture(pointerId);
+    } catch {
+      // Pointer capture may already be gone after OS-level gesture cancellation.
+    }
+  };
+
+  const drawInlineSegment = (
+    from: CanvasPoint,
+    to: CanvasPoint,
+    stroke: InlineStroke,
+  ) => {
     const canvas = inlineCanvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
@@ -1182,7 +1132,8 @@ export default function TestMode() {
   useEffect(() => {
     if (!inlineDrawEnabled) return;
     const EDGE_PAD = 8;
-    const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+    const clamp = (value: number, min: number, max: number) =>
+      Math.min(max, Math.max(min, value));
     const sync = (e: PointerEvent) => {
       const canvas = inlineCanvasRef.current;
       if (!canvas) return;
@@ -1207,9 +1158,18 @@ export default function TestMode() {
     return () => window.removeEventListener("pointermove", sync);
   }, [inlineDrawEnabled, currentQuestion?.id]);
 
-  const remaining = timeLimitSeconds !== null ? timeLimitSeconds - elapsed : null;
+  useEffect(() => {
+    if (inlineDrawEnabled) return;
+    setInlineCursorInCanvas(false);
+    setInlineCursorPos(null);
+  }, [inlineDrawEnabled]);
+
+  const remaining =
+    timeLimitSeconds !== null ? timeLimitSeconds - elapsed : null;
   const timerLabel =
-    remaining !== null ? formatTime(Math.max(0, remaining)) : formatTime(elapsed);
+    remaining !== null
+      ? formatTime(Math.max(0, remaining))
+      : formatTime(elapsed);
   const timerIsWarning = remaining !== null && remaining <= 60;
 
   // Loading / Empty
@@ -1240,10 +1200,10 @@ export default function TestMode() {
   // Sonuç özeti (bitiş veya tamamlanmış teste giriş)
   if (finished && reviewViewMode === "summary") {
     const correct = questions.filter(
-      (q) => (manualStatuses[q.id] ?? q.status) === "DogruCozuldu"
+      (q) => (manualStatuses[q.id] ?? q.status) === "DogruCozuldu",
     ).length;
     const wrong = questions.filter(
-      (q) => (manualStatuses[q.id] ?? q.status) === "YanlisHocayaSor"
+      (q) => (manualStatuses[q.id] ?? q.status) === "YanlisHocayaSor",
     ).length;
     const skipped = questions.length - correct - wrong;
 
@@ -1272,19 +1232,31 @@ export default function TestMode() {
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8">
             <div className="apple-surface rounded-[1.75rem] p-5 text-center">
               <div className="text-3xl font-bold text-green-500">{correct}</div>
-              <div className="text-sm text-green-400 mt-1 font-medium">Doğru</div>
+              <div className="text-sm text-green-400 mt-1 font-medium">
+                Doğru
+              </div>
             </div>
             <div className="apple-surface rounded-[1.75rem] p-5 text-center">
               <div className="text-3xl font-bold text-destructive">{wrong}</div>
-              <div className="text-sm text-destructive/80 mt-1 font-medium">Yanlış</div>
+              <div className="text-sm text-destructive/80 mt-1 font-medium">
+                Yanlış
+              </div>
             </div>
             <div className="apple-surface rounded-[1.75rem] p-5 text-center">
-              <div className="text-3xl font-bold text-muted-foreground">{skipped}</div>
-              <div className="text-sm text-muted-foreground mt-1 font-medium">Boş</div>
+              <div className="text-3xl font-bold text-muted-foreground">
+                {skipped}
+              </div>
+              <div className="text-sm text-muted-foreground mt-1 font-medium">
+                Boş
+              </div>
             </div>
             <div className="apple-surface rounded-[1.75rem] p-5 text-center">
-              <div className="text-3xl font-bold text-primary font-mono">{formatTime(elapsed)}</div>
-              <div className="text-sm text-primary/70 mt-1 font-medium">Süre</div>
+              <div className="text-3xl font-bold text-primary font-mono">
+                {formatTime(elapsed)}
+              </div>
+              <div className="text-sm text-primary/70 mt-1 font-medium">
+                Süre
+              </div>
             </div>
           </div>
 
@@ -1295,7 +1267,11 @@ export default function TestMode() {
             >
               <ClipboardCheck className="w-4 h-4" /> Soruları kontrol et
             </Button>
-            <Button variant="outline" className="rounded-xl" onClick={() => setLocation("/tests")}>
+            <Button
+              variant="outline"
+              className="rounded-xl"
+              onClick={() => setLocation("/tests")}
+            >
               Test merkezine dön
             </Button>
           </div>
@@ -1309,7 +1285,8 @@ export default function TestMode() {
               </h3>
               <div className="space-y-2">
                 {group.questions.map(({ q, index }) => {
-                  const status: QStatus = (manualStatuses[q.id] ?? q.status) as QStatus;
+                  const status: QStatus = (manualStatuses[q.id] ??
+                    q.status) as QStatus;
                   const userAnswer = answers[q.id];
                   return (
                     <div
@@ -1327,13 +1304,17 @@ export default function TestMode() {
                           {userAnswer && (
                             <span>
                               Senin şıkkın:{" "}
-                              <strong className="text-foreground">{userAnswer}</strong>
+                              <strong className="text-foreground">
+                                {userAnswer}
+                              </strong>
                             </span>
                           )}
                           {q.choice && (
                             <span>
                               · Doğru şık:{" "}
-                              <strong className="text-primary">{q.choice}</strong>
+                              <strong className="text-primary">
+                                {q.choice}
+                              </strong>
                             </span>
                           )}
                         </div>
@@ -1345,7 +1326,7 @@ export default function TestMode() {
                             ? "text-green-500"
                             : status === "YanlisHocayaSor"
                               ? "text-destructive"
-                              : "text-muted-foreground"
+                              : "text-muted-foreground",
                         )}
                         title="Sonuç"
                       >
@@ -1370,29 +1351,65 @@ export default function TestMode() {
 
   // Test Screen (çözüm veya gözden geçirme / kontrol)
   const answeredCount = Object.keys(answers).length;
-  const solutionVideoUrl = currentQuestion?.solutionYoutubeUrl || currentQuestion?.solutionUrl;
-  const solutionEmbed = getYoutubeEmbedSrc(solutionVideoUrl, currentQuestion?.solutionYoutubeStartSecond);
-  const hasManualOptionTexts = normalizeQuestionOptions(currentQuestion?.options).length > 0;
+  const solutionVideoUrl =
+    currentQuestion?.solutionYoutubeUrl || currentQuestion?.solutionUrl;
+  const solutionEmbed = getYoutubeEmbedSrc(
+    solutionVideoUrl,
+    currentQuestion?.solutionYoutubeStartSecond,
+    currentQuestion?.solutionYoutubeEndSecond,
+  );
+  const solutionRangeLabel = formatVideoTimestampRange(
+    currentQuestion?.solutionYoutubeStartSecond,
+    currentQuestion?.solutionYoutubeEndSecond,
+  );
+  const hasManualOptionTexts =
+    normalizeQuestionOptions(currentQuestion?.options).length > 0;
   const adaptiveImageFrameStyle = (() => {
+    const padding = viewportSize.width >= 640 ? 24 : 16;
     if (!currentQuestion?.imageUrl) {
       return { width: "100%", minHeight: "320px", maxHeight: "72vh" };
     }
 
-    // Frame is screen-driven; image inside keeps its own natural size.
     const frameMaxWidth = Math.max(
       320,
       viewportSize.width - (viewportSize.width >= 1024 ? 440 : 28),
     );
-    const frameHeight = clamp(
-      viewportSize.width >= 1024 ? viewportSize.height - 250 : viewportSize.height - 320,
+    const frameMaxHeight = clamp(
+      viewportSize.width >= 1024
+        ? viewportSize.height - 250
+        : viewportSize.height - 320,
       340,
       860,
     );
 
+    if (currentImageNaturalSize?.width && currentImageNaturalSize?.height) {
+      const availableWidth = Math.max(240, frameMaxWidth - padding * 2 - 4);
+      const availableHeight = Math.max(240, frameMaxHeight - padding * 2 - 4);
+      const scale = Math.min(
+        1,
+        availableWidth / currentImageNaturalSize.width,
+        availableHeight / currentImageNaturalSize.height,
+      );
+      const imageWidth = Math.max(
+        1,
+        Math.round(currentImageNaturalSize.width * scale),
+      );
+      const imageHeight = Math.max(
+        1,
+        Math.round(currentImageNaturalSize.height * scale),
+      );
+
+      return {
+        width: `${imageWidth + padding * 2 + 4}px`,
+        maxWidth: "100%",
+        height: `${imageHeight + padding * 2 + 4}px`,
+      };
+    }
+
     return {
       width: "100%",
       maxWidth: `${Math.round(frameMaxWidth)}px`,
-      height: `${Math.round(frameHeight)}px`,
+      height: `${Math.round(frameMaxHeight)}px`,
       minHeight: "340px",
     };
   })();
@@ -1405,7 +1422,9 @@ export default function TestMode() {
           <Button
             variant="ghost"
             size="icon"
-            onClick={() => (readOnly ? setReviewViewMode("summary") : setShowExitDialog(true))}
+            onClick={() =>
+              readOnly ? setReviewViewMode("summary") : setShowExitDialog(true)
+            }
             className="rounded-xl h-9 w-9 shrink-0"
             title={readOnly ? "Sonuçlara dön" : "Çık"}
           >
@@ -1430,7 +1449,7 @@ export default function TestMode() {
               ? timerIsWarning
                 ? "bg-destructive/10 border-destructive/40 text-destructive"
                 : "bg-primary/10 border-primary/30 text-primary"
-              : "bg-muted/30 border-border/40 text-foreground"
+              : "bg-muted/30 border-border/40 text-foreground",
           )}
         >
           {timeLimitSeconds ? (
@@ -1443,7 +1462,7 @@ export default function TestMode() {
 
         <div className="flex items-center gap-2 shrink-0">
           {currentQuestion.imageUrl && (
-            <div className="hidden sm:flex items-center gap-1 rounded-[1.35rem] border border-border/60 bg-card/82 px-2.5 py-1.5 shadow-[0_16px_32px_-24px_rgba(15,23,42,0.3)]">
+            <div className="flex max-w-[56vw] items-center gap-1 overflow-x-auto rounded-[1.35rem] border border-border/60 bg-card/82 px-2.5 py-1.5 shadow-[0_16px_32px_-24px_rgba(15,23,42,0.3)]">
               <Button
                 variant={inlineDrawEnabled ? "default" : "outline"}
                 size="sm"
@@ -1474,20 +1493,24 @@ export default function TestMode() {
               </Button>
               {inlineTool === "pen" && (
                 <div className="flex items-center gap-1.5 px-1">
-                  {["#111827", "#0a84ff", "#34c759", "#ff9f0a", "#ff375f"].map((c) => (
-                    <button
-                      key={c}
-                      type="button"
-                      disabled={!inlineDrawEnabled}
-                      onClick={() => setInlineColor(c)}
-                      className={cn(
-                        "h-6 w-6 rounded-full border-2 border-white/70 transition-transform disabled:opacity-40",
-                        inlineColor === c ? "scale-110 border-foreground shadow-[0_10px_18px_-10px_rgba(15,23,42,0.45)]" : "",
-                      )}
-                      style={{ backgroundColor: c }}
-                      title="Renk"
-                    />
-                  ))}
+                  {["#111827", "#0a84ff", "#34c759", "#ff9f0a", "#ff375f"].map(
+                    (c) => (
+                      <button
+                        key={c}
+                        type="button"
+                        disabled={!inlineDrawEnabled}
+                        onClick={() => setInlineColor(c)}
+                        className={cn(
+                          "h-6 w-6 rounded-full border-2 border-white/70 transition-transform disabled:opacity-40",
+                          inlineColor === c
+                            ? "scale-110 border-foreground shadow-[0_10px_18px_-10px_rgba(15,23,42,0.45)]"
+                            : "",
+                        )}
+                        style={{ backgroundColor: c }}
+                        title="Renk"
+                      />
+                    ),
+                  )}
                 </div>
               )}
               {inlineTool === "eraser" && (
@@ -1502,7 +1525,9 @@ export default function TestMode() {
                     Alan
                   </Button>
                   <Button
-                    variant={inlineEraserMode === "stroke" ? "default" : "ghost"}
+                    variant={
+                      inlineEraserMode === "stroke" ? "default" : "ghost"
+                    }
                     size="sm"
                     onClick={() => setInlineEraserMode("stroke")}
                     disabled={!inlineDrawEnabled}
@@ -1519,7 +1544,12 @@ export default function TestMode() {
                   disabled={!inlineDrawEnabled}
                   className="h-6 w-6 rounded-lg"
                   onClick={() => {
-                    const value = Math.max(1, (inlineTool === "eraser" ? inlineEraserWidth : inlinePenWidth) - 1);
+                    const value = Math.max(
+                      1,
+                      (inlineTool === "eraser"
+                        ? inlineEraserWidth
+                        : inlinePenWidth) - 1,
+                    );
                     if (inlineTool === "eraser") setInlineEraserWidth(value);
                     else setInlinePenWidth(value);
                   }}
@@ -1531,7 +1561,9 @@ export default function TestMode() {
                   min={1}
                   max={100}
                   step={1}
-                  value={inlineTool === "eraser" ? inlineEraserWidth : inlinePenWidth}
+                  value={
+                    inlineTool === "eraser" ? inlineEraserWidth : inlinePenWidth
+                  }
                   onChange={(e) => {
                     const value = Number(e.target.value);
                     if (inlineTool === "eraser") setInlineEraserWidth(value);
@@ -1546,7 +1578,12 @@ export default function TestMode() {
                   disabled={!inlineDrawEnabled}
                   className="h-6 w-6 rounded-lg"
                   onClick={() => {
-                    const value = Math.min(100, (inlineTool === "eraser" ? inlineEraserWidth : inlinePenWidth) + 1);
+                    const value = Math.min(
+                      100,
+                      (inlineTool === "eraser"
+                        ? inlineEraserWidth
+                        : inlinePenWidth) + 1,
+                    );
                     if (inlineTool === "eraser") setInlineEraserWidth(value);
                     else setInlinePenWidth(value);
                   }}
@@ -1563,9 +1600,9 @@ export default function TestMode() {
                 onClick={() => {
                   const canvas = inlineCanvasRef.current;
                   if (!canvas || !currentQuestion) return;
-                  const ctx = canvas.getContext("2d");
-                  if (!ctx) return;
-                  ctx.clearRect(0, 0, canvas.width, canvas.height);
+                  const prepared = prepareInlineCanvas(canvas);
+                  if (!prepared) return;
+                  prepared.ctx.clearRect(0, 0, prepared.width, prepared.height);
                   setInlineDrawingsByQuestion((prev) => {
                     const next = { ...prev };
                     delete next[currentQuestion.id];
@@ -1634,181 +1671,262 @@ export default function TestMode() {
               {currentQuestion.imageUrl ? (
                 <div
                   ref={inlineImageWrapRef}
-                  className="relative mx-auto flex items-start justify-center bg-white p-4 sm:p-6 border-2 border-white rounded-[1.4rem]"
+                  className="relative mx-auto flex items-start justify-center bg-white border-2 border-white rounded-[1.4rem]"
                   style={{
                     ...adaptiveImageFrameStyle,
-                    cursor:
-                      inlineDrawEnabled ? "none" : "auto",
+                    overflow: "hidden",
+                    cursor: inlineDrawEnabled ? "none" : "auto",
                   }}
                 >
-                  <img
-                    src={currentQuestion.imageUrl}
-                    alt="Soru"
-                    className="max-w-full max-h-full object-contain rounded"
+                  <div
+                    ref={inlineCanvasHostRef}
+                    className="relative flex shrink-0 items-start justify-center overflow-hidden p-4 leading-none sm:p-6"
                     style={{
-                      width: currentImageNaturalSize ? `${currentImageNaturalSize.width}px` : "auto",
-                      height: currentImageNaturalSize ? `${currentImageNaturalSize.height}px` : "auto",
+                      width: "100%",
+                      height: "100%",
+                      maxWidth: "100%",
+                      maxHeight: "100%",
                     }}
-                    onLoad={(event) => {
-                      if (!currentQuestion?.id) return;
-                      const target = event.currentTarget;
-                      const naturalWidth = target.naturalWidth || target.width;
-                      const naturalHeight = target.naturalHeight || target.height;
-                      if (naturalWidth <= 0 || naturalHeight <= 0) return;
-                      setImageNaturalSizes((prev) => ({
-                        ...prev,
-                        [currentQuestion.id]: { width: naturalWidth, height: naturalHeight },
-                      }));
-                    }}
-                  />
-                  {(inlineDrawEnabled || finished) && (
-                    <canvas
-                      ref={inlineCanvasRef}
-                      className={cn("absolute inset-0 touch-none")}
-                      style={{ touchAction: "none", cursor: inlineDrawEnabled ? "none" : "auto" }}
-                      onPointerDown={(e) => {
-                        if (!inlineDrawEnabled) return;
-                        e.preventDefault();
-                        (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-                        setIsInlineDrawing(true);
-                        isInlineDrawingRef.current = true;
-                        clearInlineSnapTimer();
-
-                        const isHardwareEraser = e.button === 5 || (e.buttons & 32) === 32;
-                        if (e.pointerType === "pen") {
-                          if (isHardwareEraser) setInlineTool("eraser");
-                          else setInlineTool("pen");
-                        } else if (isHardwareEraser) {
-                          setInlineTool("eraser");
-                        }
-                        const activeTool: "pen" | "eraser" = isHardwareEraser
-                          ? "eraser"
-                          : e.pointerType === "pen"
-                            ? "pen"
-                            : inlineTool;
-
-                        const start = getInlinePoint(e);
-                        inlineLastPointRef.current = start;
-                        inlineCurrentStrokeRef.current = {
-                          tool: activeTool,
-                          color: activeTool === "eraser" ? "#000000" : inlineColor,
-                          width: activeTool === "eraser" ? inlineEraserWidth : inlinePenWidth,
-                          points: [start],
-                        };
-                        inlineRawStrokeRef.current = inlineCurrentStrokeRef.current;
+                  >
+                    <img
+                      ref={inlineImageRef}
+                      src={currentQuestion.imageUrl}
+                      alt="Soru"
+                      className="block shrink-0 rounded object-contain"
+                      style={{
+                        width: inlineImageDisplaySize
+                          ? `${inlineImageDisplaySize.width}px`
+                          : "100%",
+                        height: inlineImageDisplaySize
+                          ? `${inlineImageDisplaySize.height}px`
+                          : "100%",
+                        maxWidth: "100%",
+                        maxHeight: "100%",
                       }}
-                      onPointerMove={(e) => {
-                        if (!inlineDrawEnabled) return;
-                        const point = getInlinePoint(e);
-                        const isHardwareEraser = e.button === 5 || (e.buttons & 32) === 32;
-                        if (e.pointerType === "pen") {
-                          if (isHardwareEraser) setInlineTool("eraser");
-                          else setInlineTool("pen");
-                        } else if (isHardwareEraser) {
-                          setInlineTool("eraser");
-                        }
-                        
-                        if (!isInlineDrawingRef.current) return;
-                        e.preventDefault();
-                        const next = point;
-                        const last = inlineLastPointRef.current;
-                        if (!last) {
-                          inlineLastPointRef.current = next;
-                          return;
-                        }
-                        if (!inlineCurrentStrokeRef.current) return;
-                        const currentStroke = inlineCurrentStrokeRef.current;
-                        
-                        // Check distance to avoid too many points
-                        if (Math.hypot(next.x - last.x, next.y - last.y) < 1) return;
-                        
-                        currentStroke.points.push(next);
-                        currentStroke.snapShape = undefined;
-                        inlineRawStrokeRef.current = currentStroke;
-                        inlineCurrentStrokeRef.current = currentStroke;
-                        scheduleInlineSnap();
-                        const canvas = inlineCanvasRef.current;
-                        if (canvas) {
-                          const ctx = canvas.getContext("2d");
-                          if (ctx) {
-                            const existingStrokes = inlineDrawingsByQuestion[currentQuestion.id] ?? [];
-                            redrawInlineCanvas(
-                              ctx,
-                              existingStrokes,
-                              canvas.width,
-                              canvas.height,
-                              currentStroke,
-                              inlineEraserMode,
-                            );
+                      onLoad={(event) => {
+                        if (!currentQuestion?.id) return;
+                        const image = event.currentTarget;
+                        const naturalWidth = image.naturalWidth || image.width;
+                        const naturalHeight =
+                          image.naturalHeight || image.height;
+                        if (naturalWidth <= 0 || naturalHeight <= 0) return;
+                        setImageNaturalSizes((prev) => {
+                          const current = prev[currentQuestion.id];
+                          if (
+                            current?.width === naturalWidth &&
+                            current?.height === naturalHeight
+                          )
+                            return prev;
+                          return {
+                            ...prev,
+                            [currentQuestion.id]: {
+                              width: naturalWidth,
+                              height: naturalHeight,
+                            },
+                          };
+                        });
+                        window.requestAnimationFrame(() =>
+                          scheduleInlineCanvasRedraw(),
+                        );
+                      }}
+                    />
+                    {shouldShowInlineCanvas && (
+                      <canvas
+                        ref={inlineCanvasRef}
+                        className="absolute inset-0 z-10 block touch-none"
+                        style={{
+                          width: "100%",
+                          height: "100%",
+                          touchAction: "none",
+                          cursor: inlineDrawEnabled ? "none" : "auto",
+                          pointerEvents: inlineDrawEnabled ? "auto" : "none",
+                        }}
+                        onPointerDown={(e) => {
+                          if (!inlineDrawEnabled) return;
+                          e.preventDefault();
+                          (e.currentTarget as HTMLElement).setPointerCapture(
+                            e.pointerId,
+                          );
+                          setIsInlineDrawing(true);
+                          isInlineDrawingRef.current = true;
+
+                          const isHardwareEraser =
+                            e.button === 5 || (e.buttons & 32) === 32;
+                          if (e.pointerType === "pen") {
+                            if (isHardwareEraser)
+                              setInlineToolIfChanged("eraser");
+                            else setInlineToolIfChanged("pen");
+                          } else if (isHardwareEraser) {
+                            setInlineToolIfChanged("eraser");
                           }
-                        }
-                        inlineLastPointRef.current = next;
-                      }}
-                      onPointerUp={(e) => {
-                        if (!inlineDrawEnabled) return;
-                        if (!isInlineDrawingRef.current) return;
-                        e.preventDefault();
-                        const currentStroke = inlineCurrentStrokeRef.current;
-                        if (currentStroke && currentQuestion) {
-                          clearInlineSnapTimer();
-                          setInlineDrawingsByQuestion((prev) => {
-                            const prevStrokes = prev[currentQuestion.id] ?? [];
-                            const nextStrokes =
-                              currentStroke.tool === "eraser" && inlineEraserMode === "stroke"
-                                ? eraseInlineStrokesByPath(prevStrokes, currentStroke.points, Math.max(6, currentStroke.width / 2))
-                                : [...prevStrokes, currentStroke];
-                            return { ...prev, [currentQuestion.id]: nextStrokes };
-                          });
-                        }
-                        setIsInlineDrawing(false);
-                        isInlineDrawingRef.current = false;
-                        inlineLastPointRef.current = null;
-                        inlineCurrentStrokeRef.current = null;
-                        inlineRawStrokeRef.current = null;
-                      }}
-                      onPointerCancel={() => {
-                        clearInlineSnapTimer();
-                        setIsInlineDrawing(false);
-                        isInlineDrawingRef.current = false;
-                        inlineLastPointRef.current = null;
-                        inlineCurrentStrokeRef.current = null;
-                        inlineRawStrokeRef.current = null;
-                      }}
-                    />
-                  )}
-                  {inlineDrawEnabled &&
-                    inlineTool === "pen" &&
-                    inlineCursorInCanvas &&
-                    inlineCursorPos && (
-                    <div
-                      className="pointer-events-none absolute z-20 rounded-full"
-                      style={{
-                        left: inlineCursorPos.x,
-                        top: inlineCursorPos.y,
-                        width: 8,
-                        height: 8,
-                        transform: "translate(-50%, -50%)",
-                        backgroundColor: inlineColor,
-                        boxShadow: "0 0 0 1px rgba(255,255,255,0.5), 0 0 0 2px rgba(0,0,0,0.3)",
-                      }}
-                    />
-                  )}
-                  {inlineDrawEnabled &&
-                    inlineTool === "eraser" &&
-                    inlineCursorInCanvas &&
-                    inlineCursorPos && (
-                    <div
-                      className="pointer-events-none absolute z-20 rounded-full border-[2px] border-sky-500/80 bg-white/35 backdrop-blur-sm"
-                      style={{
-                        left: inlineCursorPos.x,
-                        top: inlineCursorPos.y,
-                        width: Math.max(10, Math.min(inlineEraserWidth, 120)),
-                        height: Math.max(10, Math.min(inlineEraserWidth, 120)),
-                        transform: "translate(-50%, -50%)",
-                        boxShadow: "0 14px 28px -14px rgba(15,23,42,0.45), inset 0 0 0 1px rgba(255,255,255,0.68)",
-                      }}
-                    />
-                  )}
+                          const activeTool: "pen" | "eraser" = isHardwareEraser
+                            ? "eraser"
+                            : e.pointerType === "pen"
+                              ? "pen"
+                              : inlineTool;
+
+                          const start = getInlinePoint(e);
+                          inlineLastPointRef.current = start;
+                          inlineCurrentStrokeRef.current = {
+                            tool: activeTool,
+                            color:
+                              activeTool === "eraser" ? "#000000" : inlineColor,
+                            width:
+                              activeTool === "eraser"
+                                ? inlineEraserWidth
+                                : inlinePenWidth,
+                            points: [start],
+                          };
+                          inlineRawStrokeRef.current =
+                            inlineCurrentStrokeRef.current;
+                          scheduleInlineCanvasRedraw();
+                        }}
+                        onPointerMove={(e) => {
+                          if (!inlineDrawEnabled) return;
+                          const isHardwareEraser =
+                            e.button === 5 || (e.buttons & 32) === 32;
+                          if (e.pointerType === "pen") {
+                            if (isHardwareEraser)
+                              setInlineToolIfChanged("eraser");
+                            else setInlineToolIfChanged("pen");
+                          } else if (isHardwareEraser) {
+                            setInlineToolIfChanged("eraser");
+                          }
+
+                          if (!isInlineDrawingRef.current) return;
+                          e.preventDefault();
+                          let last = inlineLastPointRef.current;
+                          if (!last) {
+                            inlineLastPointRef.current = getInlinePoint(e);
+                            return;
+                          }
+                          if (!inlineCurrentStrokeRef.current) return;
+                          const currentStroke = inlineCurrentStrokeRef.current;
+                          const nativeEvent = e.nativeEvent as PointerEvent;
+                          const coalesced =
+                            typeof nativeEvent.getCoalescedEvents === "function"
+                              ? nativeEvent.getCoalescedEvents()
+                              : [];
+                          const samples =
+                            coalesced.length > 0 ? coalesced : [nativeEvent];
+                          const pointStep =
+                            currentStroke.tool === "eraser" ? 1.25 : 0.5;
+                          let changed = false;
+
+                          for (const sample of samples) {
+                            const next = getInlinePointFromClient(
+                              sample.clientX,
+                              sample.clientY,
+                              sample.pressure,
+                            );
+                            const dist = Math.hypot(
+                              next.x - last.x,
+                              next.y - last.y,
+                            );
+                            if (dist < pointStep) continue;
+                            currentStroke.points.push(next);
+                            last = next;
+                            changed = true;
+                          }
+
+                          if (!changed) return;
+                          currentStroke.snapShape = undefined;
+                          inlineRawStrokeRef.current = currentStroke;
+                          inlineCurrentStrokeRef.current = currentStroke;
+                          scheduleInlineCanvasRedraw();
+                          inlineLastPointRef.current = last;
+                        }}
+                        onPointerUp={(e) => {
+                          if (!inlineDrawEnabled) return;
+                          if (!isInlineDrawingRef.current) return;
+                          e.preventDefault();
+                          releaseInlinePointerCaptureSafely(
+                            e.currentTarget,
+                            e.pointerId,
+                          );
+                          cancelInlineDrawFrame();
+                          const currentStroke = inlineCurrentStrokeRef.current;
+                          if (currentStroke && currentQuestion) {
+                            setInlineDrawingsByQuestion((prev) => {
+                              const prevStrokes =
+                                prev[currentQuestion.id] ?? [];
+                              const nextStrokes =
+                                currentStroke.tool === "eraser" &&
+                                inlineEraserMode === "stroke"
+                                  ? eraseInlineStrokesByPath(
+                                      prevStrokes,
+                                      currentStroke.points,
+                                      Math.max(6, currentStroke.width / 2),
+                                    )
+                                  : [...prevStrokes, currentStroke];
+                              return {
+                                ...prev,
+                                [currentQuestion.id]: nextStrokes,
+                              };
+                            });
+                          }
+                          setIsInlineDrawing(false);
+                          isInlineDrawingRef.current = false;
+                          inlineLastPointRef.current = null;
+                          inlineCurrentStrokeRef.current = null;
+                          inlineRawStrokeRef.current = null;
+                        }}
+                        onPointerCancel={(e) => {
+                          releaseInlinePointerCaptureSafely(
+                            e.currentTarget,
+                            e.pointerId,
+                          );
+                          cancelInlineDrawFrame();
+                          setIsInlineDrawing(false);
+                          isInlineDrawingRef.current = false;
+                          inlineLastPointRef.current = null;
+                          inlineCurrentStrokeRef.current = null;
+                          inlineRawStrokeRef.current = null;
+                        }}
+                      />
+                    )}
+                    {inlineDrawEnabled &&
+                      inlineTool === "pen" &&
+                      inlineCursorInCanvas &&
+                      inlineCursorPos && (
+                        <div
+                          className="pointer-events-none absolute z-20 rounded-full"
+                          style={{
+                            left: inlineCursorPos.x,
+                            top: inlineCursorPos.y,
+                            width: 8,
+                            height: 8,
+                            transform: "translate(-50%, -50%)",
+                            backgroundColor: inlineColor,
+                            boxShadow:
+                              "0 0 0 1px rgba(255,255,255,0.5), 0 0 0 2px rgba(0,0,0,0.3)",
+                          }}
+                        />
+                      )}
+                    {inlineDrawEnabled &&
+                      inlineTool === "eraser" &&
+                      inlineCursorInCanvas &&
+                      inlineCursorPos && (
+                        <div
+                          className="pointer-events-none absolute z-20 rounded-full border-[2px] border-sky-500/80 bg-white/35 backdrop-blur-sm"
+                          style={{
+                            left: inlineCursorPos.x,
+                            top: inlineCursorPos.y,
+                            width: Math.max(
+                              10,
+                              Math.min(inlineEraserWidth, 120),
+                            ),
+                            height: Math.max(
+                              10,
+                              Math.min(inlineEraserWidth, 120),
+                            ),
+                            transform: "translate(-50%, -50%)",
+                            boxShadow:
+                              "0 14px 28px -14px rgba(15,23,42,0.45), inset 0 0 0 1px rgba(255,255,255,0.68)",
+                          }}
+                        />
+                      )}
+                  </div>
                 </div>
               ) : (
                 <div className="flex items-center justify-center min-h-[200px] text-muted-foreground font-display">
@@ -1836,10 +1954,14 @@ export default function TestMode() {
                       className={cn(
                         "w-12 h-12 rounded-full font-bold text-lg border-2 transition-all duration-150",
                         readOnly
-                          ? getReviewChoiceClasses(c, answers[currentQuestion.id], currentQuestion.choice)
+                          ? getReviewChoiceClasses(
+                              c,
+                              answers[currentQuestion.id],
+                              currentQuestion.choice,
+                            )
                           : selected
                             ? "bg-primary border-primary text-primary-foreground shadow-lg scale-110"
-                            : "bg-background border-border/60 text-foreground hover:border-primary/60 hover:scale-105"
+                            : "bg-background border-border/60 text-foreground hover:border-primary/60 hover:scale-105",
                       )}
                     >
                       {c}
@@ -1868,9 +1990,14 @@ export default function TestMode() {
                           : "border-border/50 bg-background/40 text-muted-foreground hover:border-primary/40",
                       )}
                     >
-                      <span className="font-semibold text-foreground">{label}) </span>
+                      <span className="font-semibold text-foreground">
+                        {label}){" "}
+                      </span>
                       <span className="inline-block origin-left scale-[1.12] sm:scale-[1.18] align-middle">
-                        <MathLiveStatic value={optionText} className="text-[1.35rem] leading-relaxed text-foreground" />
+                        <MathLiveStatic
+                          value={optionText}
+                          className="text-[1.35rem] leading-relaxed text-foreground"
+                        />
                       </span>
                     </button>
                   );
@@ -1953,7 +2080,7 @@ export default function TestMode() {
                             "w-full flex items-center gap-2 px-2 py-1.5 rounded-lg transition-all text-left",
                             isCurrent
                               ? "bg-primary/15 ring-1 ring-primary/30"
-                              : "hover:bg-muted/30"
+                              : "hover:bg-muted/30",
                           )}
                         >
                           <span
@@ -1961,7 +2088,7 @@ export default function TestMode() {
                               "text-xs font-bold w-5 shrink-0",
                               isCurrent
                                 ? "text-primary"
-                                : "text-muted-foreground"
+                                : "text-muted-foreground",
                             )}
                           >
                             {index + 1}
@@ -1981,13 +2108,17 @@ export default function TestMode() {
                                   className={cn(
                                     "w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-bold border transition-all",
                                     readOnly
-                                      ? getReviewChoiceClasses(c, userAnswer, q.choice)
+                                      ? getReviewChoiceClasses(
+                                          c,
+                                          userAnswer,
+                                          q.choice,
+                                        )
                                       : cn(
                                           "cursor-pointer",
                                           sel
                                             ? "bg-primary border-primary text-primary-foreground"
-                                            : "border-border/50 text-muted-foreground hover:border-primary/50"
-                                        )
+                                            : "border-border/50 text-muted-foreground hover:border-primary/50",
+                                        ),
                                   )}
                                 >
                                   {c}
@@ -2020,11 +2151,21 @@ export default function TestMode() {
       <AlertDialog open={showExitDialog} onOpenChange={setShowExitDialog}>
         <AlertDialogContent className="rounded-2xl border-border/60">
           <AlertDialogHeader>
-            <AlertDialogTitle className="font-display">Testten Çık</AlertDialogTitle>
+            <AlertDialogTitle className="font-display">
+              Testten Çık
+            </AlertDialogTitle>
             <AlertDialogDescription className="text-left text-muted-foreground leading-relaxed">
-              <strong className="text-foreground font-medium">Sonra devam et</strong> dersen işaretlediğin şıklar ve çizimler bu cihazda test bitene kadar saklanır.
+              <strong className="text-foreground font-medium">
+                Sonra devam et
+              </strong>{" "}
+              dersen işaretlediğin şıklar ve çizimler bu cihazda test bitene
+              kadar saklanır.
               <br />
-              <strong className="text-foreground font-medium">Testi bitir</strong> dersen sonuçlar kaydedilir ve test tamamlanmış sayılır (üstteki “Testi Bitir” ile aynı).
+              <strong className="text-foreground font-medium">
+                Testi bitir
+              </strong>{" "}
+              dersen sonuçlar kaydedilir ve test tamamlanmış sayılır (üstteki
+              “Testi Bitir” ile aynı).
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter className="flex-col-reverse sm:flex-row gap-2 sm:gap-0">
@@ -2053,14 +2194,19 @@ export default function TestMode() {
             <DialogTitle className="font-display">Çözüm videosu</DialogTitle>
           </DialogHeader>
           {solutionEmbed ? (
-            <div className="aspect-video w-full rounded-xl overflow-hidden bg-foreground/12 border border-border/40">
-              <iframe
-                src={solutionEmbed}
-                className="w-full h-full"
-                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                allowFullScreen
-                title="Çözüm videosu"
-              />
+            <div className="space-y-2">
+              <p className="text-xs font-medium text-muted-foreground">
+                {solutionRangeLabel}
+              </p>
+              <div className="aspect-video w-full overflow-hidden rounded-xl border border-border/40 bg-foreground/12">
+                <iframe
+                  src={solutionEmbed}
+                  className="h-full w-full"
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                  allowFullScreen
+                  title="Çözüm videosu"
+                />
+              </div>
             </div>
           ) : (
             <p className="text-sm text-muted-foreground leading-relaxed">
@@ -2088,9 +2234,3 @@ export default function TestMode() {
     </div>
   );
 }
-
-
-
-
-
-

@@ -1,6 +1,7 @@
 import { Router } from "express";
-import { db, testSessionProgressTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { db, testSessionProgressTable, testSessionsTable } from "@workspace/db";
+import { and, eq } from "drizzle-orm";
+import { getAuthUserId } from "../middlewares/auth";
 
 const router = Router();
 
@@ -9,11 +10,24 @@ function parseId(value: string) {
   return Number.isNaN(parsed) ? null : parsed;
 }
 
+async function testBelongsToUser(testId: number, userId: number) {
+  const [row] = await db
+    .select({ id: testSessionsTable.id })
+    .from(testSessionsTable)
+    .where(and(eq(testSessionsTable.id, testId), eq(testSessionsTable.userId, userId)))
+    .limit(1);
+  return Boolean(row);
+}
+
 router.get("/tests/:testId/progress", async (req, res) => {
   try {
+    const userId = getAuthUserId(req);
     const testId = parseId(req.params.testId);
     if (testId === null) {
       return res.status(400).json({ error: "Invalid test ID" });
+    }
+    if (!(await testBelongsToUser(testId, userId))) {
+      return res.status(404).json({ error: "Test bulunamadı" });
     }
 
     const [progress] = await db
@@ -30,9 +44,13 @@ router.get("/tests/:testId/progress", async (req, res) => {
 
 async function saveProgress(req: any, res: any) {
   try {
+    const userId = getAuthUserId(req);
     const testId = parseId(req.params.testId);
     if (testId === null) {
       return res.status(400).json({ error: "Invalid test ID" });
+    }
+    if (!(await testBelongsToUser(testId, userId))) {
+      return res.status(404).json({ error: "Test bulunamadı" });
     }
 
     const [existing] = await db
