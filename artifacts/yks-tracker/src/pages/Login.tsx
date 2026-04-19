@@ -22,13 +22,20 @@ type AuthResponse = {
   expiresAt: string;
 };
 
+const rawApiBaseUrl = (import.meta.env.VITE_API_BASE_URL ?? "").toString().trim();
+const apiBaseUrl = rawApiBaseUrl ? rawApiBaseUrl.replace(/\/+$/, "") : "";
+
+function resolveApiUrl(path: string) {
+  return apiBaseUrl ? `${apiBaseUrl}${path}` : path;
+}
+
 function extractErrorMessage(error: unknown) {
   if (error instanceof Error) return error.message;
   return "İşlem tamamlanamadı.";
 }
 
 async function submitAuth(mode: AuthMode, payload: { name: string; email: string; password: string; remember: boolean }) {
-  const response = await fetch(`/api/auth/${mode === "register" ? "register" : "login"}`, {
+  const response = await fetch(resolveApiUrl(`/api/auth/${mode === "register" ? "register" : "login"}`), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
