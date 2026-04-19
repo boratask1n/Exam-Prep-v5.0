@@ -30,3 +30,7 @@ coverage/
 *.log
 Thumbs.db
 .DS_Store
+
+# Replit metadata
+.replitignore
+**/.replit-artifact/

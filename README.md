@@ -29,6 +29,7 @@ Exam-Prep, YKS çalışma sürecini tek yerde toplamak için geliştirilmiş yer
 - `lib/db`: Drizzle schema ve veritabanı komutları
 - `lib/api-zod`, `lib/api-client-react`: ortak API tipleri
 - `scripts`: yerel smoke test ve bakım yardımcıları
+- `tools/windows`: Windows operasyon scriptleri (yedek, geri yükleme, DB araçları, desktop yardımcıları)
 - `backups`: veritabanı yedekleri, git'e gönderilmez
 
 ## Gereksinimler
@@ -111,22 +112,19 @@ Açılan adresler:
 - Web (aynı modem / LAN): `http://SUNUCU_IP:24486`
 - API sağlık kontrolü: `http://localhost:8080/api/health`
 
-## Vercel Deploy (Web Arayüzü)
+## Script Düzeni (Windows)
 
-Bu repo Vercel'de **web arayüzü** olarak deploy edilebilir. API ve veritabanı yerel/Docker düzeninde çalıştığı için full-stack hali doğrudan Vercel'e taşınmaz.
+Kök klasörde sadece günlük başlangıç scriptleri tutulur:
 
-Gerekenler:
+- `KURULUM.bat`
+- `BASLAT.bat`
+- `DURDUR.bat`
 
-1. Vercel proje ayarlarında bu repoyu bağla.
-2. Environment Variable olarak `VITE_API_BASE_URL` ekle.
-   - Örnek: `https://api-senin-sunucun.com`
-3. Deploy et.
+Operasyon ve bakım scriptleri `tools/windows` altındadır:
 
-Notlar:
-
-- `vercel.json` dosyası monorepo içinde doğru build komutunu ve Vite output klasörünü ayarlar.
-- Frontend, API çağrılarını `VITE_API_BASE_URL` üzerinden yapar.
-- API CORS izinleri açık olmalıdır.
+- veritabanı: `YEDEK_AL`, `YEDEKTEN_GERI_YUKLE`, `VERITABANI_TEMIZLE`, `DB_DOGRULA`, `DB_AC`
+- desktop: `MASAUSTU_AC`, `MASAUSTU_BUILD`
+- servis yardımcıları: `DEV_SERVER_RESTART`, `PROD_ONIZLEME`
 
 ## Masaüstü Uygulama ve Senkronizasyon
 
@@ -138,7 +136,7 @@ Bu proje masaüstünde iki parçalı çalışır:
 Windows için kurulum dosyası (`Setup.exe`) ve portable `.exe` üretmek için:
 
 ```powershell
-.\MASAUSTU_BUILD.bat
+.\tools\windows\MASAUSTU_BUILD.bat
 ```
 
 Çıktılar `artifacts/desktop-shell/release` klasörüne yazılır.
@@ -151,7 +149,7 @@ Başlıca dosyalar:
 Geliştirme sırasında masaüstü kabuğunu hızlı açmak için:
 
 ```powershell
-.\MASAUSTU_AC.bat
+.\tools\windows\MASAUSTU_AC.bat
 ```
 
 Senkron kullanım mantığı:
@@ -192,7 +190,7 @@ pnpm --filter @workspace/db run push
 ### Yedek alma
 
 ```powershell
-.\YEDEK_AL.bat
+.\tools\windows\YEDEK_AL.bat
 ```
 
 - PostgreSQL dump alır
@@ -202,7 +200,7 @@ pnpm --filter @workspace/db run push
 ### Yedekten geri yükleme
 
 ```powershell
-.\YEDEKTEN_GERI_YUKLE.bat
+.\tools\windows\YEDEKTEN_GERI_YUKLE.bat
 ```
 
 - seçilen dump dosyasını geri yükler
@@ -211,17 +209,27 @@ pnpm --filter @workspace/db run push
 ### Veritabanını temizleme
 
 ```powershell
-.\VERITABANI_TEMIZLE.bat
+.\tools\windows\VERITABANI_TEMIZLE.bat
 ```
 
 - kullanıcılar, oturumlar, testler, sorular, soru tekrar istatistikleri, notlar, not tekrar istatistikleri, çizimler ve analiz tabloları sıfırlanır
 - `artifacts/api-server/uploads` klasörü temizlenir
 - istenirse önce otomatik yedek alır
 
+### Veritabanını silmeden doğrulama (önerilen)
+
+```powershell
+.\tools\windows\DB_DOGRULA.bat
+```
+
+- `tools/windows/VERITABANI_TEMIZLE.bat /DRYRUN` çağırır
+- `TRUNCATE` SQL komutunu transaction içinde çalıştırır ve `ROLLBACK` yapar
+- tablo/ad şema uyumunu veri kaybı olmadan doğrular
+
 ### DB arayüzleri
 
 ```powershell
-.\DB_AC.bat
+.\tools\windows\DB_AC.bat
 ```
 
 Bu script pgAdmin veya DBeaver açmak için bağlantı bilgilerini hazırlar.
@@ -323,5 +331,5 @@ GitHub'a yüklenen sürümde kullanıcıya özel veriler ve API key değerleri b
 
 1. `BASLAT.bat` ile projeyi aç
 2. uygulamayı test et
-3. gerekiyorsa `YEDEK_AL.bat` ile yedek al
+3. gerekiyorsa `tools/windows/YEDEK_AL.bat` ile yedek al
 4. geliştirme sonunda `DURDUR.bat` ile kapat

@@ -1,6 +1,6 @@
 @echo off
 setlocal
-cd /d "%~dp0"
+cd /d "%~dp0..\.."
 
 set "DB_HOST=localhost"
 set "DB_PORT=5432"

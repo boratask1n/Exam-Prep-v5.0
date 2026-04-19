@@ -1,6 +1,6 @@
 @echo off
 setlocal enabledelayedexpansion
-cd /d "%~dp0"
+cd /d "%~dp0..\.."
 
 set "DB_HOST=localhost"
 set "DB_PORT=5432"
@@ -47,7 +47,7 @@ echo ============================================
 echo Yedek klasoru: %BACKUP_DIR%
 echo.
 
-docker ps --format "{{.Names}}" | findstr /i /c:"%DOCKER_CONTAINER%" >nul 2>nul
+docker ps --format "{{.Names}}" 2>nul | findstr /i /c:"%DOCKER_CONTAINER%" >nul 2>nul
 if not errorlevel 1 (
   echo [1/3] Docker uzerinden DB dump aliniyor...
   docker exec "%DOCKER_CONTAINER%" pg_dump -U "%DB_USER%" -d "%DB_NAME%" --clean --if-exists > "%DUMP_FILE%"

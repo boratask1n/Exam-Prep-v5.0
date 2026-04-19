@@ -1,6 +1,6 @@
 @echo off
 setlocal enabledelayedexpansion
-cd /d "%~dp0"
+cd /d "%~dp0..\.."
 
 set "DB_HOST=localhost"
 set "DB_PORT=5432"
@@ -73,7 +73,7 @@ if /I not "%CONFIRM%"=="EVET" (
   exit /b 0
 )
 
-docker ps --format "{{.Names}}" | findstr /i /c:"%DOCKER_CONTAINER%" >nul 2>nul
+docker ps --format "{{.Names}}" 2>nul | findstr /i /c:"%DOCKER_CONTAINER%" >nul 2>nul
 if not errorlevel 1 (
   echo [1/3] Docker uzerinden veritabani geri yukleniyor...
   type "%DUMP_FILE%" | docker exec -i "%DOCKER_CONTAINER%" psql -U "%DB_USER%" -d "%DB_NAME%" >nul

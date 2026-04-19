@@ -57,11 +57,16 @@ if not exist "artifacts\api-server\uploads" (
 )
 
 echo [1/5] Bagimliliklar kontrol ediliyor...
-call pnpm install
-if errorlevel 1 (
-  echo [HATA] pnpm install basarisiz.
-  pause
-  exit /b 1
+if not exist "node_modules\.modules.yaml" (
+  echo [BILGI] Bagimliliklar eksik, pnpm install calisiyor...
+  call pnpm install
+  if errorlevel 1 (
+    echo [HATA] pnpm install basarisiz.
+    pause
+    exit /b 1
+  )
+) else (
+  echo [OK] Bagimliliklar mevcut, install adimi atlandi.
 )
 
 echo [2/5] PostgreSQL baslatiliyor...
