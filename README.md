@@ -111,6 +111,23 @@ Açılan adresler:
 - Web (aynı modem / LAN): `http://SUNUCU_IP:24486`
 - API sağlık kontrolü: `http://localhost:8080/api/health`
 
+## Vercel Deploy (Web Arayüzü)
+
+Bu repo Vercel'de **web arayüzü** olarak deploy edilebilir. API ve veritabanı yerel/Docker düzeninde çalıştığı için full-stack hali doğrudan Vercel'e taşınmaz.
+
+Gerekenler:
+
+1. Vercel proje ayarlarında bu repoyu bağla.
+2. Environment Variable olarak `VITE_API_BASE_URL` ekle.
+   - Örnek: `https://api-senin-sunucun.com`
+3. Deploy et.
+
+Notlar:
+
+- `vercel.json` dosyası monorepo içinde doğru build komutunu ve Vite output klasörünü ayarlar.
+- Frontend, API çağrılarını `VITE_API_BASE_URL` üzerinden yapar.
+- API CORS izinleri açık olmalıdır.
+
 ## Masaüstü Uygulama ve Senkronizasyon
 
 Bu proje masaüstünde iki parçalı çalışır:
