@@ -32,6 +32,8 @@ export function Sidebar({ children, userName, onLogout, onDeleteAccount }: Sideb
   const [isDark, setIsDark] = useState(getInitialDark);
   const [logoPopping, setLogoPopping] = useState(false);
   const logoTimerRef = useRef<number | null>(null);
+  const duckAudioRef = useRef<HTMLAudioElement | null>(null);
+  const activeDuckAudiosRef = useRef<Set<HTMLAudioElement>>(new Set());
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", isDark);
@@ -49,43 +51,46 @@ export function Sidebar({ children, userName, onLogout, onDeleteAccount }: Sideb
   useEffect(() => {
     return () => {
       if (logoTimerRef.current) window.clearTimeout(logoTimerRef.current);
+      if (duckAudioRef.current) {
+        duckAudioRef.current.pause();
+        duckAudioRef.current = null;
+      }
+      activeDuckAudiosRef.current.forEach((audio) => {
+        audio.pause();
+        audio.currentTime = 0;
+      });
+      activeDuckAudiosRef.current.clear();
     };
   }, []);
 
   const playDuckQuack = () => {
-    const AudioContextCtor = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-    if (!AudioContextCtor) return;
+    if (!duckAudioRef.current) {
+      duckAudioRef.current = new Audio("/brand/duck-quack.mp3");
+      duckAudioRef.current.preload = "auto";
+      duckAudioRef.current.volume = 0.9;
+    }
 
-    const context = new AudioContextCtor();
-    const duration = 0.34;
-    const oscillator = context.createOscillator();
-    const gainNode = context.createGain();
-    const lowpass = context.createBiquadFilter();
+    const baseAudio = duckAudioRef.current;
+    const audio = baseAudio.cloneNode(true) as HTMLAudioElement;
+    audio.volume = 0.9;
+    activeDuckAudiosRef.current.add(audio);
 
-    oscillator.type = "sawtooth";
-    oscillator.frequency.setValueAtTime(720, context.currentTime);
-    oscillator.frequency.exponentialRampToValueAtTime(260, context.currentTime + duration * 0.55);
-    oscillator.frequency.exponentialRampToValueAtTime(180, context.currentTime + duration);
-
-    lowpass.type = "lowpass";
-    lowpass.frequency.setValueAtTime(1500, context.currentTime);
-    lowpass.frequency.exponentialRampToValueAtTime(700, context.currentTime + duration);
-
-    gainNode.gain.setValueAtTime(0.0001, context.currentTime);
-    gainNode.gain.exponentialRampToValueAtTime(0.12, context.currentTime + 0.02);
-    gainNode.gain.exponentialRampToValueAtTime(0.075, context.currentTime + duration * 0.45);
-    gainNode.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + duration);
-
-    oscillator.connect(lowpass);
-    lowpass.connect(gainNode);
-    gainNode.connect(context.destination);
-
-    oscillator.start();
-    oscillator.stop(context.currentTime + duration);
-
-    oscillator.onended = () => {
-      void context.close().catch(() => {});
+    const cleanup = () => {
+      activeDuckAudiosRef.current.delete(audio);
+      audio.onended = null;
+      audio.onerror = null;
     };
+
+    audio.onended = cleanup;
+    audio.onerror = cleanup;
+
+    void audio.play().catch(() => {
+      cleanup();
+      duckAudioRef.current = null;
+      const fallbackAudio = new Audio("/brand/duck-quack.mp3");
+      fallbackAudio.volume = 0.9;
+      void fallbackAudio.play().catch(() => {});
+    });
   };
 
   const handleLogoClick = () => {
