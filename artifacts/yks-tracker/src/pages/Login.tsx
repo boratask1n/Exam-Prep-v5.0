@@ -1,5 +1,14 @@
 import { FormEvent, useState } from "react";
-import { CheckCircle2, Loader2, Lock, LogIn, Mail, Sparkles, User, UserPlus } from "lucide-react";
+import {
+  CheckCircle2,
+  Loader2,
+  Lock,
+  LogIn,
+  Mail,
+  Sparkles,
+  User,
+  UserPlus,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -34,12 +43,18 @@ function extractErrorMessage(error: unknown) {
   return "İşlem tamamlanamadı.";
 }
 
-async function submitAuth(mode: AuthMode, payload: { name: string; email: string; password: string; remember: boolean }) {
-  const response = await fetch(resolveApiUrl(`/api/auth/${mode === "register" ? "register" : "login"}`), {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
+async function submitAuth(
+  mode: AuthMode,
+  payload: { name: string; email: string; password: string; remember: boolean },
+) {
+  const response = await fetch(
+    resolveApiUrl(`/api/auth/${mode === "register" ? "register" : "login"}`),
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+  );
 
   const data = await response.json().catch(() => null);
   if (!response.ok) {
@@ -105,26 +120,28 @@ export default function Login({ onAuthenticated }: LoginPageProps) {
   };
 
   return (
-    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[radial-gradient(circle_at_15%_20%,hsl(var(--primary)/0.18),transparent_45%),radial-gradient(circle_at_82%_18%,hsl(199_92%_52%/0.16),transparent_42%),hsl(var(--background))] px-4 py-8">
-      <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(125deg,transparent_20%,hsl(var(--primary)/0.04)_42%,transparent_75%)]" />
-      <div className="relative grid w-full max-w-5xl overflow-hidden rounded-[2rem] border border-border/60 bg-card/88 shadow-[0_45px_100px_-45px_rgba(15,23,42,0.7)] backdrop-blur-xl lg:grid-cols-[1.05fr_0.95fr]">
-        <section className="hidden h-full flex-col justify-between border-r border-border/50 bg-[linear-gradient(150deg,hsl(var(--primary)/0.22)_0%,hsl(var(--primary)/0.03)_58%,transparent_100%)] p-10 lg:flex">
-          <div className="inline-flex w-fit items-center gap-2 rounded-full border border-primary/35 bg-primary/12 px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-primary">
+    <div className="login-page relative flex min-h-screen items-center justify-center overflow-hidden bg-[radial-gradient(circle_at_15%_20%,hsl(var(--primary)/0.18),transparent_45%),radial-gradient(circle_at_82%_18%,hsl(199_92%_52%/0.16),transparent_42%),hsl(var(--background))] px-4 py-8">
+      <div className="login-overlay pointer-events-none absolute inset-0 bg-[linear-gradient(125deg,transparent_20%,hsl(var(--primary)/0.04)_42%,transparent_75%)]" />
+      <div className="login-card relative grid w-full max-w-5xl overflow-hidden rounded-[2rem] border border-border/60 bg-card/88 shadow-[0_45px_100px_-45px_rgba(15,23,42,0.7)] backdrop-blur-xl lg:grid-cols-[1.05fr_0.95fr]">
+        <section className="login-info hidden h-full flex-col justify-between border-r border-border/50 bg-[linear-gradient(150deg,hsl(var(--primary)/0.22)_0%,hsl(var(--primary)/0.03)_58%,transparent_100%)] p-10 lg:flex">
+          <div className="login-pill inline-flex w-fit items-center gap-2 rounded-full border border-primary/35 bg-primary/12 px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-primary">
             <Sparkles className="h-3.5 w-3.5" />
-            Exam Prep v4
+            Exam Duck
           </div>
-          <div className="space-y-4">
+          <div className="login-copy space-y-4">
             <h1 className="text-4xl font-semibold tracking-[-0.04em] text-foreground">
               Odaklı çalış, akıllı tekrar et.
             </h1>
             <p className="max-w-md text-sm leading-6 text-muted-foreground">
-              Not akışı, soru tekrarı ve test merkezine tek panelden eriş. Hesabınla giriş yap, verilerin aynı sunucu üzerinden düzenli çalışsın.
+              Not akışı, soru tekrarı ve test merkezine tek panelden eriş.
+              Hesabınla giriş yap, verilerin aynı sunucu üzerinden düzenli
+              çalışsın.
             </p>
           </div>
-          <div className="grid gap-3 text-sm text-muted-foreground">
+          <div className="login-benefits grid gap-3 text-sm text-muted-foreground">
             <p className="inline-flex items-center gap-2">
               <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-              Şifreler salt + hash olarak saklanır
+              Yapay zeka destekli koçluk sistemi
             </p>
             <p className="inline-flex items-center gap-2">
               <CheckCircle2 className="h-4 w-4 text-emerald-500" />
@@ -137,9 +154,9 @@ export default function Login({ onAuthenticated }: LoginPageProps) {
           </div>
         </section>
 
-        <section className="p-6 sm:p-10">
+        <section className="login-form-panel p-6 sm:p-10">
           <div className="mx-auto w-full max-w-md">
-            <div className="mb-8">
+            <div className="login-heading mb-8">
               <p className="text-xs font-semibold uppercase tracking-[0.2em] text-primary/80">
                 {isRegister ? "Yeni hesap" : "Hoş geldin"}
               </p>
@@ -153,7 +170,7 @@ export default function Login({ onAuthenticated }: LoginPageProps) {
               </p>
             </div>
 
-            <div className="mb-5 grid grid-cols-2 rounded-2xl border border-border/60 bg-background/70 p-1">
+            <div className="login-tabs mb-5 grid grid-cols-2 rounded-2xl border border-border/60 bg-background/70 p-1">
               <button
                 type="button"
                 onClick={() => {
@@ -161,7 +178,9 @@ export default function Login({ onAuthenticated }: LoginPageProps) {
                   setError(null);
                 }}
                 className={`rounded-xl px-3 py-2 text-sm font-semibold transition ${
-                  !isRegister ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+                  !isRegister
+                    ? "login-tab-active bg-primary text-primary-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
                 }`}
               >
                 Giriş yap
@@ -173,19 +192,21 @@ export default function Login({ onAuthenticated }: LoginPageProps) {
                   setError(null);
                 }}
                 className={`rounded-xl px-3 py-2 text-sm font-semibold transition ${
-                  isRegister ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+                  isRegister
+                    ? "login-tab-active bg-primary text-primary-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
                 }`}
               >
                 Kayıt ol
               </button>
             </div>
 
-            <form className="space-y-4" onSubmit={handleSubmit}>
+            <form className="login-form space-y-4" onSubmit={handleSubmit}>
               {isRegister && (
                 <div className="space-y-2">
                   <Label htmlFor="login-name">Ad Soyad</Label>
                   <div className="relative">
-                    <User className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                    <User className="login-input-icon pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                     <Input
                       id="login-name"
                       autoComplete="name"
@@ -201,14 +222,14 @@ export default function Login({ onAuthenticated }: LoginPageProps) {
               <div className="space-y-2">
                 <Label htmlFor="login-email">E-posta</Label>
                 <div className="relative">
-                  <Mail className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <Mail className="login-input-icon pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                   <Input
                     id="login-email"
                     type="email"
                     autoComplete="email"
                     value={email}
                     onChange={(event) => setEmail(event.target.value)}
-                    placeholder="ornek@examprep.app"
+                    placeholder="ornek@examduck.app"
                     className="h-12 rounded-xl border-border/70 bg-background/82 pl-10"
                   />
                 </div>
@@ -217,7 +238,7 @@ export default function Login({ onAuthenticated }: LoginPageProps) {
               <div className="space-y-2">
                 <Label htmlFor="login-password">Şifre</Label>
                 <div className="relative">
-                  <Lock className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <Lock className="login-input-icon pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                   <Input
                     id="login-password"
                     type="password"
@@ -231,7 +252,10 @@ export default function Login({ onAuthenticated }: LoginPageProps) {
               </div>
 
               <label className="inline-flex cursor-pointer items-center gap-2.5 text-sm text-muted-foreground">
-                <Checkbox checked={remember} onCheckedChange={(checked) => setRemember(Boolean(checked))} />
+                <Checkbox
+                  checked={remember}
+                  onCheckedChange={(checked) => setRemember(Boolean(checked))}
+                />
                 Beni hatırla
               </label>
 
@@ -241,7 +265,11 @@ export default function Login({ onAuthenticated }: LoginPageProps) {
                 </p>
               ) : null}
 
-              <Button type="submit" disabled={isSubmitting} className="h-12 w-full rounded-xl text-sm font-semibold">
+              <Button
+                type="submit"
+                disabled={isSubmitting}
+                className="login-submit h-12 w-full rounded-xl text-sm font-semibold"
+              >
                 {isSubmitting ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 ) : isRegister ? (

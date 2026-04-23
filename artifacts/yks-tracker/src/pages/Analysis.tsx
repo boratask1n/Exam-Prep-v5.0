@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { useQueryClient } from "@tanstack/react-query";
 import { getListTestsQueryKey } from "@workspace/api-client-react";
@@ -251,7 +251,7 @@ export default function Analysis() {
       setInfoNotice(null);
     } catch (err) {
       console.error(err);
-      setError("Yapay zeka analizi alınamadı.");
+      setError("Duck analizi alınamadı.");
     } finally {
       setAiLoading(false);
     }
@@ -266,7 +266,7 @@ export default function Analysis() {
     window.localStorage.removeItem(AI_INSIGHTS_CACHE_KEY);
     setAiInsights(null);
     setAiRequestedAt(null);
-    setInfoNotice("Kaydedilmiş AI analizi tüm cihazlar için temizlendi.");
+      setInfoNotice("Kaydedilmiş Duck analizi tüm cihazlar için temizlendi.");
   };
 
   const createTestFromAiSuggestion = async () => {
@@ -318,17 +318,17 @@ export default function Analysis() {
       }
 
       if (!created || created.questionCount < 1) {
-        throw new Error("AI suggested test created with zero questions");
+      throw new Error("Duck suggested test created with zero questions");
       }
 
       clearTestLocalStorage(created.id);
       await queryClient.invalidateQueries({ queryKey: getListTestsQueryKey() });
       setError(null);
-      setInfoNotice(`AI test önerisi oluşturuldu (${created.questionCount} soru). Test merkezine yönlendiriliyorsun.`);
+      setInfoNotice(`Duck test önerisi oluşturuldu (${created.questionCount} soru). Test merkezine yönlendiriliyorsun.`);
       setLocation("/tests");
     } catch (err) {
       console.error(err);
-      setError("AI öneri testi oluşturulamadı.");
+      setError("Duck öneri testi oluşturulamadı.");
       setInfoNotice(null);
     } finally {
       setAiCreatingTest(false);
@@ -339,7 +339,7 @@ export default function Analysis() {
     setCreatingDiagnosticTest(true);
     try {
       const payload = {
-        name: "AI Kazanım Tarama Testi",
+        name: "Duck Kazanım Tarama Testi",
         count: 20,
         timeLimitSeconds: 40 * 60,
       };
@@ -361,7 +361,7 @@ export default function Analysis() {
       await queryClient.invalidateQueries({ queryKey: getListTestsQueryKey() });
       setError(null);
       setInfoNotice(
-        `AI kazanım tarama testi oluşturuldu (${created.questionCount} soru). Test merkezine yönlendiriliyorsun.`,
+      `Duck kazanım tarama testi oluşturuldu (${created.questionCount} soru). Test merkezine yönlendiriliyorsun.`,
       );
       setLocation("/tests");
     } catch (err) {
@@ -404,11 +404,11 @@ export default function Analysis() {
   const differentiatedRepeatReminders = (data?.repeatReminders ?? []).filter(
     (item) => !weakTopicKeySet.has(`${item.lesson}__${item.topic}`),
   );
-  const runtimeProviderLabel = aiStatus?.provider === "gemini" ? "Gemini hazır" : "Fallback aktif";
+  const runtimeProviderLabel = aiStatus?.provider === "gemini" ? "Duck aktif" : "Duck yedek modda";
   const runtimeProviderTone =
     aiStatus?.provider === "gemini" ? "bg-emerald-500/15 text-emerald-300" : "bg-amber-500/15 text-amber-300";
   const lastAnalysisSourceLabel =
-    aiInsights?.generatedBy === "ai" ? "Son analiz: AI" : aiInsights?.generatedBy === "rule_based" ? "Son analiz: Kural tabanlı" : null;
+    aiInsights?.generatedBy === "ai" ? "Son analiz: Duck" : aiInsights?.generatedBy === "rule_based" ? "Son analiz: Kural tabanlı" : null;
   const aiRequestedAtLabel = aiRequestedAt ? new Date(aiRequestedAt).toLocaleString("tr-TR") : null;
   const showDiagnosticPrompt =
     aiInsights?.generatedBy === "rule_based" &&
@@ -595,7 +595,7 @@ export default function Analysis() {
                       <p className="truncate text-sm font-semibold text-foreground">{topic.topic}</p>
                       <p className="text-xs text-muted-foreground">{topic.lesson}</p>
                     </div>
-                    <span className="rounded-full bg-primary/20 px-2 py-0.5 text-[10px] font-medium text-primary">AI önerisi</span>
+                    <span className="rounded-full bg-primary/20 px-2 py-0.5 text-[10px] font-medium text-primary">Duck önerisi</span>
                   </div>
                   <p className="text-[11px] text-muted-foreground">{topic.why}</p>
                   <p className="mt-1 text-[11px] text-primary/90">{topic.suggestion}</p>
@@ -603,7 +603,7 @@ export default function Analysis() {
               ))}
               {hideSystemSuggestions && (aiInsights?.aiWeakTopicHints?.length ?? 0) === 0 && (
                 <p className="rounded-xl border border-border/50 bg-card/50 p-3 text-xs text-muted-foreground">
-                  Bu tarih aralığı için AI ek zayıf konu önerisi üretmedi.
+                  Bu tarih aralığı için Duck ek zayıf konu önerisi üretmedi.
                 </p>
               )}
             </div>
@@ -627,7 +627,7 @@ export default function Analysis() {
                 <div key={`ai-repeat-${item.lesson}-${item.topic}`} className="rounded-xl border border-primary/40 bg-primary/10 p-3">
                   <div className="mb-1 flex items-center justify-between gap-2">
                     <p className="text-sm font-semibold text-foreground">{item.topic}</p>
-                    <span className="rounded-full bg-primary/20 px-2 py-0.5 text-[10px] font-medium text-primary">AI önerisi</span>
+                    <span className="rounded-full bg-primary/20 px-2 py-0.5 text-[10px] font-medium text-primary">Duck önerisi</span>
                   </div>
                   <p className="text-xs text-muted-foreground">{item.lesson} · {item.cadence}</p>
                   <p className="mt-1 text-[11px] text-primary/90">{item.suggestion}</p>
@@ -635,7 +635,7 @@ export default function Analysis() {
               ))}
               {hideSystemSuggestions && (aiInsights?.aiRepeatHints?.length ?? 0) === 0 && (
                 <p className="rounded-xl border border-border/50 bg-card/50 p-3 text-xs text-muted-foreground">
-                  Bu tarih aralığı için AI ek tekrar önerisi üretmedi.
+                  Bu tarih aralığı için Duck ek tekrar önerisi üretmedi.
                 </p>
               )}
             </div>
@@ -646,7 +646,7 @@ export default function Analysis() {
           <div className="mb-4 flex items-center justify-between">
             <h2 className="flex items-center gap-2 text-lg font-semibold text-foreground">
               <Brain className="h-5 w-5 text-primary" />
-              Yapay Zeka Destekli Çalışma Önerisi
+              Duck Destekli Çalışma Önerisi
             </h2>
             <div className="flex items-center gap-2 flex-wrap justify-end">
               <button
@@ -655,7 +655,7 @@ export default function Analysis() {
                 disabled={aiLoading}
                 className="inline-flex items-center gap-2 rounded-xl border border-border/60 bg-card/60 px-3 py-1.5 text-xs text-foreground hover:bg-foreground/[0.04] disabled:opacity-60"
               >
-                {aiLoading ? "Analiz hazırlanıyor..." : "Yapay zeka analizi üret"}
+                {aiLoading ? "Analiz hazırlanıyor..." : "Duck analizi üret"}
               </button>
               {aiInsights && (
                 <button
@@ -663,7 +663,7 @@ export default function Analysis() {
                   onClick={() => void clearAiInsightsCache()}
                   className="inline-flex items-center gap-2 rounded-xl border border-border/60 bg-card/60 px-3 py-1.5 text-xs text-muted-foreground hover:bg-foreground/[0.04] hover:text-foreground"
                 >
-                  AI önbelleğini temizle
+                  Duck önbelleğini temizle
                 </button>
               )}
               <span className={cn("rounded-full px-2 py-1 text-[11px] font-medium", runtimeProviderTone)}>
@@ -673,12 +673,12 @@ export default function Analysis() {
           </div>
 
           <p className="mb-3 text-xs text-muted-foreground">
-            Not: Gemini analizi sadece butona bastığında çağrılır. AI yorumu menüde seçtiğin tarih aralığından bağımsız olarak tüm geçmişi değerlendirir ve son sonuç hesabınla senkron şekilde tüm cihazlarda görünür; istersen tek tuşla temizleyebilirsin.
+            Not: Duck analizi sadece butona bastığında hazırlanır. Duck yorumu menüde seçtiğin tarih aralığından bağımsız olarak tüm geçmişi değerlendirir ve son sonuç hesabınla senkron şekilde tüm cihazlarda görünür; istersen tek tuşla temizleyebilirsin.
           </p>
           {showDiagnosticPrompt && (
             <div className="mb-3 rounded-xl border border-primary/40 bg-primary/10 p-3">
               <p className="text-xs text-foreground/90">
-                Henüz analiz verisi yok. İlk değerlendirme için soru havuzundan bir AI kazanım tarama testi oluşturup test merkezinde çözebilirsin.
+                Henüz analiz verisi yok. İlk değerlendirme için soru havuzundan bir Duck kazanım tarama testi oluşturup test merkezinde çözebilirsin.
               </p>
               <button
                 type="button"
@@ -686,7 +686,7 @@ export default function Analysis() {
                 disabled={creatingDiagnosticTest}
                 className="mt-2 inline-flex items-center gap-2 rounded-xl border border-primary/50 bg-primary/20 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/25 disabled:opacity-60"
               >
-                {creatingDiagnosticTest ? "Tarama testi oluşturuluyor..." : "Veri oluştur: AI tarama testi oluştur"}
+                {creatingDiagnosticTest ? "Tarama testi oluşturuluyor..." : "Veri oluştur: Duck tarama testi oluştur"}
               </button>
             </div>
           )}
@@ -695,7 +695,7 @@ export default function Analysis() {
           )}
           {aiRequestedAtLabel && (
             <p className="mb-3 text-xs text-muted-foreground">
-              Son AI analizi: Tüm zamanlar ({aiRequestedAtLabel})
+              Son Duck analizi: Tüm zamanlar ({aiRequestedAtLabel})
             </p>
           )}
 
@@ -703,7 +703,7 @@ export default function Analysis() {
 
           {!aiLoading && !aiInsights && (
             <p className="rounded-xl border border-border/50 bg-card/50 p-4 text-sm text-muted-foreground">
-              Yapay zeka analizi görmek için "Yapay zeka analizi üret" butonuna bas. Bu bölüm tarih filtresinden bağımsız olarak tüm çalışma geçmişini değerlendirir.
+              Duck analizini görmek için "Duck analizi üret" butonuna bas. Bu bölüm tarih filtresinden bağımsız olarak tüm çalışma geçmişini değerlendirir.
             </p>
           )}
 
@@ -741,7 +741,7 @@ export default function Analysis() {
                 <article className="rounded-xl border border-primary/40 bg-primary/10 p-4 lg:col-span-3">
                   <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                     <h3 className="text-sm font-semibold text-foreground">{aiInsights.aiSuggestedTest.name}</h3>
-                    <span className="rounded-full bg-primary/20 px-2 py-1 text-[11px] font-medium text-primary">AI test önerisi</span>
+                    <span className="rounded-full bg-primary/20 px-2 py-1 text-[11px] font-medium text-primary">Duck test önerisi</span>
                   </div>
                   <p className="text-xs text-foreground/90">{aiInsights.aiSuggestedTest.reason}</p>
                   <p className="mt-1 text-xs text-muted-foreground">
@@ -753,7 +753,7 @@ export default function Analysis() {
                     disabled={aiCreatingTest}
                     className="mt-3 inline-flex items-center gap-2 rounded-xl border border-primary/50 bg-primary/20 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/25 disabled:opacity-60"
                   >
-                    {aiCreatingTest ? "Oluşturuluyor..." : "Bu AI testini oluştur"}
+                    {aiCreatingTest ? "Oluşturuluyor..." : "Bu Duck testini oluştur"}
                   </button>
                 </article>
               )}

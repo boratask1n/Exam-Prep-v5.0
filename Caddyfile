@@ -1,0 +1,12 @@
+examduck.mooo.com, examduck.duckdns.org {
+	encode zstd gzip
+
+	handle_path /desktop-updates/* {
+		root * /srv/desktop-updates
+		file_server
+	}
+
+	handle {
+		reverse_proxy host.docker.internal:8082
+	}
+}

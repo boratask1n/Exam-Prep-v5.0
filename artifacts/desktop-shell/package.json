@@ -1,17 +1,18 @@
 {
   "name": "@workspace/desktop-shell",
-  "version": "0.0.0",
+  "version": "0.1.1",
   "private": true,
-  "description": "Exam Prep desktop shell for Windows and macOS",
-  "author": "Exam Prep",
+  "description": "Exam Duck desktop shell for Windows and macOS",
+  "author": "Exam Duck",
   "main": "src/main.cjs",
   "scripts": {
-    "dev": "electron ./src/main.cjs",
-    "pack": "electron-builder --dir",
-    "dist:win": "electron-builder --win portable nsis",
-    "dist:win:setup": "electron-builder --win nsis",
-    "dist:win:portable": "electron-builder --win portable",
-    "dist:mac": "electron-builder --mac dmg zip"
+    "prepare:web": "node ./scripts/prepare-web.cjs",
+    "dev": "pnpm run prepare:web && electron ./src/main.cjs",
+    "pack": "pnpm run prepare:web && electron-builder --dir",
+    "dist:win": "pnpm run prepare:web && electron-builder --win portable nsis",
+    "dist:win:setup": "pnpm run prepare:web && electron-builder --win nsis",
+    "dist:win:portable": "pnpm run prepare:web && electron-builder --win portable",
+    "dist:mac": "pnpm run prepare:web && electron-builder --mac dmg zip"
   },
   "devDependencies": {
     "electron": "^34.5.8",
@@ -20,7 +21,8 @@
   },
   "build": {
     "appId": "com.examprep.desktop",
-    "productName": "Exam Prep",
+    "productName": "Exam Duck",
+    "artifactName": "Exam-Duck-${version}-${os}-${arch}.${ext}",
     "directories": {
       "output": "release"
     },
@@ -28,7 +30,14 @@
       "src/**/*",
       "package.json"
     ],
+    "extraResources": [
+      {
+        "from": "web",
+        "to": "web"
+      }
+    ],
     "win": {
+      "icon": "build/icon.ico",
       "signAndEditExecutable": false,
       "verifyUpdateCodeSignature": false,
       "target": [
@@ -48,6 +57,15 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true
-    }
+    },
+    "publish": [
+      {
+        "provider": "generic",
+        "url": "https://examduck.mooo.com/desktop-updates/"
+      }
+    ]
+  },
+  "dependencies": {
+    "electron-updater": "6.6.2"
   }
 }

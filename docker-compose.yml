@@ -49,8 +49,28 @@ services:
     networks:
       - exam_prep_net
 
+  caddy:
+    image: caddy:2
+    container_name: exam-prep-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./artifacts/desktop-shell/release:/srv/desktop-updates:ro
+      - exam_prep_caddy_data:/data
+      - exam_prep_caddy_config:/config
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - exam_prep_net
+
 volumes:
   exam_prep_pg_data:
+  exam_prep_caddy_data:
+  exam_prep_caddy_config:
 
 networks:
   exam_prep_net:

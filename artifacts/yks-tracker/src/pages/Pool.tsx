@@ -1,45 +1,41 @@
-﻿import {
+import {
   lazy,
+  memo,
   Suspense,
-  useState,
-  useEffect,
+  useCallback,
   useMemo,
   useRef,
-  useCallback,
-  memo,
+  useState,
+  useEffect,
 } from "react";
 import {
-  useListQuestions,
-  useGetFilterOptions,
-  useDeleteQuestion,
-  useGetDrawing,
+  Question,
   QuestionCategory,
   QuestionSource,
   QuestionStatus,
+  useDeleteQuestion,
+  useGetDrawing,
+  useGetFilterOptions,
+  useListQuestions,
+  useUpdateQuestion,
 } from "@workspace/api-client-react";
-import { Badge } from "@/components/ui/badge";
+import { keepPreviousData, useQueryClient } from "@tanstack/react-query";
 import {
-  Filter,
   Book,
-  FileText,
   CheckCircle2,
-  XCircle,
-  Trash2,
-  Clock,
-  Pencil,
   ChevronLeft,
   ChevronRight,
+  Clock,
+  FileText,
+  Filter,
+  Pencil,
   Plus,
   Search,
+  Trash2,
+  XCircle,
   Youtube,
 } from "lucide-react";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -49,25 +45,21 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   PageHeader,
   PageSection,
   PageShell,
 } from "@/components/layout/PageShell";
-import {
-  AlertDialog,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import { cn } from "@/lib/utils";
-import { keepPreviousData, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
-import { getLessonsForCategory, getTopicsForLesson } from "@/lib/lessonTopics";
-import { useUpdateQuestion } from "@workspace/api-client-react";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
+import { cn } from "@/lib/utils";
+import { getLessonsForCategory, getTopicsForLesson } from "@/lib/lessonTopics";
 import {
   formatVideoTimestampRange,
   getYoutubeWatchUrl,
@@ -86,8 +78,35 @@ const DrawingCanvas = lazy(() =>
 );
 
 type QuestionBadgeType = "osym" | "premium";
+type Filters = {
+  category?: QuestionCategory;
+  source?: QuestionSource;
+  lesson?: string;
+  topic?: string;
+  status?: QuestionStatus;
+  isOsymBadge?: boolean;
+  isPremiumBadge?: boolean;
+};
+
+const PAGE_SIZE = 20;
 const QUESTION_BADGE_OSYM = `${import.meta.env.BASE_URL}images/badge-osym.png`;
 const QUESTION_BADGE_PREMIUM = `${import.meta.env.BASE_URL}images/badge-premium.png`;
+
+const STATUS_LABELS: Record<QuestionStatus, string> = {
+  [QuestionStatus.Cozulmedi]: "Beklemede",
+  [QuestionStatus.DogruCozuldu]: "Doğru",
+  [QuestionStatus.YanlisHocayaSor]: "Yanlış",
+};
+
+const StatusIcon = memo(function StatusIcon({ status }: { status: string }) {
+  if (status === QuestionStatus.DogruCozuldu) {
+    return <CheckCircle2 className="h-4 w-4 text-green-500" />;
+  }
+  if (status === QuestionStatus.YanlisHocayaSor) {
+    return <XCircle className="h-4 w-4 text-destructive" />;
+  }
+  return <Clock className="h-4 w-4 text-muted-foreground" />;
+});
 
 const QuestionPreviewBadge = memo(function QuestionPreviewBadge({
   type,
@@ -95,30 +114,16 @@ const QuestionPreviewBadge = memo(function QuestionPreviewBadge({
   type: QuestionBadgeType;
 }) {
   return (
-    <div className="relative h-[58px] w-[58px]">
-      <img
-        src={type === "osym" ? QUESTION_BADGE_OSYM : QUESTION_BADGE_PREMIUM}
-        alt={
-          type === "osym"
-            ? "\u00d6SYM \u00e7\u0131km\u0131\u015f sorular badge"
-            : "Kaliteli Soru badge"
-        }
-        className="h-full w-full object-contain"
-        loading="lazy"
-      />
-    </div>
+    <img
+      src={type === "osym" ? QUESTION_BADGE_OSYM : QUESTION_BADGE_PREMIUM}
+      alt={type === "osym" ? "ÖSYM çıkmış sorular" : "Kaliteli Soru"}
+      className="h-[58px] w-[58px] object-contain"
+      loading="lazy"
+      decoding="async"
+    />
   );
 });
 
-const StatusIcon = memo(function StatusIcon({ status }: { status: string }) {
-  if (status === QuestionStatus.DogruCozuldu)
-    return <CheckCircle2 className="w-4 h-4 text-green-500" />;
-  if (status === QuestionStatus.YanlisHocayaSor)
-    return <XCircle className="w-4 h-4 text-destructive" />;
-  return <Clock className="w-4 h-4 text-muted-foreground" />;
-});
-
-// Lazy loading image component
 const LazyImage = memo(function LazyImage({
   src,
   alt,
@@ -127,9 +132,12 @@ const LazyImage = memo(function LazyImage({
   alt: string;
 }) {
   const [isVisible, setIsVisible] = useState(false);
-  const imgRef = useRef<HTMLDivElement>(null);
+  const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    const node = ref.current;
+    if (!node) return;
+
     const observer = new IntersectionObserver(
       ([entry]) => {
         if (entry.isIntersecting) {
@@ -137,32 +145,26 @@ const LazyImage = memo(function LazyImage({
           observer.disconnect();
         }
       },
-      { rootMargin: "50px" },
+      { rootMargin: "120px" },
     );
 
-    if (imgRef.current) {
-      observer.observe(imgRef.current);
-    }
-
+    observer.observe(node);
     return () => observer.disconnect();
   }, []);
 
   return (
-    <div
-      ref={imgRef}
-      className="w-full h-full flex items-center justify-center"
-    >
+    <div ref={ref} className="flex h-full w-full items-center justify-center">
       {isVisible ? (
         <img
           src={src}
           alt={alt}
-          className="max-w-full max-h-full object-contain rounded"
+          className="max-h-full max-w-full rounded object-contain"
           loading="lazy"
           decoding="async"
           fetchPriority="low"
         />
       ) : (
-        <div className="bg-muted/30 w-full h-full rounded" />
+        <div className="h-full w-full rounded bg-muted/30" />
       )}
     </div>
   );
@@ -177,68 +179,247 @@ function CanvasModal({
   imageUrl?: string | null;
   onClose: () => void;
 }) {
-  const { data, isLoading } = useGetDrawing(questionId);
-  if (isLoading)
-    return (
-      <div className="w-full h-full flex items-center justify-center">
-        <div className="animate-spin h-8 w-8 border-b-2 border-white rounded-full" />
-      </div>
-    );
+  const { data, isLoading } = useGetDrawing(questionId, {
+    query: { staleTime: 30_000, refetchOnWindowFocus: false } as any,
+  });
+
   return (
-    <Suspense
-      fallback={
-        <div className="w-full h-full flex items-center justify-center">
-          <div className="animate-spin h-8 w-8 border-b-2 border-white rounded-full" />
+    <div className="fixed inset-0 z-50 bg-slate-950/92">
+      <button
+        type="button"
+        onClick={onClose}
+        className="absolute right-4 top-4 z-10 rounded-lg bg-white px-3 py-2 text-sm font-semibold text-slate-950"
+      >
+        Kapat
+      </button>
+      {isLoading ? (
+        <div className="flex h-full w-full items-center justify-center">
+          <div className="h-8 w-8 animate-spin rounded-full border-b-2 border-white" />
         </div>
-      }
-    >
-      <DrawingCanvas
-        questionId={questionId}
-        imageUrl={imageUrl}
-        initialData={data?.canvasData}
-        onClose={onClose}
-      />
-    </Suspense>
+      ) : (
+        <Suspense
+          fallback={
+            <div className="flex h-full w-full items-center justify-center text-white">
+              Yükleniyor...
+            </div>
+          }
+        >
+          <DrawingCanvas
+            questionId={questionId}
+            imageUrl={imageUrl}
+            initialData={data?.canvasData}
+            onClose={onClose}
+          />
+        </Suspense>
+      )}
+    </div>
   );
 }
 
+const QuestionCard = memo(function QuestionCard({
+  question,
+  onOpenCanvas,
+  onEdit,
+  onDelete,
+  onToggleBadge,
+}: {
+  question: Question;
+  onOpenCanvas: (id: number) => void;
+  onEdit: (question: Question) => void;
+  onDelete: (id: number) => void;
+  onToggleBadge: (question: Question, badgeType: QuestionBadgeType) => void;
+}) {
+  const youtubeUrl = getYoutubeWatchUrl(
+    question.solutionYoutubeUrl || question.solutionUrl,
+    question.solutionYoutubeStartSecond,
+    question.solutionYoutubeEndSecond,
+  );
+  const timestamp = formatVideoTimestampRange(
+    question.solutionYoutubeStartSecond,
+    question.solutionYoutubeEndSecond,
+  );
+
+  return (
+    <article
+      onClick={() => onOpenCanvas(question.id)}
+      className={cn(
+        "group relative flex min-h-[340px] cursor-pointer flex-col overflow-hidden rounded-2xl border border-border/40 bg-card shadow-sm transition-colors duration-150 hover:border-primary/50",
+        "[content-visibility:auto] [contain-intrinsic-size:340px] [contain:layout_paint_style]",
+      )}
+    >
+      <div className="relative flex h-40 items-center justify-center overflow-hidden border-b border-border/40 bg-muted/20 p-3">
+        {question.imageUrl ? (
+          <LazyImage src={question.imageUrl} alt={question.topic || "Soru"} />
+        ) : (
+          <span className="text-base font-medium text-muted-foreground/30">
+            Görsel Yok
+          </span>
+        )}
+
+        <div className="absolute left-2 top-2 flex flex-col gap-1">
+          <Badge
+            variant="secondary"
+            className="rounded-lg border-border/50 bg-background/95 px-2 py-0.5 text-xs shadow-sm"
+          >
+            {question.category}
+          </Badge>
+          {question.hasDrawing ? (
+            <Badge className="rounded-lg bg-primary/90 px-1.5 py-0 text-[10px] text-white shadow-sm">
+              Çizim
+            </Badge>
+          ) : null}
+        </div>
+
+        {(question.isOsymBadge || question.isPremiumBadge) && (
+          <div className="pointer-events-none absolute right-2 top-10 z-10 flex flex-col items-end gap-1.5">
+            {question.isOsymBadge ? <QuestionPreviewBadge type="osym" /> : null}
+            {question.isPremiumBadge ? (
+              <QuestionPreviewBadge type="premium" />
+            ) : null}
+          </div>
+        )}
+
+        <div
+          className="absolute right-2 top-2 flex gap-1.5"
+          onClick={(event) => event.stopPropagation()}
+        >
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                className="flex h-7 w-7 items-center justify-center rounded-full bg-[#4c6fff] text-white shadow-sm transition-colors hover:bg-[#3f62f4]"
+              >
+                <Plus className="h-4 w-4" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              align="end"
+              className="w-56 rounded-2xl border-border/60 bg-background p-2 shadow-md"
+            >
+              <DropdownMenuItem
+                className="rounded-xl py-2"
+                onClick={() => void onToggleBadge(question, "osym")}
+              >
+                <span className="mr-2 inline-flex h-2.5 w-2.5 rounded-full bg-[#d85d10]" />
+                {question.isOsymBadge
+                  ? "ÖSYM badge'ini kaldır"
+                  : "ÖSYM çıkmış sorular ekle"}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                className="rounded-xl py-2"
+                onClick={() => void onToggleBadge(question, "premium")}
+              >
+                <span className="mr-2 inline-flex h-2.5 w-2.5 rounded-full bg-[#4c6fff]" />
+                {question.isPremiumBadge
+                  ? "Kaliteli Soru badge'ini kaldır"
+                  : "Kaliteli Soru badge'i ekle"}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <button
+            type="button"
+            onClick={() => onEdit(question)}
+            className="rounded-lg bg-primary/90 p-1.5 text-white shadow-sm transition-colors hover:bg-primary"
+          >
+            <Pencil className="h-3.5 w-3.5" />
+          </button>
+          <button
+            type="button"
+            onClick={() => onDelete(question.id)}
+            className="rounded-lg bg-destructive/90 p-1.5 text-white shadow-sm transition-colors hover:bg-destructive"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      </div>
+
+      <div className="flex flex-1 flex-col p-4">
+        <div className="mb-1.5 flex items-start justify-between gap-3">
+          <h3 className="line-clamp-1 font-semibold text-foreground">
+            {question.lesson}
+          </h3>
+          <StatusIcon status={question.status} />
+        </div>
+        <p className="mb-1 line-clamp-1 text-sm text-muted-foreground">
+          {question.topic || "Konu belirtilmedi"}
+        </p>
+        {question.description ? (
+          <p className="mb-2 line-clamp-2 text-xs italic text-muted-foreground/70">
+            {question.description}
+          </p>
+        ) : null}
+
+        {youtubeUrl ? (
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              window.open(youtubeUrl, "_blank", "noopener,noreferrer");
+            }}
+            className="mb-2 inline-flex w-fit items-center gap-1.5 rounded-full border border-red-300/50 bg-red-500/10 px-2.5 py-1 text-[11px] font-medium text-red-700 transition-colors hover:bg-red-500/15 dark:border-red-400/20 dark:text-red-200"
+          >
+            <Youtube className="h-3.5 w-3.5" />
+            {timestamp}
+          </button>
+        ) : null}
+
+        <div className="mt-auto flex items-center justify-between border-t border-border/30 pt-3 text-xs text-muted-foreground/70">
+          <span className="flex min-w-0 items-center gap-1">
+            <Book className="h-3 w-3 shrink-0" />
+            <span className="truncate">{question.publisher || "—"}</span>
+          </span>
+          <span
+            className={cn(
+              "flex items-center gap-1 font-medium",
+              question.choice ? "text-primary/80" : "",
+            )}
+          >
+            {question.choice ? (
+              `Şık: ${question.choice}`
+            ) : (
+              <>
+                <FileText className="h-3 w-3" />
+                {question.source}
+              </>
+            )}
+          </span>
+        </div>
+      </div>
+    </article>
+  );
+});
+
 export default function Pool() {
-  const [filters, setFilters] = useState<{
-    category?: QuestionCategory;
-    source?: QuestionSource;
-    lesson?: string;
-    topic?: string;
-    status?: QuestionStatus;
-    isOsymBadge?: boolean;
-    isPremiumBadge?: boolean;
-  }>({});
+  const [filters, setFilters] = useState<Filters>({});
   const [searchInput, setSearchInput] = useState("");
   const [page, setPage] = useState(1);
-  const [limit] = useState(20);
-  const debouncedSearch = useDebouncedValue(searchInput, 250);
+  const [canvasQuestionId, setCanvasQuestionId] = useState<number | null>(null);
+  const [editQuestion, setEditQuestion] = useState<Question | null>(null);
 
-  const offset = (page - 1) * limit;
+  const debouncedSearch = useDebouncedValue(searchInput, 250);
+  const offset = (page - 1) * PAGE_SIZE;
+
   const questionQuery = useMemo(
     () =>
       ({
         ...filters,
         search: debouncedSearch.trim() || undefined,
         offset,
-        limit,
+        limit: PAGE_SIZE,
       }) as any,
     [
+      debouncedSearch,
       filters.category,
-      filters.source,
-      filters.lesson,
-      filters.topic,
-      filters.status,
       filters.isOsymBadge,
       filters.isPremiumBadge,
-      debouncedSearch,
+      filters.lesson,
+      filters.source,
+      filters.status,
+      filters.topic,
       offset,
-      limit,
     ],
   );
+
   const {
     data: response,
     isLoading,
@@ -250,8 +431,11 @@ export default function Pool() {
       refetchOnWindowFocus: false,
     } as any,
   });
-  const questions: any[] = (response as any)?.items || [];
-  const pagination = (response as any)?.pagination;
+  const questions = ((response as any)?.items ?? []) as Question[];
+  const pagination = (response as any)?.pagination as
+    | { total: number; limit: number; offset: number }
+    | undefined;
+
   const { data: options } = useGetFilterOptions({
     query: {
       staleTime: 60_000,
@@ -260,105 +444,116 @@ export default function Pool() {
     } as any,
   });
 
-  // Get available lessons based on selected category
-  const availableLessons = useMemo(
-    () =>
-      filters.category
-        ? getLessonsForCategory(filters.category).map((l) => l.name)
-        : options?.lessons || [],
-    [filters.category, options?.lessons],
-  );
-
-  // Get available topics based on selected category and lesson
-  const availableTopics = useMemo(
-    () =>
-      filters.category && filters.lesson
-        ? getTopicsForLesson(filters.category, filters.lesson)
-        : options?.topics || [],
-    [filters.category, filters.lesson, options?.topics],
-  );
-  const [canvasQuestionId, setCanvasQuestionId] = useState<number | null>(null);
-  const [deleteTargetId, setDeleteTargetId] = useState<number | null>(null);
   const deleteMutation = useDeleteQuestion();
   const updateQuestionMutation = useUpdateQuestion();
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
-  const confirmDeleteQuestion = useCallback(async () => {
-    if (deleteTargetId == null) return;
-    const id = deleteTargetId;
-    await deleteMutation.mutateAsync({ id });
+  const activeQuestion = useMemo(
+    () => questions.find((question) => question.id === canvasQuestionId),
+    [canvasQuestionId, questions],
+  );
+
+  const availableLessons = useMemo(
+    () =>
+      filters.category
+        ? getLessonsForCategory(filters.category).map((lesson) => lesson.name)
+        : ((options as any)?.lessons ?? []),
+    [filters.category, options],
+  );
+
+  const availableTopics = useMemo(
+    () =>
+      filters.category && filters.lesson
+        ? getTopicsForLesson(filters.category, filters.lesson)
+        : ((options as any)?.topics ?? []),
+    [filters.category, filters.lesson, options],
+  );
+
+  const stats = useMemo(() => {
+    let solved = 0;
+    let wrong = 0;
+    for (const question of questions) {
+      if (question.status === QuestionStatus.DogruCozuldu) solved += 1;
+      if (question.status === QuestionStatus.YanlisHocayaSor) wrong += 1;
+    }
+    const visible = questions.length;
+    const unsolved = Math.max(0, visible - solved - wrong);
+    const solvedPct = visible ? Math.round((solved / visible) * 100) : 0;
+    const wrongPct = visible ? Math.round((wrong / visible) * 100) : 0;
+
+    return {
+      visible,
+      total: pagination?.total ?? visible,
+      solved,
+      wrong,
+      unsolved,
+      solvedPct,
+      wrongPct,
+      unsolvedPct: visible ? Math.max(0, 100 - solvedPct - wrongPct) : 100,
+    };
+  }, [pagination?.total, questions]);
+
+  const invalidateQuestions = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: ["/api/questions"] });
-    toast({ title: "Soru silindi" });
-    setDeleteTargetId(null);
-  }, [deleteMutation, deleteTargetId, queryClient, toast]);
+    queryClient.invalidateQueries({ queryKey: ["/api/filters/options"] });
+  }, [queryClient]);
+
+  const updateFilter = useCallback((patch: Partial<Filters>) => {
+    setPage(1);
+    setFilters((current) => ({ ...current, ...patch }));
+  }, []);
+
+  const clearFilters = useCallback(() => {
+    setPage(1);
+    setFilters({});
+    setSearchInput("");
+  }, []);
+
+  const deleteQuestion = useCallback(
+    async (id: number) => {
+      if (!window.confirm("Bu soruyu silmek istiyor musun?")) return;
+      await deleteMutation.mutateAsync({ id });
+      invalidateQuestions();
+      toast({ title: "Soru silindi" });
+    },
+    [deleteMutation, invalidateQuestions, toast],
+  );
 
   const toggleQuestionBadge = useCallback(
-    async (question: any, badgeType: QuestionBadgeType) => {
+    async (question: Question, badgeType: QuestionBadgeType) => {
       const nextValue =
-        badgeType === "osym" ? !question.isOsymBadge : !question.isPremiumBadge;
+        badgeType === "osym"
+          ? !question.isOsymBadge
+          : !question.isPremiumBadge;
 
       await updateQuestionMutation.mutateAsync({
         id: question.id,
         data: {
           isOsymBadge:
-            badgeType === "osym" ? nextValue : Boolean(question.isOsymBadge),
+            badgeType === "osym" ? nextValue : question.isOsymBadge,
           isPremiumBadge:
-            badgeType === "premium"
-              ? nextValue
-              : Boolean(question.isPremiumBadge),
+            badgeType === "premium" ? nextValue : question.isPremiumBadge,
         },
       });
 
-      queryClient.invalidateQueries({ queryKey: ["/api/questions"] });
-      toast({
-        title: nextValue ? "Badge eklendi" : "Badge kaldırıldı",
-        description:
-          badgeType === "osym"
-            ? "ÖSYM çıkmış sorular badge'i güncellendi."
-            : "Kaliteli Soru badge'i güncellendi.",
-      });
+      invalidateQuestions();
+      toast({ title: nextValue ? "Badge eklendi" : "Badge kaldırıldı" });
     },
-    [queryClient, toast, updateQuestionMutation],
+    [invalidateQuestions, toast, updateQuestionMutation],
   );
 
-  const activeQuestion = questions?.find((q: any) => q.id === canvasQuestionId);
+  const hasActiveFilters =
+    Boolean(filters.category) ||
+    Boolean(filters.lesson) ||
+    Boolean(filters.topic) ||
+    Boolean(filters.status) ||
+    Boolean(filters.source) ||
+    Boolean(filters.isOsymBadge) ||
+    Boolean(filters.isPremiumBadge) ||
+    Boolean(searchInput);
 
-  const {
-    visibleCount,
-    totalCount,
-    solvedCount,
-    wrongCount,
-    unsolvedCount,
-    solvedPct,
-    wrongPct,
-    unsolvedPct,
-  } = useMemo(() => {
-    const visible = questions?.length ?? 0;
-    const total = pagination?.total ?? visible;
-    const solved =
-      questions?.filter((q: any) => q.status === QuestionStatus.DogruCozuldu)
-        .length ?? 0;
-    const wrong =
-      questions?.filter((q: any) => q.status === QuestionStatus.YanlisHocayaSor)
-        .length ?? 0;
-    const unsolved = Math.max(0, visible - solved - wrong);
-
-    return {
-      visibleCount: visible,
-      totalCount: total,
-      solvedCount: solved,
-      wrongCount: wrong,
-      unsolvedCount: unsolved,
-      solvedPct: visible > 0 ? Math.round((solved / visible) * 100) : 0,
-      wrongPct: visible > 0 ? Math.round((wrong / visible) * 100) : 0,
-      unsolvedPct:
-        visible > 0
-          ? Math.max(0, 100 - Math.round((solved / visible) * 100) - Math.round((wrong / visible) * 100))
-          : 100,
-    };
-  }, [pagination?.total, questions]);
-  const shouldUseContentVisibility = totalCount > 24;
+  const pageCount = Math.max(1, Math.ceil((pagination?.total ?? 0) / PAGE_SIZE));
 
   return (
     <PageShell>
@@ -375,194 +570,179 @@ export default function Pool() {
               </Button>
             }
           >
-            <QuestionFormDialog />
+            <QuestionFormDialog onSaved={invalidateQuestions} />
           </Suspense>
         }
       />
 
-      {/* Progress bar - always visible */}
       <PageSection className="gap-3 backdrop-blur-none bg-white/90 dark:bg-slate-950/84">
-        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 mb-2">
-          <span className="text-sm font-medium text-muted-foreground shrink-0">
-            {visibleCount || 0} görünen soru
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <span className="text-sm font-medium text-muted-foreground">
+            {stats.visible} görünen soru
+            {stats.total !== stats.visible ? ` / ${stats.total} toplam` : ""}
           </span>
           {isFetching ? (
-            <span className="text-xs text-muted-foreground/70 shrink-0">
+            <span className="text-xs text-muted-foreground/70">
               Güncelleniyor...
             </span>
           ) : null}
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs font-medium">
-            <span className="text-green-500 shrink-0">
-              ✓ {solvedCount || 0} doğru
-            </span>
-            <span className="text-destructive shrink-0">
-              ✕ {wrongCount || 0} yanlış
-            </span>
-            <span className="text-muted-foreground shrink-0">
-              • {unsolvedCount || 0} çözülmedi
+            <span className="text-green-500">✓ {stats.solved} doğru</span>
+            <span className="text-destructive">✕ {stats.wrong} yanlış</span>
+            <span className="text-muted-foreground">
+              • {stats.unsolved} çözülmedi
             </span>
           </div>
         </div>
-        {totalCount !== visibleCount && (
-          <p className="text-xs text-muted-foreground mb-2">
-            Özet yalnızca bu sayfayı gösterir. Filtre toplamı: {totalCount}{" "}
-            soru.
-          </p>
-        )}
-        <div className="h-3 rounded-full border border-border/60 bg-muted/40 overflow-hidden flex">
-          <div
-            className="h-full bg-green-500 transition-[width] duration-500"
-            style={{ width: `${solvedPct}%` }}
-          />
-          <div
-            className="h-full bg-destructive/70 transition-[width] duration-500"
-            style={{ width: `${wrongPct}%` }}
-          />
-          <div
-            className="h-full bg-muted-foreground/35 transition-[width] duration-500"
-            style={{ width: `${unsolvedPct}%` }}
-          />
+
+        <div className="h-2 overflow-hidden rounded-full bg-muted">
+          <div className="flex h-full">
+            <div
+              className="bg-green-500"
+              style={{ width: `${stats.solvedPct}%` }}
+            />
+            <div
+              className="bg-destructive"
+              style={{ width: `${stats.wrongPct}%` }}
+            />
+            <div
+              className="bg-muted-foreground/30"
+              style={{ width: `${stats.unsolvedPct}%` }}
+            />
+          </div>
         </div>
-        {totalCount === 0 && (
-          <p className="text-xs text-muted-foreground mt-2 text-center">
-            Veri görmek için bu başlık altına soru yükleyin.
-          </p>
-        )}
       </PageSection>
 
-      {/* Filters */}
-      <PageSection className="mb-0 backdrop-blur-none bg-white/90 dark:bg-slate-950/84">
-        <div className="flex flex-wrap gap-3">
-          <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground mr-1">
-            <Filter className="w-4 h-4" /> Filtreler:
-          </div>
-
-          <div className="relative min-w-[220px] flex-1 max-w-sm">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground/70" />
+      <PageSection className="backdrop-blur-none bg-white/90 dark:bg-slate-950/84">
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="relative min-w-[240px] flex-1">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               value={searchInput}
-              onChange={(e) => {
+              onChange={(event) => {
                 setPage(1);
-                setSearchInput(e.target.value);
+                setSearchInput(event.target.value);
               }}
-              placeholder="Ders, konu, yayın veya test ara..."
+              placeholder="Ders, konu veya açıklama ara"
               className="h-9 rounded-xl border-border/50 bg-background pl-9"
             />
           </div>
 
           <Select
             value={filters.category || "ALL"}
-            onValueChange={(v) => {
-              setPage(1);
-              const newCategory =
-                v === "ALL" ? undefined : (v as QuestionCategory);
-              // If Geometri is selected, auto-set lesson to Geometri
-              if (newCategory === QuestionCategory.Geometri) {
-                setFilters((p) => ({
-                  ...p,
-                  category: newCategory,
-                  lesson: "Geometri",
-                  topic: undefined,
-                }));
-              } else {
-                setFilters((p) => ({
-                  ...p,
-                  category: newCategory,
-                  lesson: undefined,
-                  topic: undefined,
-                }));
-              }
-            }}
+            onValueChange={(value) =>
+              updateFilter({
+                category:
+                  value === "ALL" ? undefined : (value as QuestionCategory),
+                lesson: undefined,
+                topic: undefined,
+              })
+            }
           >
-            <SelectTrigger className="bg-background rounded-xl border-border/50 h-9 w-40">
+            <SelectTrigger className="h-9 w-36 rounded-xl border-border/50 bg-background">
               <SelectValue placeholder="Kategori" />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="ALL">Tüm Kategoriler</SelectItem>
-              <SelectItem value="TYT">TYT</SelectItem>
-              <SelectItem value="AYT">AYT</SelectItem>
-              <SelectItem value="Geometri">Geometri</SelectItem>
-            </SelectContent>
-          </Select>
-
-          <Select
-            value={filters.lesson || "ALL"}
-            onValueChange={(v) => {
-              setPage(1);
-              setFilters((p) => ({
-                ...p,
-                lesson: v === "ALL" ? undefined : v,
-                topic: undefined,
-              }));
-            }}
-            disabled={filters.category === "Geometri"}
-          >
-            <SelectTrigger className="bg-background rounded-xl border-border/50 h-9 w-40">
-              <SelectValue
-                placeholder={
-                  filters.category === "Geometri" ? "Geometri" : "Ders"
-                }
-              />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="ALL">Tüm Dersler</SelectItem>
-              {availableLessons.map((l) => (
-                <SelectItem key={l} value={l}>
-                  {l}
+              {Object.values(QuestionCategory).map((category) => (
+                <SelectItem key={category} value={category}>
+                  {category}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
 
-          {availableTopics.length > 0 && (
-            <Select
-              value={filters.topic || "ALL"}
-              onValueChange={(v) => {
-                setPage(1);
-                setFilters((p) => ({
-                  ...p,
-                  topic: v === "ALL" ? undefined : v,
-                }));
-              }}
-              disabled={!filters.lesson}
-            >
-              <SelectTrigger className="bg-background rounded-xl border-border/50 h-9 w-44">
-                <SelectValue
-                  placeholder={filters.lesson ? "Konu" : "Önce ders seçin"}
-                />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="ALL">Tüm Konular</SelectItem>
-                {availableTopics.map((t) => (
-                  <SelectItem key={t} value={t}>
-                    {t}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
+          <Select
+            value={filters.lesson || "ALL"}
+            onValueChange={(value) =>
+              updateFilter({
+                lesson: value === "ALL" ? undefined : value,
+                topic: undefined,
+              })
+            }
+          >
+            <SelectTrigger className="h-9 w-44 rounded-xl border-border/50 bg-background">
+              <SelectValue placeholder="Ders" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="ALL">Tüm Dersler</SelectItem>
+              {availableLessons.map((lesson: string) => (
+                <SelectItem key={lesson} value={lesson}>
+                  {lesson}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <Select
+            value={filters.topic || "ALL"}
+            onValueChange={(value) =>
+              updateFilter({ topic: value === "ALL" ? undefined : value })
+            }
+            disabled={!filters.lesson}
+          >
+            <SelectTrigger className="h-9 w-44 rounded-xl border-border/50 bg-background">
+              <SelectValue
+                placeholder={filters.lesson ? "Konu" : "Önce ders seçin"}
+              />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="ALL">Tüm Konular</SelectItem>
+              {availableTopics.map((topic: string) => (
+                <SelectItem key={topic} value={topic}>
+                  {topic}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
 
           <Select
             value={filters.source || "ALL"}
-            onValueChange={(v) => {
-              setPage(1);
-              setFilters((p) => ({
-                ...p,
-                source: v === "ALL" ? undefined : (v as QuestionSource),
-              }));
-            }}
+            onValueChange={(value) =>
+              updateFilter({
+                source: value === "ALL" ? undefined : (value as QuestionSource),
+              })
+            }
           >
-            <SelectTrigger className="bg-background rounded-xl border-border/50 h-9 w-40">
+            <SelectTrigger className="h-9 w-40 rounded-xl border-border/50 bg-background">
               <SelectValue placeholder="Kaynak" />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="ALL">Tüm Kaynaklar</SelectItem>
-              <SelectItem value="Deneme">Deneme</SelectItem>
-              <SelectItem value="Banka">Soru Bankası</SelectItem>
-              <SelectItem value="Fasikül">Fasikül</SelectItem>
-              <SelectItem value="Ders Kitabı">Ders Kitabı</SelectItem>
+              {Object.values(QuestionSource).map((source) => (
+                <SelectItem key={source} value={source}>
+                  {source}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs text-muted-foreground">Durum:</span>
+            <Button
+              type="button"
+              size="sm"
+              variant={!filters.status ? "default" : "outline"}
+              className="h-8 rounded-lg"
+              onClick={() => updateFilter({ status: undefined })}
+            >
+              <Filter className="mr-1.5 h-3.5 w-3.5" />
+              Tümü
+            </Button>
+            {Object.values(QuestionStatus).map((status) => (
+              <Button
+                key={status}
+                type="button"
+                size="sm"
+                variant={filters.status === status ? "default" : "outline"}
+                className="h-8 rounded-lg"
+                onClick={() => updateFilter({ status })}
+              >
+                <StatusIcon status={status} />
+                {STATUS_LABELS[status]}
+              </Button>
+            ))}
+          </div>
 
           <Select
             value={
@@ -574,17 +754,16 @@ export default function Pool() {
                     ? "premium"
                     : "ALL"
             }
-            onValueChange={(v) => {
-              setPage(1);
-              setFilters((p) => ({
-                ...p,
-                isOsymBadge: v === "osym" || v === "both" ? true : undefined,
+            onValueChange={(value) =>
+              updateFilter({
+                isOsymBadge:
+                  value === "osym" || value === "both" ? true : undefined,
                 isPremiumBadge:
-                  v === "premium" || v === "both" ? true : undefined,
-              }));
-            }}
+                  value === "premium" || value === "both" ? true : undefined,
+              })
+            }
           >
-            <SelectTrigger className="bg-background rounded-xl border-border/50 h-9 w-44">
+            <SelectTrigger className="h-9 w-44 rounded-xl border-border/50 bg-background">
               <SelectValue placeholder="Badge" />
             </SelectTrigger>
             <SelectContent>
@@ -595,366 +774,107 @@ export default function Pool() {
             </SelectContent>
           </Select>
 
-          {/* Durum filtreleri - açık liste şeklinde */}
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-muted-foreground mr-1">Durum:</span>
-            {[
-              { value: "ALL", label: "Tümü", icon: Filter },
-              {
-                value: QuestionStatus.Cozulmedi,
-                label: "Beklemede",
-                icon: Clock,
-                color: "text-amber-500",
-              },
-              {
-                value: QuestionStatus.DogruCozuldu,
-                label: "Doğru",
-                icon: CheckCircle2,
-                color: "text-green-500",
-              },
-              {
-                value: QuestionStatus.YanlisHocayaSor,
-                label: "Yanlış",
-                icon: XCircle,
-                color: "text-destructive",
-              },
-            ].map((statusOption) => {
-              const Icon = statusOption.icon;
-              const isActive =
-                filters.status === statusOption.value ||
-                (statusOption.value === "ALL" && !filters.status);
-              return (
-                <button
-                  key={statusOption.value}
-                  type="button"
-                  onClick={() => {
-                    setPage(1);
-                    setFilters((p) => ({
-                      ...p,
-                      status:
-                        statusOption.value === "ALL"
-                          ? undefined
-                          : (statusOption.value as QuestionStatus),
-                    }));
-                  }}
-                  className={cn(
-                    "flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-colors border",
-                    isActive
-                      ? "bg-primary text-primary-foreground border-primary shadow-sm"
-                      : "bg-background text-muted-foreground border-border/50 hover:border-primary/50 hover:text-foreground",
-                  )}
-                >
-                  <Icon
-                    className={cn(
-                      "w-3.5 h-3.5",
-                      !isActive && statusOption.color,
-                    )}
-                  />
-                  {statusOption.label}
-                </button>
-              );
-            })}
-          </div>
-
-          {(filters.category ||
-            filters.lesson ||
-            filters.topic ||
-            filters.status ||
-            filters.source ||
-            filters.isOsymBadge ||
-            filters.isPremiumBadge ||
-            searchInput) && (
+          {hasActiveFilters ? (
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => {
-                setPage(1);
-                setFilters({});
-                setSearchInput("");
-              }}
-              className="rounded-xl h-9 text-muted-foreground hover:text-foreground"
+              onClick={clearFilters}
+              className="h-9 rounded-xl text-muted-foreground hover:text-foreground"
             >
               Temizle
             </Button>
-          )}
+          ) : null}
         </div>
       </PageSection>
 
-      {/* Grid */}
       {isLoading ? (
         <PageSection className="flex min-h-[320px] items-center justify-center">
           <div className="h-12 w-12 animate-spin rounded-full border-b-2 border-primary" />
         </PageSection>
-      ) : !questions?.length ? (
+      ) : questions.length === 0 ? (
         <PageSection className="flex min-h-[360px] flex-col items-center justify-center opacity-80">
           <img
             src={`${import.meta.env.BASE_URL}images/empty-state.png`}
             alt="Boş"
-            className="w-56 h-56 object-contain opacity-50 mb-6"
+            className="mb-6 h-56 w-56 object-contain opacity-50"
+            loading="lazy"
           />
-          <h3 className="text-xl font-display font-medium text-foreground">
+          <h3 className="font-display text-xl font-medium text-foreground">
             Buralar Çok Sessiz
           </h3>
-          <p className="text-muted-foreground mt-2 max-w-sm text-center">
+          <p className="mt-2 max-w-sm text-center text-muted-foreground">
             Filtrelere uygun soru bulunamadı. Yeni soru ekleyerek havuzunu
             genişletebilirsin.
           </p>
         </PageSection>
       ) : (
         <>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5 pb-20">
-            {questions.map((q) => (
-              <div
-                key={q.id}
-                onClick={() => setCanvasQuestionId(q.id)}
-                className={cn(
-                  "group relative flex flex-col overflow-hidden rounded-2xl border border-border/40 bg-card shadow-sm transition-colors duration-200 cursor-pointer hover:border-primary/50",
-                  shouldUseContentVisibility
-                    ? "[content-visibility:auto] [contain-intrinsic-size:340px] [contain:layout_paint_style]"
-                    : "[contain:layout_paint]",
-                )}
-              >
-                <div className="relative h-40 bg-muted/20 border-b border-border/40 overflow-hidden flex items-center justify-center p-3">
-                  {q.imageUrl ? (
-                    <LazyImage src={q.imageUrl} alt={q.topic || "Soru"} />
-                  ) : (
-                    <div className="text-muted-foreground/30 font-display font-medium text-base">
-                      {"G\u00f6rsel Yok"}
-                    </div>
-                  )}
-
-                  {/* Info badges */}
-                  <div className="absolute top-2 left-2 flex flex-col gap-1">
-                    <Badge
-                      variant="secondary"
-                      className="bg-background/95 text-xs px-2 py-0.5 shadow-sm rounded-lg border-border/50"
-                    >
-                      {q.category}
-                    </Badge>
-                    {q.hasDrawing && (
-                      <Badge className="bg-primary/90 text-white text-[10px] px-1.5 py-0 shadow-sm rounded-lg">
-                        {"\u00c7izim"}
-                      </Badge>
-                    )}
-                  </div>
-
-                  {/* Image badges */}
-                  {(q.isOsymBadge || q.isPremiumBadge) && (
-                    <div className="pointer-events-none absolute right-2 top-10 z-10 flex flex-col items-end gap-1.5">
-                      {q.isOsymBadge && <QuestionPreviewBadge type="osym" />}
-                      {q.isPremiumBadge && (
-                        <QuestionPreviewBadge type="premium" />
-                      )}
-                    </div>
-                  )}
-
-                  {/* Actions */}
-                  <div
-                    className="absolute top-2 right-2 flex gap-1.5 opacity-100 transition-opacity"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <button
-                          type="button"
-                          className="flex h-7 w-7 items-center justify-center rounded-full bg-[#4c6fff] text-white shadow-sm transition-colors hover:bg-[#3f62f4]"
-                        >
-                          <Plus className="h-4 w-4" />
-                        </button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent
-                        align="end"
-                        className="w-56 rounded-2xl border-border/60 bg-background p-2 shadow-md"
-                      >
-                        <DropdownMenuItem
-                          className="rounded-xl py-2"
-                          onClick={() => void toggleQuestionBadge(q, "osym")}
-                        >
-                          <span className="mr-2 inline-flex h-2.5 w-2.5 rounded-full bg-[#d85d10]" />
-                          {q.isOsymBadge
-                            ? "\u00d6SYM badge'ini kald\u0131r"
-                            : "\u00d6SYM \u00e7\u0131km\u0131\u015f sorular ekle"}
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          className="rounded-xl py-2"
-                          onClick={() => void toggleQuestionBadge(q, "premium")}
-                        >
-                          <span className="mr-2 inline-flex h-2.5 w-2.5 rounded-full bg-[#4c6fff]" />
-                          {q.isPremiumBadge
-                            ? "Kaliteli Soru badge'ini kaldır"
-                            : "Kaliteli Soru badge'i ekle"}
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                    <Suspense
-                      fallback={
-                        <button
-                          className="p-1.5 bg-primary/70 text-white rounded-lg shadow-sm opacity-70"
-                          disabled
-                        >
-                          <Pencil className="w-3.5 h-3.5" />
-                        </button>
-                      }
-                    >
-                      <QuestionFormDialog
-                        question={q as any}
-                        trigger={
-                          <button className="p-1.5 bg-primary/90 text-white rounded-lg shadow-sm hover:bg-primary transition-colors">
-                            <Pencil className="w-3.5 h-3.5" />
-                          </button>
-                        }
-                      />
-                    </Suspense>
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setDeleteTargetId(q.id);
-                      }}
-                      className="p-1.5 bg-destructive/90 text-white rounded-lg shadow-sm hover:bg-destructive transition-colors"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </div>
-
-                {/* Info */}
-                <div className="p-4 flex flex-col flex-1">
-                  <div className="flex items-start justify-between mb-1.5">
-                    <h3 className="font-semibold text-foreground line-clamp-1">
-                      {q.lesson}
-                    </h3>
-                    <StatusIcon status={q.status} />
-                  </div>
-                  <p className="text-sm text-muted-foreground line-clamp-1 mb-1">
-                    {q.topic || "Konu belirtilmedi"}
-                  </p>
-                  {(q as any).description && (
-                    <p className="text-xs text-muted-foreground/70 line-clamp-2 mb-2 italic">
-                      {(q as any).description}
-                    </p>
-                  )}
-                  {getYoutubeWatchUrl(
-                    (q as any).solutionYoutubeUrl || (q as any).solutionUrl,
-                    (q as any).solutionYoutubeStartSecond,
-                    (q as any).solutionYoutubeEndSecond,
-                  ) ? (
-                    <button
-                      type="button"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        const url = getYoutubeWatchUrl(
-                          (q as any).solutionYoutubeUrl ||
-                            (q as any).solutionUrl,
-                          (q as any).solutionYoutubeStartSecond,
-                          (q as any).solutionYoutubeEndSecond,
-                        );
-                        if (url)
-                          window.open(url, "_blank", "noopener,noreferrer");
-                      }}
-                      className="mb-2 inline-flex w-fit items-center gap-1.5 rounded-full border border-red-300/50 bg-red-500/10 px-2.5 py-1 text-[11px] font-medium text-red-700 transition-colors hover:bg-red-500/15 dark:border-red-400/20 dark:text-red-200"
-                    >
-                      <Youtube className="h-3.5 w-3.5" />
-                      {formatVideoTimestampRange(
-                        (q as any).solutionYoutubeStartSecond,
-                        (q as any).solutionYoutubeEndSecond,
-                      )}
-                    </button>
-                  ) : null}
-                  <div className="flex items-center justify-between text-xs text-muted-foreground/70 pt-3 border-t border-border/30 mt-auto">
-                    <span className="flex items-center gap-1">
-                      <Book className="w-3 h-3" /> {q.publisher || "—"}
-                    </span>
-                    <span
-                      className={cn(
-                        "flex items-center gap-1 font-medium",
-                        q.choice ? "text-primary/80" : "",
-                      )}
-                    >
-                      {q.choice ? (
-                        `Şık: ${q.choice}`
-                      ) : (
-                        <span className="flex items-center gap-1">
-                          <FileText className="w-3 h-3" />
-                          {q.source}
-                        </span>
-                      )}
-                    </span>
-                  </div>
-                </div>
-              </div>
+          <div className="grid grid-cols-1 gap-5 pb-8 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            {questions.map((question) => (
+              <QuestionCard
+                key={question.id}
+                question={question}
+                onOpenCanvas={setCanvasQuestionId}
+                onEdit={setEditQuestion}
+                onDelete={deleteQuestion}
+                onToggleBadge={toggleQuestionBadge}
+              />
             ))}
           </div>
 
-          {/* Pagination */}
-          {pagination && pagination.total > limit && (
-            <div className="flex items-center justify-center gap-2 mt-6 mb-8">
+          {pagination && pagination.total > PAGE_SIZE ? (
+            <PageSection className="flex flex-wrap items-center justify-center gap-3">
               <Button
                 variant="outline"
-                size="sm"
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
-                disabled={page <= 1}
                 className="rounded-xl"
+                onClick={() => setPage((current) => Math.max(1, current - 1))}
+                disabled={page <= 1 || isFetching}
               >
-                <ChevronLeft className="w-4 h-4" /> Önceki
+                <ChevronLeft className="mr-1 h-4 w-4" />
+                Önceki
               </Button>
-              <span className="text-sm text-muted-foreground px-4">
-                Sayfa {page} / {Math.ceil(pagination.total / limit)}
+              <span className="text-sm text-muted-foreground">
+                Sayfa {page} / {pageCount}
               </span>
               <Button
                 variant="outline"
-                size="sm"
-                onClick={() => setPage((p) => p + 1)}
-                disabled={!pagination.hasMore}
                 className="rounded-xl"
+                onClick={() =>
+                  setPage((current) => Math.min(pageCount, current + 1))
+                }
+                disabled={page >= pageCount || isFetching}
               >
-                Sonraki <ChevronRight className="w-4 h-4" />
+                Sonraki
+                <ChevronRight className="ml-1 h-4 w-4" />
               </Button>
-            </div>
-          )}
+            </PageSection>
+          ) : null}
         </>
       )}
 
-      <AlertDialog
-        open={deleteTargetId !== null}
-        onOpenChange={(open) => !open && setDeleteTargetId(null)}
-      >
-        <AlertDialogContent className="rounded-2xl border-border/60 max-w-md">
-          <AlertDialogHeader>
-            <AlertDialogTitle className="font-display">
-              Soruyu sil
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              Bu soru kalıcı olarak silinecek. Bu işlem geri alınamaz.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter className="gap-2 sm:gap-0">
-            <AlertDialogCancel className="rounded-xl mt-0 border-border/60">
-              Vazgeç
-            </AlertDialogCancel>
-            <Button
-              variant="destructive"
-              className="rounded-xl"
-              disabled={deleteMutation.isPending}
-              onClick={() => void confirmDeleteQuestion()}
-            >
-              {deleteMutation.isPending ? "Siliniyor..." : "Sil"}
-            </Button>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      {canvasQuestionId != null ? (
+        <CanvasModal
+          questionId={canvasQuestionId}
+          imageUrl={activeQuestion?.imageUrl}
+          onClose={() => setCanvasQuestionId(null)}
+        />
+      ) : null}
 
-      {/* Canvas Modal - fixed overlay (avoids Dialog X button and w-screen overflow) */}
-      {canvasQuestionId && activeQuestion && (
-        <div className="fixed inset-0 z-50 bg-background/95">
-          <CanvasModal
-            questionId={activeQuestion.id}
-            imageUrl={activeQuestion.imageUrl}
-            onClose={() => setCanvasQuestionId(null)}
-          />
-        </div>
-      )}
+      <Suspense fallback={null}>
+        <QuestionFormDialog
+          key={editQuestion?.id ?? "edit"}
+          question={editQuestion ?? undefined}
+          trigger={null}
+          open={editQuestion != null}
+          onOpenChange={(open) => {
+            if (!open) setEditQuestion(null);
+          }}
+          onSaved={() => {
+            setEditQuestion(null);
+            invalidateQuestions();
+          }}
+        />
+      </Suspense>
     </PageShell>
   );
 }
-
