@@ -9,6 +9,7 @@ const APP_ORIGIN = "exam-prep://app";
 const DEFAULT_SERVER_URL = process.env.EXAM_PREP_SERVER_URL || "https://examduck.mooo.com";
 const NETWORK_TIMEOUT_MS = 18_000;
 const UPDATE_CHECK_DELAY_MS = 5_000;
+const UPDATE_RECHECK_INTERVAL_MS = 4 * 60 * 60 * 1000;
 const CACHEABLE_CONTENT_TYPES = [
   "application/json",
   "image/",
@@ -19,6 +20,19 @@ const CACHEABLE_CONTENT_TYPES = [
 let mainWindow = null;
 let autoUpdatesConfigured = false;
 let manualUpdateCheck = false;
+let updateCheckInterval = null;
+let updateState = {
+  status: "idle",
+  currentVersion: app.getVersion(),
+  latestVersion: null,
+  downloadUrl: null,
+  progressPercent: null,
+  checkedAt: null,
+  message: null,
+  manual: false,
+  autoInstallSupported: false,
+  isPortable: false,
+};
 
 protocol.registerSchemesAsPrivileged([
   {
@@ -73,6 +87,59 @@ function appIconPath() {
   return path.join(webRoot(), "brand", "exam-duck-logo-256.png");
 }
 
+function isPortableBuild() {
+  return Boolean(
+    process.env.PORTABLE_EXECUTABLE_FILE ||
+      process.env.PORTABLE_EXECUTABLE_DIR ||
+      /portable/i.test(process.execPath),
+  );
+}
+
+function canAutoInstallUpdates() {
+  return app.isPackaged && !isPortableBuild();
+}
+
+function getUpdateBaseUrl() {
+  try {
+    return new URL("/desktop-updates/", readServerUrl()).toString().replace(/\/+$/, "");
+  } catch {
+    return new URL("/desktop-updates/", DEFAULT_SERVER_URL).toString().replace(/\/+$/, "");
+  }
+}
+
+function getUpdateChannelUrl() {
+  return `${getUpdateBaseUrl()}/channel.json`;
+}
+
+function broadcast(channel, payload) {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  mainWindow.webContents.send(channel, payload);
+}
+
+function getUpdateState() {
+  return {
+    ...updateState,
+    currentVersion: app.getVersion(),
+    autoInstallSupported: canAutoInstallUpdates(),
+    isPortable: isPortableBuild(),
+    feedUrl: `${getUpdateBaseUrl()}/latest.yml`,
+    channelUrl: getUpdateChannelUrl(),
+  };
+}
+
+function setUpdateState(patch) {
+  updateState = {
+    ...updateState,
+    ...patch,
+    currentVersion: app.getVersion(),
+    autoInstallSupported: canAutoInstallUpdates(),
+    isPortable: isPortableBuild(),
+  };
+  const snapshot = getUpdateState();
+  broadcast("desktop:update-state", snapshot);
+  return snapshot;
+}
+
 function hash(value) {
   return crypto.createHash("sha256").update(value).digest("hex");
 }
@@ -82,7 +149,7 @@ function escapeHtml(value) {
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
+    .replace(/\"/g, "&quot;");
 }
 
 function connectionHtml(currentUrl, message = "Sunucuya baglanilamadi.") {
@@ -265,6 +332,110 @@ async function fetchWithTimeout(url, init) {
   }
 }
 
+async function fetchUpdateChannel() {
+  const response = await fetchWithTimeout(getUpdateChannelUrl(), {
+    headers: { "cache-control": "no-cache", pragma: "no-cache" },
+  });
+
+  if (response.status === 404) {
+    return {
+      published: false,
+      latestPath: "latest.yml",
+      publishedVersion: null,
+      publishedAt: null,
+    };
+  }
+
+  if (!response.ok) {
+    throw new Error(`Guncelleme kanali alinamadi (${response.status})`);
+  }
+
+  const payload = await response.json().catch(() => null);
+  return {
+    published: payload?.published !== false,
+    latestPath: typeof payload?.latestPath === "string" ? payload.latestPath : "latest.yml",
+    publishedVersion:
+      typeof payload?.publishedVersion === "string" ? payload.publishedVersion : null,
+    publishedAt: typeof payload?.publishedAt === "string" ? payload.publishedAt : null,
+  };
+}
+
+function parseManifestValue(text, key) {
+  const match = text.match(new RegExp(`^${key}:\\s*['"]?([^\\r\\n'"]+)['"]?\\s*$`, "m"));
+  return match ? match[1].trim() : null;
+}
+
+function compareVersions(left, right) {
+  const a = String(left || "0")
+    .split(".")
+    .map((part) => Number.parseInt(part, 10) || 0);
+  const b = String(right || "0")
+    .split(".")
+    .map((part) => Number.parseInt(part, 10) || 0);
+  const maxLength = Math.max(a.length, b.length);
+  for (let index = 0; index < maxLength; index += 1) {
+    const diff = (a[index] || 0) - (b[index] || 0);
+    if (diff !== 0) return diff > 0 ? 1 : -1;
+  }
+  return 0;
+}
+
+async function fetchRemoteManifest(relativePath = "latest.yml") {
+  const feedUrl = new URL(relativePath, `${getUpdateBaseUrl()}/`).toString();
+  const response = await fetchWithTimeout(feedUrl, {
+    headers: { "cache-control": "no-cache", pragma: "no-cache" },
+  });
+
+  if (!response.ok) {
+    throw new Error(`Guncelleme bilgisi alinamadi (${response.status})`);
+  }
+
+  const text = await response.text();
+  const version = parseManifestValue(text, "version");
+  const pathValue = parseManifestValue(text, "path");
+  const releaseDate = parseManifestValue(text, "releaseDate");
+
+  if (!version || !pathValue) {
+    throw new Error("latest.yml dosyasi eksik veya bozuk.");
+  }
+
+  return {
+    version,
+    releaseDate,
+    downloadUrl: new URL(pathValue, `${getUpdateBaseUrl()}/`).toString(),
+  };
+}
+
+async function runManifestUpdateCheck(manual) {
+  const channel = await fetchUpdateChannel();
+  if (!channel.published) {
+    const nextState = setUpdateState({
+      latestVersion: null,
+      downloadUrl: null,
+      checkedAt: new Date().toISOString(),
+      manual,
+      progressPercent: null,
+      message: "Henüz gönderilmiş masaüstü güncellemesi yok.",
+      status: "up-to-date",
+    });
+    return { hasUpdate: false, manifest: null, state: nextState };
+  }
+
+  const manifest = await fetchRemoteManifest(channel.latestPath);
+  const hasUpdate = compareVersions(manifest.version, app.getVersion()) > 0;
+  const nextState = setUpdateState({
+    latestVersion: manifest.version,
+    downloadUrl: manifest.downloadUrl,
+    checkedAt: new Date().toISOString(),
+    manual,
+    message: hasUpdate
+      ? "Yeni surum bulundu."
+      : "Exam Duck zaten guncel.",
+    status: hasUpdate ? "available" : "up-to-date",
+  });
+  return { hasUpdate, manifest, state: nextState };
+}
+
 async function proxyApi(request) {
   const targetUrl = buildTargetUrl(request.url);
   const method = request.method.toUpperCase();
@@ -318,84 +489,123 @@ function configureAutoUpdates() {
   if (autoUpdatesConfigured) return;
   autoUpdatesConfigured = true;
 
-  autoUpdater.autoDownload = true;
+  autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = true;
+  if (app.isPackaged) {
+    try {
+      autoUpdater.setFeedURL({ provider: "generic", url: getUpdateBaseUrl() });
+    } catch {}
+  }
 
-  autoUpdater.on("update-available", () => {
-    if (!manualUpdateCheck) return;
-    dialog.showMessageBox(mainWindow, {
-      type: "info",
-      message: "Yeni surum bulundu",
-      detail: "Guncelleme arka planda indiriliyor. Hazir olunca yeniden baslatma secenegi cikacak.",
-      buttons: ["Tamam"],
+  autoUpdater.on("checking-for-update", () => {
+    setUpdateState({
+      status: "checking",
+      checkedAt: new Date().toISOString(),
+      progressPercent: null,
+      message: "Guncelleme kontrol ediliyor...",
     });
   });
 
-  autoUpdater.on("update-not-available", () => {
-    if (!manualUpdateCheck) return;
+  autoUpdater.on("update-available", (info) => {
+    setUpdateState({
+      status: "available",
+      latestVersion: info?.version || updateState.latestVersion,
+      checkedAt: new Date().toISOString(),
+      progressPercent: null,
+      message: "Yeni surumu indirmeye hazir.",
+    });
+  });
+
+  autoUpdater.on("download-progress", (progress) => {
+    setUpdateState({
+      status: "downloading",
+      progressPercent: Math.max(0, Math.min(100, Math.round(progress.percent || 0))),
+      message: "Guncelleme arka planda indiriliyor.",
+    });
+  });
+
+  autoUpdater.on("update-not-available", (info) => {
     manualUpdateCheck = false;
-    dialog.showMessageBox(mainWindow, {
-      type: "info",
-      message: "Guncelleme yok",
-      detail: "Exam Duck zaten en guncel surumde.",
-      buttons: ["Tamam"],
+    setUpdateState({
+      status: "up-to-date",
+      latestVersion: info?.version || updateState.latestVersion || app.getVersion(),
+      checkedAt: new Date().toISOString(),
+      progressPercent: null,
+      message: "Exam Duck zaten guncel.",
     });
   });
 
   autoUpdater.on("error", (error) => {
-    if (!manualUpdateCheck) return;
     manualUpdateCheck = false;
-    dialog.showMessageBox(mainWindow, {
-      type: "warning",
-      message: "Guncelleme kontrol edilemedi",
-      detail: error?.message || "Guncelleme sunucusuna ulasilamadi.",
-      buttons: ["Tamam"],
+    setUpdateState({
+      status:
+        updateState.latestVersion &&
+        compareVersions(updateState.latestVersion, app.getVersion()) > 0
+          ? "available"
+          : "error",
+      checkedAt: new Date().toISOString(),
+      progressPercent: null,
+      message: error?.message || "Guncelleme sunucusuna ulasilamadi.",
     });
   });
 
   autoUpdater.on("update-downloaded", async () => {
     manualUpdateCheck = false;
-    const result = await dialog.showMessageBox(mainWindow, {
-      type: "info",
-      message: "Guncelleme hazir",
-      detail: "Yeni surum indirildi. Uygulama yeniden baslatildiginda guncelleme kurulacak.",
-      buttons: ["Yeniden baslat ve kur", "Sonra"],
-      defaultId: 0,
-      cancelId: 1,
+    setUpdateState({
+      status: "downloaded",
+      checkedAt: new Date().toISOString(),
+      progressPercent: 100,
+      message: "Yeni surum indirildi. Yeniden baslatarak kurabilirsin.",
     });
-
-    if (result.response === 0) {
-      autoUpdater.quitAndInstall(false, true);
-    }
   });
 }
 
-function checkForUpdates(manual = false) {
+async function checkForUpdates(manual = false) {
   if (manual) manualUpdateCheck = true;
 
+  setUpdateState({
+    status: "checking",
+    manual,
+    checkedAt: new Date().toISOString(),
+    progressPercent: null,
+    message: "Guncelleme kontrol ediliyor...",
+  });
+
   if (!app.isPackaged) {
-    if (manual) {
-      dialog.showMessageBox(mainWindow, {
-        type: "info",
-        message: "Guncelleme sadece kurulu uygulamada calisir",
-        detail: "Gelistirme modunda otomatik guncelleme kontrolu atlandi.",
-        buttons: ["Tamam"],
-      });
-      manualUpdateCheck = false;
-    }
+    manualUpdateCheck = false;
+    setUpdateState({
+      status: "up-to-date",
+      manual,
+      message: "Gelistirme modunda guncelleme kontrolu atlandi.",
+    });
     return;
   }
 
-  autoUpdater.checkForUpdates().catch((error) => {
-    if (!manualUpdateCheck) return;
+  try {
+    if (canAutoInstallUpdates()) {
+      try {
+        autoUpdater.setFeedURL({ provider: "generic", url: getUpdateBaseUrl() });
+      } catch {}
+    }
+    const manifestResult = await runManifestUpdateCheck(manual);
+    if (!manifestResult.hasUpdate) {
+      manualUpdateCheck = false;
+      return;
+    }
+    if (!canAutoInstallUpdates()) {
+      manualUpdateCheck = false;
+      return;
+    }
+    await autoUpdater.checkForUpdates();
+  } catch (error) {
     manualUpdateCheck = false;
-    dialog.showMessageBox(mainWindow, {
-      type: "warning",
-      message: "Guncelleme kontrol edilemedi",
-      detail: error?.message || "Guncelleme sunucusuna ulasilamadi.",
-      buttons: ["Tamam"],
+    setUpdateState({
+      status: "error",
+      checkedAt: new Date().toISOString(),
+      progressPercent: null,
+      message: error?.message || "Guncelleme sunucusuna ulasilamadi.",
     });
-  });
+  }
 }
 
 function createMenu() {
@@ -477,7 +687,18 @@ function createWindow() {
   });
 
   loadApp();
-  setTimeout(() => checkForUpdates(false), UPDATE_CHECK_DELAY_MS);
+  mainWindow.webContents.on("did-finish-load", () => {
+    broadcast("desktop:update-state", getUpdateState());
+  });
+
+  setTimeout(() => {
+    void checkForUpdates(false);
+  }, UPDATE_CHECK_DELAY_MS);
+
+  if (updateCheckInterval) clearInterval(updateCheckInterval);
+  updateCheckInterval = setInterval(() => {
+    void checkForUpdates(false);
+  }, UPDATE_RECHECK_INTERVAL_MS);
 }
 
 ipcMain.handle("server-url:get", () => readServerUrl());
@@ -494,6 +715,88 @@ ipcMain.handle("cache:clear", async () => {
   await fs.promises.rm(cacheRoot(), { recursive: true, force: true }).catch(() => {});
   await mainWindow?.webContents.session.clearCache();
   return true;
+});
+ipcMain.handle("desktop:get-meta", () => ({
+  currentVersion: app.getVersion(),
+  serverUrl: readServerUrl(),
+  isPackaged: app.isPackaged,
+  autoInstallSupported: canAutoInstallUpdates(),
+  isPortable: isPortableBuild(),
+}));
+ipcMain.handle("desktop:update:get-state", () => getUpdateState());
+ipcMain.handle("desktop:update:check", async () => {
+  await checkForUpdates(true);
+  return getUpdateState();
+});
+ipcMain.handle("desktop:update:install", async () => {
+  const state = getUpdateState();
+  if (state.status === "available" && canAutoInstallUpdates()) {
+    setUpdateState({
+      status: "downloading",
+      progressPercent: 0,
+      message: "Guncelleme arka planda indiriliyor.",
+    });
+    await autoUpdater.downloadUpdate();
+    return { action: "download" };
+  }
+  if (state.status === "downloaded" && canAutoInstallUpdates()) {
+    setImmediate(() => autoUpdater.quitAndInstall(false, true));
+    return { action: "installing" };
+  }
+  if (state.downloadUrl) {
+    await shell.openExternal(state.downloadUrl);
+    return { action: "download" };
+  }
+  return { action: "none" };
+});
+ipcMain.handle("desktop:sync:check", async (_event, token) => {
+  const serverUrl = readServerUrl();
+  const checkedAt = new Date().toISOString();
+  if (!token) {
+    return {
+      ok: false,
+      status: "missing-token",
+      checkedAt,
+      serverUrl,
+      message: "Oturum bulunamadi.",
+    };
+  }
+
+  try {
+    const response = await fetchWithTimeout(`${serverUrl}/api/auth/me`, {
+      headers: { authorization: `Bearer ${token}` },
+    });
+    if (!response.ok) {
+      return {
+        ok: false,
+        status: response.status === 401 ? "unauthorized" : "server-error",
+        checkedAt,
+        serverUrl,
+        message:
+          response.status === 401
+            ? "Oturum yeniden dogrulanmali."
+            : `Sunucu ${response.status} cevabi verdi.`,
+      };
+    }
+
+    const payload = await response.json().catch(() => null);
+    return {
+      ok: true,
+      status: "ok",
+      checkedAt,
+      serverUrl,
+      userName: payload?.user?.name || null,
+      message: "Senkron hazir.",
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      status: "offline",
+      checkedAt,
+      serverUrl,
+      message: error?.message || "Sunucuya ulasilamadi.",
+    };
+  }
 });
 
 app.whenReady().then(() => {
@@ -519,4 +822,8 @@ app.whenReady().then(() => {
 
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
+});
+
+app.on("before-quit", () => {
+  if (updateCheckInterval) clearInterval(updateCheckInterval);
 });
