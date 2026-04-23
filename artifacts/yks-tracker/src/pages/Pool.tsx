@@ -22,17 +22,14 @@ import {
 import { keepPreviousData, useQueryClient } from "@tanstack/react-query";
 import {
   Book,
-  CheckCircle2,
   ChevronLeft,
   ChevronRight,
-  Clock,
   FileText,
   Filter,
   Pencil,
   Plus,
   Search,
   Trash2,
-  XCircle,
   Youtube,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -100,12 +97,59 @@ const STATUS_LABELS: Record<QuestionStatus, string> = {
 
 const StatusIcon = memo(function StatusIcon({ status }: { status: string }) {
   if (status === QuestionStatus.DogruCozuldu) {
-    return <CheckCircle2 className="h-4 w-4 text-green-500" />;
+    return (
+      <svg
+        viewBox="0 0 16 16"
+        aria-hidden="true"
+        className="h-4 w-4 shrink-0 text-green-500"
+        fill="none"
+      >
+        <circle cx="8" cy="8" r="6.25" stroke="currentColor" strokeWidth="1.5" />
+        <path
+          d="M4.8 8.2 7 10.4l4.2-4.6"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+    );
   }
   if (status === QuestionStatus.YanlisHocayaSor) {
-    return <XCircle className="h-4 w-4 text-destructive" />;
+    return (
+      <svg
+        viewBox="0 0 16 16"
+        aria-hidden="true"
+        className="h-4 w-4 shrink-0 text-destructive"
+        fill="none"
+      >
+        <circle cx="8" cy="8" r="6.25" stroke="currentColor" strokeWidth="1.5" />
+        <path
+          d="M5.2 5.2 10.8 10.8M10.8 5.2 5.2 10.8"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+        />
+      </svg>
+    );
   }
-  return <Clock className="h-4 w-4 text-muted-foreground" />;
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      aria-hidden="true"
+      className="h-4 w-4 shrink-0 text-amber-500"
+      fill="none"
+    >
+      <circle cx="8" cy="8" r="6.25" stroke="currentColor" strokeWidth="1.5" />
+      <path
+        d="M8 4.4v3.9l2.3 1.4"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
 });
 
 const QuestionPreviewBadge = memo(function QuestionPreviewBadge({
@@ -200,7 +244,7 @@ function CanvasModal({
         <Suspense
           fallback={
             <div className="flex h-full w-full items-center justify-center text-white">
-              Yükleniyor...
+              {"Yükleniyor..."}
             </div>
           }
         >
@@ -252,7 +296,7 @@ const QuestionCard = memo(function QuestionCard({
           <LazyImage src={question.imageUrl} alt={question.topic || "Soru"} />
         ) : (
           <span className="text-base font-medium text-muted-foreground/30">
-            Görsel Yok
+            {"Görsel Yok"}
           </span>
         )}
 
@@ -265,7 +309,7 @@ const QuestionCard = memo(function QuestionCard({
           </Badge>
           {question.hasDrawing ? (
             <Badge className="rounded-lg bg-primary/90 px-1.5 py-0 text-[10px] text-white shadow-sm">
-              Çizim
+              {"Çizim"}
             </Badge>
           ) : null}
         </div>
@@ -366,7 +410,7 @@ const QuestionCard = memo(function QuestionCard({
         <div className="mt-auto flex items-center justify-between border-t border-border/30 pt-3 text-xs text-muted-foreground/70">
           <span className="flex min-w-0 items-center gap-1">
             <Book className="h-3 w-3 shrink-0" />
-            <span className="truncate">{question.publisher || "—"}</span>
+            <span className="truncate">{question.publisher || "-"}</span>
           </span>
           <span
             className={cn(
@@ -561,12 +605,12 @@ export default function Pool() {
         icon={<Book className="h-5 w-5" />}
         title="Soru Havuzu"
         className="backdrop-blur-none bg-white/92 dark:bg-slate-950/88"
-        description="Arşivlediğin tüm soruları, badge'leri ve çözüm durumlarını tek yerde yönet."
+        description={"Arşivlediğin tüm soruları, badge'leri ve çözüm durumlarını tek yerde yönet."}
         actions={
           <Suspense
             fallback={
               <Button className="rounded-xl" disabled>
-                Yükleniyor...
+                {"Yükleniyor..."}
               </Button>
             }
           >
@@ -578,19 +622,19 @@ export default function Pool() {
       <PageSection className="gap-3 backdrop-blur-none bg-white/90 dark:bg-slate-950/84">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
           <span className="text-sm font-medium text-muted-foreground">
-            {stats.visible} görünen soru
+            {stats.visible} {"görünen soru"}
             {stats.total !== stats.visible ? ` / ${stats.total} toplam` : ""}
           </span>
           {isFetching ? (
             <span className="text-xs text-muted-foreground/70">
-              Güncelleniyor...
+              {"Güncelleniyor..."}
             </span>
           ) : null}
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs font-medium">
-            <span className="text-green-500">✓ {stats.solved} doğru</span>
-            <span className="text-destructive">✕ {stats.wrong} yanlış</span>
+            <span className="text-green-500">{`✓ ${stats.solved} doğru`}</span>
+            <span className="text-destructive">{`✕ ${stats.wrong} yanlış`}</span>
             <span className="text-muted-foreground">
-              • {stats.unsolved} çözülmedi
+              {`• ${stats.unsolved} çözülmedi`}
             </span>
           </div>
         </div>
@@ -623,7 +667,7 @@ export default function Pool() {
                 setPage(1);
                 setSearchInput(event.target.value);
               }}
-              placeholder="Ders, konu veya açıklama ara"
+              placeholder={"Ders, konu veya açıklama ara"}
               className="h-9 rounded-xl border-border/50 bg-background pl-9"
             />
           </div>
@@ -643,7 +687,7 @@ export default function Pool() {
               <SelectValue placeholder="Kategori" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="ALL">Tüm Kategoriler</SelectItem>
+              <SelectItem value="ALL">{"Tüm Kategoriler"}</SelectItem>
               {Object.values(QuestionCategory).map((category) => (
                 <SelectItem key={category} value={category}>
                   {category}
@@ -665,7 +709,7 @@ export default function Pool() {
               <SelectValue placeholder="Ders" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="ALL">Tüm Dersler</SelectItem>
+              <SelectItem value="ALL">{"Tüm Dersler"}</SelectItem>
               {availableLessons.map((lesson: string) => (
                 <SelectItem key={lesson} value={lesson}>
                   {lesson}
@@ -687,7 +731,7 @@ export default function Pool() {
               />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="ALL">Tüm Konular</SelectItem>
+              <SelectItem value="ALL">{"Tüm Konular"}</SelectItem>
               {availableTopics.map((topic: string) => (
                 <SelectItem key={topic} value={topic}>
                   {topic}
@@ -708,7 +752,7 @@ export default function Pool() {
               <SelectValue placeholder="Kaynak" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="ALL">Tüm Kaynaklar</SelectItem>
+              <SelectItem value="ALL">{"Tüm Kaynaklar"}</SelectItem>
               {Object.values(QuestionSource).map((source) => (
                 <SelectItem key={source} value={source}>
                   {source}
@@ -727,7 +771,7 @@ export default function Pool() {
               onClick={() => updateFilter({ status: undefined })}
             >
               <Filter className="mr-1.5 h-3.5 w-3.5" />
-              Tümü
+              {"Tümü"}
             </Button>
             {Object.values(QuestionStatus).map((status) => (
               <Button
@@ -735,11 +779,13 @@ export default function Pool() {
                 type="button"
                 size="sm"
                 variant={filters.status === status ? "default" : "outline"}
-                className="h-8 rounded-lg"
+                className="h-8 rounded-lg gap-1.5 [&_svg]:block [&_svg]:shrink-0"
                 onClick={() => updateFilter({ status })}
               >
-                <StatusIcon status={status} />
-                {STATUS_LABELS[status]}
+                <span className="inline-flex items-center gap-1.5">
+                  <StatusIcon status={status} />
+                  <span>{STATUS_LABELS[status]}</span>
+                </span>
               </Button>
             ))}
           </div>
@@ -768,9 +814,9 @@ export default function Pool() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="ALL">Filtresiz Badge</SelectItem>
-              <SelectItem value="osym">Sadece ÖSYM</SelectItem>
+              <SelectItem value="osym">{"Sadece ÖSYM"}</SelectItem>
               <SelectItem value="premium">Kaliteli Soru</SelectItem>
-              <SelectItem value="both">Her İkisi</SelectItem>
+              <SelectItem value="both">{"Her İkisi"}</SelectItem>
             </SelectContent>
           </Select>
 
@@ -795,16 +841,15 @@ export default function Pool() {
         <PageSection className="flex min-h-[360px] flex-col items-center justify-center opacity-80">
           <img
             src={`${import.meta.env.BASE_URL}images/empty-state.png`}
-            alt="Boş"
+            alt={"Boş"}
             className="mb-6 h-56 w-56 object-contain opacity-50"
             loading="lazy"
           />
           <h3 className="font-display text-xl font-medium text-foreground">
-            Buralar Çok Sessiz
+            {"Buralar Çok Sessiz"}
           </h3>
           <p className="mt-2 max-w-sm text-center text-muted-foreground">
-            Filtrelere uygun soru bulunamadı. Yeni soru ekleyerek havuzunu
-            genişletebilirsin.
+            {"Filtrelere uygun soru bulunamadı. Yeni soru ekleyerek havuzunu genişletebilirsin."}
           </p>
         </PageSection>
       ) : (
@@ -831,7 +876,7 @@ export default function Pool() {
                 disabled={page <= 1 || isFetching}
               >
                 <ChevronLeft className="mr-1 h-4 w-4" />
-                Önceki
+                {"Önceki"}
               </Button>
               <span className="text-sm text-muted-foreground">
                 Sayfa {page} / {pageCount}
