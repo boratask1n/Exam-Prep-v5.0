@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, ipcMain, shell, protocol, net, dialog } = require("electron");
+const { app, BrowserWindow, Menu, ipcMain, shell, protocol, net } = require("electron");
 const { autoUpdater } = require("electron-updater");
 const crypto = require("node:crypto");
 const fs = require("node:fs");
@@ -96,7 +96,7 @@ function isPortableBuild() {
 }
 
 function canAutoInstallUpdates() {
-  return app.isPackaged && !isPortableBuild();
+  return app.isPackaged && process.platform === "win32" && !isPortableBuild();
 }
 
 function getUpdateBaseUrl() {
@@ -111,6 +111,10 @@ function getUpdateChannelUrl() {
   return `${getUpdateBaseUrl()}/channel.json`;
 }
 
+function getPlatformManifestName() {
+  return process.platform === "darwin" ? "latest-mac.yml" : "latest.yml";
+}
+
 function broadcast(channel, payload) {
   if (!mainWindow || mainWindow.isDestroyed()) return;
   mainWindow.webContents.send(channel, payload);
@@ -122,7 +126,7 @@ function getUpdateState() {
     currentVersion: app.getVersion(),
     autoInstallSupported: canAutoInstallUpdates(),
     isPortable: isPortableBuild(),
-    feedUrl: `${getUpdateBaseUrl()}/latest.yml`,
+    feedUrl: `${getUpdateBaseUrl()}/${getPlatformManifestName()}`,
     channelUrl: getUpdateChannelUrl(),
   };
 }
@@ -149,7 +153,7 @@ function escapeHtml(value) {
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
-    .replace(/\"/g, "&quot;");
+    .replace(/"/g, "&quot;");
 }
 
 function connectionHtml(currentUrl, message = "Sunucuya baglanilamadi.") {
@@ -340,7 +344,7 @@ async function fetchUpdateChannel() {
   if (response.status === 404) {
     return {
       published: false,
-      latestPath: "latest.yml",
+      latestPath: getPlatformManifestName(),
       publishedVersion: null,
       publishedAt: null,
     };
@@ -351,12 +355,33 @@ async function fetchUpdateChannel() {
   }
 
   const payload = await response.json().catch(() => null);
+  const platformConfig =
+    payload?.platforms && typeof payload.platforms === "object"
+      ? payload.platforms[process.platform]
+      : null;
   return {
-    published: payload?.published !== false,
-    latestPath: typeof payload?.latestPath === "string" ? payload.latestPath : "latest.yml",
+    published:
+      platformConfig?.published !== undefined
+        ? platformConfig.published !== false
+        : payload?.published !== false,
+    latestPath:
+      typeof platformConfig?.latestPath === "string"
+        ? platformConfig.latestPath
+        : typeof payload?.latestPath === "string"
+          ? payload.latestPath
+          : getPlatformManifestName(),
     publishedVersion:
-      typeof payload?.publishedVersion === "string" ? payload.publishedVersion : null,
-    publishedAt: typeof payload?.publishedAt === "string" ? payload.publishedAt : null,
+      typeof platformConfig?.publishedVersion === "string"
+        ? platformConfig.publishedVersion
+        : typeof payload?.publishedVersion === "string"
+          ? payload.publishedVersion
+          : null,
+    publishedAt:
+      typeof platformConfig?.publishedAt === "string"
+        ? platformConfig.publishedAt
+        : typeof payload?.publishedAt === "string"
+          ? payload.publishedAt
+          : null,
   };
 }
 
@@ -415,7 +440,7 @@ async function runManifestUpdateCheck(manual) {
       checkedAt: new Date().toISOString(),
       manual,
       progressPercent: null,
-      message: "Henüz gönderilmiş masaüstü güncellemesi yok.",
+      message: "HenÃ¼z gÃ¶nderilmiÅŸ masaÃ¼stÃ¼ gÃ¼ncellemesi yok.",
       status: "up-to-date",
     });
     return { hasUpdate: false, manifest: null, state: nextState };
@@ -666,19 +691,25 @@ function createWindow() {
       preload: path.join(__dirname, "preload.cjs"),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false,
+      sandbox: true,
+      webSecurity: true,
+      allowRunningInsecureContent: false,
     },
   });
 
+  mainWindow.webContents.session.setPermissionRequestHandler((_webContents, _permission, callback) => {
+    callback(false);
+  });
+
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url);
+    if (/^https?:\/\//i.test(url)) shell.openExternal(url);
     return { action: "deny" };
   });
 
   mainWindow.webContents.on("will-navigate", (event, url) => {
     if (url.startsWith(APP_ORIGIN) || url.startsWith("data:text/html")) return;
     event.preventDefault();
-    shell.openExternal(url);
+    if (/^https?:\/\//i.test(url)) shell.openExternal(url);
   });
 
   mainWindow.webContents.on("did-fail-load", (_event, _code, description, _validatedUrl, isMainFrame) => {
