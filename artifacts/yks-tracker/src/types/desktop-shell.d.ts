@@ -40,6 +40,22 @@ type DesktopInstallResult = {
   action: "installing" | "download" | "none";
 };
 
+type DesktopApiRequest = {
+  url: string;
+  method?: string;
+  headers?: Record<string, string>;
+  bodyText?: string;
+  bodyBase64?: string;
+};
+
+type DesktopApiResponse = {
+  ok: boolean;
+  status: number;
+  statusText: string;
+  headers: Record<string, string>;
+  bodyBase64: string;
+};
+
 type DesktopUpdateListener = (state: DesktopUpdateState) => void;
 
 interface Window {
@@ -53,6 +69,7 @@ interface Window {
     checkForUpdates: () => Promise<DesktopUpdateState>;
     installUpdate: () => Promise<DesktopInstallResult>;
     checkSync: (token: string) => Promise<DesktopSyncStatus>;
+    requestApi: (request: DesktopApiRequest) => Promise<DesktopApiResponse>;
     onUpdateState: (callback: DesktopUpdateListener) => () => void;
   };
 }
