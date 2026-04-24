@@ -1,6 +1,6 @@
 {
   "name": "@workspace/desktop-shell",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "private": true,
   "description": "Exam Duck desktop shell for Windows and macOS",
   "author": "Exam Duck",
