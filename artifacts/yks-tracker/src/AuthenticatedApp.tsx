@@ -11,6 +11,10 @@ import {
   clearAuthSession,
   getAuthToken,
 } from "@/lib/auth-session";
+import {
+  desktopBridgeFetch,
+  isAllowedApiRequest,
+} from "@/lib/desktop-api-fetch";
 
 const NotFound = lazy(() => import("@/pages/not-found"));
 const Analysis = lazy(() => import("@/pages/Analysis"));
@@ -122,26 +126,6 @@ let restoreAuthenticatedFetch: (() => void) | null = null;
 let unauthorizedEventDispatched = false;
 const unauthorizedEventName = "exam-prep:unauthorized";
 
-function isAllowedApiRequest(url: string) {
-  if (url.startsWith("/api")) return true;
-
-  try {
-    const target = new URL(url, window.location.origin);
-    if (!target.pathname.startsWith("/api")) return false;
-    if (target.origin === window.location.origin) return true;
-    if (apiBaseUrl && target.href.startsWith(`${apiBaseUrl}/api`)) return true;
-
-    return [
-      "examduck.mooo.com",
-      "examduck.duckdns.org",
-      "localhost",
-      "127.0.0.1",
-    ].includes(target.hostname);
-  } catch {
-    return false;
-  }
-}
-
 function ensureAuthenticatedFetch() {
   setBaseUrl(apiBaseUrl);
   setAuthTokenGetter(() => getAuthToken());
@@ -167,7 +151,11 @@ function ensureAuthenticatedFetch() {
     if (token && !headers.has("Authorization")) {
       headers.set("Authorization", `Bearer ${token}`);
     }
-    const response = await nativeFetch(input, { ...init, headers });
+    const response = await desktopBridgeFetch(
+      input,
+      { ...init, headers },
+      nativeFetch,
+    );
 
     if (
       response.status === 401 &&
