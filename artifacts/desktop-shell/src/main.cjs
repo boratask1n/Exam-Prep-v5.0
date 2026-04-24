@@ -780,6 +780,31 @@ ipcMain.handle("desktop:update:install", async () => {
   }
   return { action: "none" };
 });
+ipcMain.handle("desktop:api:request", async (_event, request = {}) => {
+  const rawUrl = typeof request.url === "string" ? request.url : "";
+  const targetUrl = rawUrl.startsWith("http")
+    ? rawUrl
+    : new URL(rawUrl || "/", readServerUrl()).toString();
+  const method = String(request.method || "GET").toUpperCase();
+  const headers = new Headers(request.headers || {});
+  const init = { method, headers };
+
+  if (typeof request.bodyText === "string") {
+    init.body = request.bodyText;
+  } else if (typeof request.bodyBase64 === "string") {
+    init.body = Buffer.from(request.bodyBase64, "base64");
+  }
+
+  const response = await fetchWithTimeout(targetUrl, init);
+  const body = Buffer.from(await response.arrayBuffer());
+  return {
+    ok: response.ok,
+    status: response.status,
+    statusText: response.statusText,
+    headers: Object.fromEntries(response.headers.entries()),
+    bodyBase64: body.toString("base64"),
+  };
+});
 ipcMain.handle("desktop:sync:check", async (_event, token) => {
   const serverUrl = readServerUrl();
   const checkedAt = new Date().toISOString();
