@@ -14,6 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { getRememberDefault, type AuthSession } from "@/lib/auth-session";
+import { desktopBridgeFetch } from "@/lib/desktop-api-fetch";
 
 type LoginPageProps = {
   onAuthenticated: (session: AuthSession) => void;
@@ -40,14 +41,14 @@ function resolveApiUrl(path: string) {
 
 function extractErrorMessage(error: unknown) {
   if (error instanceof Error) return error.message;
-  return "İşlem tamamlanamadı.";
+  return "Ä°ÅŸlem tamamlanamadÄ±.";
 }
 
 async function submitAuth(
   mode: AuthMode,
   payload: { name: string; email: string; password: string; remember: boolean },
 ) {
-  const response = await fetch(
+  const response = await desktopBridgeFetch(
     resolveApiUrl(`/api/auth/${mode === "register" ? "register" : "login"}`),
     {
       method: "POST",
@@ -58,7 +59,7 @@ async function submitAuth(
 
   const data = await response.json().catch(() => null);
   if (!response.ok) {
-    throw new Error(data?.error || "Sunucu işlemi tamamlayamadı.");
+    throw new Error(data?.error || "Sunucu iÅŸlemi tamamlayamadÄ±.");
   }
 
   return data as AuthResponse;
@@ -82,15 +83,15 @@ export default function Login({ onAuthenticated }: LoginPageProps) {
     const cleanName = name.trim();
 
     if (isRegister && cleanName.length < 2) {
-      setError("Ad alanı en az 2 karakter olmalı.");
+      setError("Ad alanÄ± en az 2 karakter olmalÄ±.");
       return;
     }
     if (!cleanEmail || !cleanEmail.includes("@")) {
-      setError("Geçerli bir e-posta girin.");
+      setError("GeÃ§erli bir e-posta girin.");
       return;
     }
     if (cleanPassword.length < 6) {
-      setError("Şifre en az 6 karakter olmalı.");
+      setError("Åžifre en az 6 karakter olmalÄ±.");
       return;
     }
 
@@ -130,26 +131,26 @@ export default function Login({ onAuthenticated }: LoginPageProps) {
           </div>
           <div className="login-copy space-y-4">
             <h1 className="text-4xl font-semibold tracking-[-0.04em] text-foreground">
-              Odaklı çalış, akıllı tekrar et.
+              OdaklÄ± Ã§alÄ±ÅŸ, akÄ±llÄ± tekrar et.
             </h1>
             <p className="max-w-md text-sm leading-6 text-muted-foreground">
-              Not akışı, soru tekrarı ve test merkezine tek panelden eriş.
-              Hesabınla giriş yap, verilerin aynı sunucu üzerinden düzenli
-              çalışsın.
+              Not akÄ±ÅŸÄ±, soru tekrarÄ± ve test merkezine tek panelden eriÅŸ.
+              HesabÄ±nla giriÅŸ yap, verilerin aynÄ± sunucu Ã¼zerinden dÃ¼zenli
+              Ã§alÄ±ÅŸsÄ±n.
             </p>
           </div>
           <div className="login-benefits grid gap-3 text-sm text-muted-foreground">
             <p className="inline-flex items-center gap-2">
               <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-              Yapay zeka destekli koçluk sistemi
+              Yapay zeka destekli koÃ§luk sistemi
             </p>
             <p className="inline-flex items-center gap-2">
               <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-              Beni hatırla ile kalıcı oturum
+              Beni hatÄ±rla ile kalÄ±cÄ± oturum
             </p>
             <p className="inline-flex items-center gap-2">
               <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-              Mac ve Windows uyumlu çalışma
+              Mac ve Windows uyumlu Ã§alÄ±ÅŸma
             </p>
           </div>
         </section>
@@ -158,15 +159,15 @@ export default function Login({ onAuthenticated }: LoginPageProps) {
           <div className="mx-auto w-full max-w-md">
             <div className="login-heading mb-8">
               <p className="text-xs font-semibold uppercase tracking-[0.2em] text-primary/80">
-                {isRegister ? "Yeni hesap" : "Hoş geldin"}
+                {isRegister ? "Yeni hesap" : "HoÅŸ geldin"}
               </p>
               <h2 className="mt-2 text-3xl font-semibold tracking-[-0.04em] text-foreground">
-                {isRegister ? "Hesap oluştur" : "Giriş yap"}
+                {isRegister ? "Hesap oluÅŸtur" : "GiriÅŸ yap"}
               </h2>
               <p className="mt-2 text-sm text-muted-foreground">
                 {isRegister
-                  ? "İlk hesabını oluşturup çalışma paneline geçebilirsin."
-                  : "Çalışma paneline geçmek için hesabınla giriş yap."}
+                  ? "Ä°lk hesabÄ±nÄ± oluÅŸturup Ã§alÄ±ÅŸma paneline geÃ§ebilirsin."
+                  : "Ã‡alÄ±ÅŸma paneline geÃ§mek iÃ§in hesabÄ±nla giriÅŸ yap."}
               </p>
             </div>
 
@@ -183,7 +184,7 @@ export default function Login({ onAuthenticated }: LoginPageProps) {
                     : "text-muted-foreground hover:text-foreground"
                 }`}
               >
-                Giriş yap
+                GiriÅŸ yap
               </button>
               <button
                 type="button"
@@ -197,7 +198,7 @@ export default function Login({ onAuthenticated }: LoginPageProps) {
                     : "text-muted-foreground hover:text-foreground"
                 }`}
               >
-                Kayıt ol
+                KayÄ±t ol
               </button>
             </div>
 
@@ -212,7 +213,7 @@ export default function Login({ onAuthenticated }: LoginPageProps) {
                       autoComplete="name"
                       value={name}
                       onChange={(event) => setName(event.target.value)}
-                      placeholder="Bora Taşkın"
+                      placeholder="Bora TaÅŸkÄ±n"
                       className="h-12 rounded-xl border-border/70 bg-background/82 pl-10"
                     />
                   </div>
@@ -236,7 +237,7 @@ export default function Login({ onAuthenticated }: LoginPageProps) {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="login-password">Şifre</Label>
+                <Label htmlFor="login-password">Åžifre</Label>
                 <div className="relative">
                   <Lock className="login-input-icon pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                   <Input
@@ -256,7 +257,7 @@ export default function Login({ onAuthenticated }: LoginPageProps) {
                   checked={remember}
                   onCheckedChange={(checked) => setRemember(Boolean(checked))}
                 />
-                Beni hatırla
+                Beni hatÄ±rla
               </label>
 
               {error ? (
@@ -277,7 +278,7 @@ export default function Login({ onAuthenticated }: LoginPageProps) {
                 ) : (
                   <LogIn className="mr-2 h-4 w-4" />
                 )}
-                {isRegister ? "Hesap Oluştur" : "Giriş Yap"}
+                {isRegister ? "Hesap OluÅŸtur" : "GiriÅŸ Yap"}
               </Button>
             </form>
           </div>
