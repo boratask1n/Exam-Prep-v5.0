@@ -119,6 +119,8 @@ function AppRouter({
 }
 
 let restoreAuthenticatedFetch: (() => void) | null = null;
+let unauthorizedEventDispatched = false;
+const unauthorizedEventName = "exam-prep:unauthorized";
 
 function isAllowedApiRequest(url: string) {
   if (url.startsWith("/api")) return true;
@@ -147,7 +149,7 @@ function ensureAuthenticatedFetch() {
   if (restoreAuthenticatedFetch) return;
 
   const nativeFetch = window.fetch.bind(window);
-  window.fetch = (input, init = {}) => {
+  window.fetch = async (input, init = {}) => {
     const url =
       typeof input === "string"
         ? input
@@ -165,7 +167,21 @@ function ensureAuthenticatedFetch() {
     if (token && !headers.has("Authorization")) {
       headers.set("Authorization", `Bearer ${token}`);
     }
-    return nativeFetch(input, { ...init, headers });
+    const response = await nativeFetch(input, { ...init, headers });
+
+    if (
+      response.status === 401 &&
+      !unauthorizedEventDispatched &&
+      !url.includes("/api/auth/login")
+    ) {
+      unauthorizedEventDispatched = true;
+      window.dispatchEvent(new Event(unauthorizedEventName));
+      window.setTimeout(() => {
+        unauthorizedEventDispatched = false;
+      }, 0);
+    }
+
+    return response;
   };
 
   restoreAuthenticatedFetch = () => {
@@ -192,13 +208,23 @@ export default function AuthenticatedApp({
   ensureAuthenticatedFetch();
 
   const userName = useMemo(
-    () => session.name || session.email || "Kullanıcı",
+    () => session.name || session.email || "KullanÄ±cÄ±",
     [session.email, session.name],
   );
 
   useEffect(() => {
-    return restoreAuthenticatedApi;
-  }, []);
+    const handleUnauthorized = () => {
+      clearAuthSession();
+      queryClient.clear();
+      onSessionCleared();
+    };
+
+    window.addEventListener(unauthorizedEventName, handleUnauthorized);
+    return () => {
+      window.removeEventListener(unauthorizedEventName, handleUnauthorized);
+      restoreAuthenticatedApi();
+    };
+  }, [onSessionCleared]);
 
   const handleLogout = () => {
     const token = session.token;
@@ -217,7 +243,7 @@ export default function AuthenticatedApp({
     const token = session.token;
     if (!token) return;
     const confirmed = window.confirm(
-      "Hesabını ve bu hesaba ait tüm soru, not, test ve analiz verilerini kalıcı olarak silmek istiyor musun?",
+      "HesabÄ±nÄ± ve bu hesaba ait tÃ¼m soru, not, test ve analiz verilerini kalÄ±cÄ± olarak silmek istiyor musun?",
     );
     if (!confirmed) return;
 
@@ -227,7 +253,7 @@ export default function AuthenticatedApp({
     });
 
     if (!response.ok) {
-      window.alert("Hesap silinemedi. Lütfen tekrar dene.");
+      window.alert("Hesap silinemedi. LÃ¼tfen tekrar dene.");
       return;
     }
 
