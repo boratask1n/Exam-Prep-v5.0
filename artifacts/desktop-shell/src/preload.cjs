@@ -10,6 +10,7 @@ contextBridge.exposeInMainWorld("examPrepDesktop", {
   checkForUpdates: () => ipcRenderer.invoke("desktop:update:check"),
   installUpdate: () => ipcRenderer.invoke("desktop:update:install"),
   checkSync: (token) => ipcRenderer.invoke("desktop:sync:check", token),
+  requestApi: (request) => ipcRenderer.invoke("desktop:api:request", request),
   onUpdateState: (callback) => {
     if (typeof callback !== "function") {
       return () => {};
