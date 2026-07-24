@@ -1,0 +1,71 @@
+{
+  "name": "@workspace/desktop-shell",
+  "version": "0.1.7",
+  "private": true,
+  "description": "Exam Duck desktop shell for Windows and macOS",
+  "author": "Exam Duck",
+  "main": "src/main.cjs",
+  "scripts": {
+    "prepare:web": "node ./scripts/prepare-web.cjs",
+    "dev": "pnpm run prepare:web && electron ./src/main.cjs",
+    "pack": "pnpm run prepare:web && electron-builder --dir",
+    "dist:win": "pnpm run prepare:web && electron-builder --win portable nsis",
+    "dist:win:setup": "pnpm run prepare:web && electron-builder --win nsis",
+    "dist:win:portable": "pnpm run prepare:web && electron-builder --win portable",
+    "dist:mac": "pnpm run prepare:web && electron-builder --mac dmg zip"
+  },
+  "devDependencies": {
+    "electron": "^34.5.8",
+    "electron-builder": "^25.1.8",
+    "electron-builder-squirrel-windows": "25.1.8"
+  },
+  "build": {
+    "appId": "com.examprep.desktop",
+    "productName": "Exam Duck",
+    "artifactName": "Exam-Duck-${version}-${os}-${arch}.${ext}",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "src/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "web",
+        "to": "web"
+      }
+    ],
+    "win": {
+      "icon": "build/icon.ico",
+      "signAndEditExecutable": false,
+      "verifyUpdateCodeSignature": false,
+      "target": [
+        "nsis",
+        "portable"
+      ]
+    },
+    "mac": {
+      "category": "public.app-category.education",
+      "target": [
+        "dmg",
+        "zip"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    },
+    "publish": [
+      {
+        "provider": "generic",
+        "url": "https://examduck.mooo.com/desktop-updates/"
+      }
+    ]
+  },
+  "dependencies": {
+    "electron-updater": "6.6.2"
+  }
+}

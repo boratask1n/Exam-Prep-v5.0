@@ -1,0 +1,36 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Local app/runtime data
+.local/
+artifacts/api-server/uploads/
+backups/
+.backups/
+agents/
+.agents/
+pgbouncer/
+
+# Environment files
+.env
+.env.*
+.env_postgres
+!.env.example
+!.env_postgres.example
+
+# Build outputs
+dist/
+**/dist/
+artifacts/desktop-shell/release/
+*.tsbuildinfo
+.turbo/
+coverage/
+
+# Logs and OS/editor noise
+*.log
+Thumbs.db
+.DS_Store
+
+# Replit metadata
+.replitignore
+**/.replit-artifact/

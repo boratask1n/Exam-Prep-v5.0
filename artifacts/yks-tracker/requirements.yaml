@@ -1,0 +1,23 @@
+packages:
+  "framer-motion": "Smooth layout transitions and modal animations"
+  "react-hook-form": "Form state management"
+  "@hookform/resolvers": "Zod integration for forms"
+  "zod": "Schema validation"
+  "date-fns": "Date formatting for tests and questions"
+  "react-use-measure": "For responsive canvas sizing"
+  "lucide-react": "Beautiful consistent icons"
+  "clsx": "Utility for Tailwind classes"
+  "tailwind-merge": "Utility for Tailwind classes"
+
+images:
+  - path: "artifacts/yks-tracker/public/images/hero-bg.png"
+    description: "Dark, moody abstract gradient with subtle geometric grid lines, deep blues and purples, professional study aesthetic"
+    aspect_ratio: "16:9"
+  - path: "artifacts/yks-tracker/public/images/empty-state.png"
+    description: "Minimalist 3D illustration of a floating exam paper with a checkmark and pencil, dark mode professional style"
+    aspect_ratio: "1:1"
+
+notes:
+  - "Uses @workspace/api-client-react for TanStack Query hooks"
+  - "Relies on pre-existing shadcn/ui components in the workspace"
+  - "Canvas drawing saves strokes as JSON string to the drawing endpoint"

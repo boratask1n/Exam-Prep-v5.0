@@ -1,0 +1,1778 @@
+openapi: 3.1.0
+info:
+  title: Api
+  version: 0.1.0
+  description: YKS Soru Takibi API
+servers:
+  - url: /api
+    description: Base API path
+tags:
+  - name: health
+    description: Health operations
+  - name: questions
+    description: Question management
+  - name: question-review
+    description: Spaced repetition flow for questions
+  - name: tests
+    description: Test management
+  - name: drawings
+    description: Drawing management
+  - name: resources
+    description: Resource management
+paths:
+  /healthz:
+    get:
+      operationId: healthCheck
+      tags: [health]
+      summary: Health check
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+
+  /questions:
+    get:
+      operationId: listQuestions
+      tags: [questions]
+      summary: List all questions with optional filters
+      parameters:
+        - name: category
+          in: query
+          schema:
+            type: string
+            enum: [TYT, AYT, Geometri]
+        - name: source
+          in: query
+          schema:
+            type: string
+            enum: [Deneme, Banka, Fasikül, Ders Kitabı]
+        - name: lesson
+          in: query
+          schema:
+            type: string
+        - name: publisher
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [Cozulmedi, DogruCozuldu, YanlisHocayaSor]
+        - name: topic
+          in: query
+          schema:
+            type: string
+        - name: search
+          in: query
+          schema:
+            type: string
+        - name: isOsymBadge
+          in: query
+          schema:
+            type: boolean
+        - name: isPremiumBadge
+          in: query
+          schema:
+            type: boolean
+        - name: resourceId
+          in: query
+          schema:
+            type: integer
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+      responses:
+        "200":
+          description: List of questions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Question"
+    post:
+      operationId: createQuestion
+      tags: [questions]
+      summary: Create a new question
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateQuestionInput"
+      responses:
+        "201":
+          description: Created question
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Question"
+
+  /questions/{id}:
+    get:
+      operationId: getQuestion
+      tags: [questions]
+      summary: Get a question by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Question
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Question"
+        "404":
+          description: Not found
+    patch:
+      operationId: updateQuestion
+      tags: [questions]
+      summary: Update a question
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateQuestionInput"
+      responses:
+        "200":
+          description: Updated question
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Question"
+    delete:
+      operationId: deleteQuestion
+      tags: [questions]
+      summary: Delete a question
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+
+  /questions/image:
+    post:
+      operationId: uploadQuestionImage
+      tags: [questions]
+      summary: Upload a question image (base64)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                imageData:
+                  type: string
+                mimeType:
+                  type: string
+              required:
+                - imageData
+                - mimeType
+      responses:
+        "200":
+          description: Image URL
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  url:
+                    type: string
+                required:
+                  - url
+
+  /questions/review/feed:
+    get:
+      operationId: getQuestionReviewFeed
+      tags: [question-review]
+      summary: Get a spaced repetition question feed
+      parameters:
+        - name: search
+          in: query
+          schema:
+            type: string
+        - name: excludeIds
+          in: query
+          schema:
+            type: string
+          description: Comma-separated question IDs to avoid in this batch
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 16
+      responses:
+        "200":
+          description: Question review feed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QuestionReviewFeedResponse"
+
+  /questions/review/serve/{id}:
+    post:
+      operationId: markQuestionReviewServed
+      tags: [question-review]
+      summary: Mark a question as shown in the review feed
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Served state stored
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  deduped:
+                    type: boolean
+                  nextEligibleAt:
+                    type: string
+                    nullable: true
+                required:
+                  - ok
+
+  /questions/review/feedback/{id}:
+    post:
+      operationId: submitQuestionReviewFeedback
+      tags: [question-review]
+      summary: Store review feedback for a question
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/QuestionReviewFeedbackInput"
+      responses:
+        "200":
+          description: Feedback stored
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QuestionReviewFeedbackResponse"
+
+  /questions/{id}/drawing:
+    get:
+      operationId: getDrawing
+      tags: [drawings]
+      summary: Get drawing data for a question
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Drawing data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Drawing"
+    put:
+      operationId: saveDrawing
+      tags: [drawings]
+      summary: Save drawing data for a question
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SaveDrawingInput"
+      responses:
+        "200":
+          description: Saved drawing
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Drawing"
+
+  /tests:
+    get:
+      operationId: listTests
+      tags: [tests]
+      summary: List all test sessions
+      responses:
+        "200":
+          description: List of tests
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TestSession"
+    post:
+      operationId: createTest
+      tags: [tests]
+      summary: Create a test session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateTestInput"
+      responses:
+        "201":
+          description: Created test
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TestSession"
+
+  /tests/{id}:
+    get:
+      operationId: getTest
+      tags: [tests]
+      summary: Get a test session
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Test session with questions
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TestSessionWithQuestions"
+    patch:
+      operationId: updateTest
+      tags: [tests]
+      summary: Update test session (e.g. mark completed)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateTestSessionInput"
+      responses:
+        "200":
+          description: Updated test session
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TestSessionWithQuestions"
+    delete:
+      operationId: deleteTest
+      tags: [tests]
+      summary: Delete a test session
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+
+  /tests/{id}/questions/{questionId}/status:
+    patch:
+      operationId: updateTestQuestionStatus
+      tags: [tests]
+      summary: Update question status within a test (also updates main DB)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: questionId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status:
+                  type: string
+                  enum: [Cozulmedi, DogruCozuldu, YanlisHocayaSor]
+              required:
+                - status
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Question"
+
+  /tests/{id}/solutions:
+    get:
+      operationId: getTestSolutions
+      tags: [tests]
+      summary: Get all solutions for a test session
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Test solutions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TestSolution"
+    put:
+      operationId: saveTestSolutions
+      tags: [tests]
+      summary: Save or update test solutions (bulk)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SaveTestSolutionsInput"
+      responses:
+        "200":
+          description: Solutions saved
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TestSolution"
+
+  /tests/{id}/questions/{questionId}/solution:
+    get:
+      operationId: getTestQuestionSolution
+      tags: [tests]
+      summary: Get solution for a specific question in a test
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: questionId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Question solution
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TestSolution"
+        "404":
+          description: Solution not found
+    put:
+      operationId: saveTestQuestionSolution
+      tags: [tests]
+      summary: Save or update solution for a specific question in a test
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: questionId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SaveTestSolutionInput"
+      responses:
+        "200":
+          description: Solution saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TestSolution"
+
+  /tests/{id}/progress:
+    get:
+      operationId: getTestProgress
+      tags: [tests]
+      summary: Get test session progress
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Test progress
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TestSessionProgress"
+    put:
+      operationId: saveTestProgress
+      tags: [tests]
+      summary: Save or update test session progress
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SaveTestProgressInput"
+      responses:
+        "200":
+          description: Progress saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TestSessionProgress"
+
+  /resources:
+    get:
+      operationId: listResources
+      tags: [resources]
+      summary: List all resources
+      parameters:
+        - name: category
+          in: query
+          schema:
+            type: string
+        - name: lesson
+          in: query
+          schema:
+            type: string
+        - name: resourceType
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of resources
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ResourceWithStats"
+    post:
+      operationId: createResource
+      tags: [resources]
+      summary: Create a new resource
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateResourceInput"
+      responses:
+        "201":
+          description: Resource created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Resource"
+
+  /resources/{id}:
+    get:
+      operationId: getResource
+      tags: [resources]
+      summary: Get resource details
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Resource details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ResourceWithStats"
+    put:
+      operationId: updateResource
+      tags: [resources]
+      summary: Update a resource
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateResourceInput"
+      responses:
+        "200":
+          description: Resource updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Resource"
+    delete:
+      operationId: deleteResource
+      tags: [resources]
+      summary: Delete a resource
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Resource deleted
+
+  /filters/options:
+    get:
+      operationId: getFilterOptions
+      tags: [questions]
+      summary: Get distinct filter options (lessons, topics, publishers)
+      responses:
+        "200":
+          description: Filter options
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FilterOptions"
+
+  /practice-exams:
+    get:
+      operationId: listPracticeExams
+      tags: [practice-exams]
+      summary: List all practice exams
+      parameters:
+        - name: category
+          in: query
+          schema:
+            type: string
+        - name: examType
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of practice exams
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PracticeExam"
+    post:
+      operationId: createPracticeExam
+      tags: [practice-exams]
+      summary: Create a practice exam
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatePracticeExamInput"
+      responses:
+        "201":
+          description: Practice exam created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PracticeExam"
+
+  /practice-exams/{id}:
+    get:
+      operationId: getPracticeExam
+      tags: [practice-exams]
+      summary: Get practice exam details
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Practice exam
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PracticeExam"
+    put:
+      operationId: updatePracticeExam
+      tags: [practice-exams]
+      summary: Update a practice exam
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdatePracticeExamInput"
+      responses:
+        "200":
+          description: Practice exam updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PracticeExam"
+    delete:
+      operationId: deletePracticeExam
+      tags: [practice-exams]
+      summary: Delete a practice exam
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+
+components:
+  schemas:
+    PracticeExam:
+      type: object
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        examType:
+          type: string
+        category:
+          type: string
+        resourceId:
+          type: integer
+          nullable: true
+        lesson:
+          type: string
+          nullable: true
+        topic:
+          type: string
+          nullable: true
+        publisher:
+          type: string
+          nullable: true
+        examDate:
+          type: string
+          format: date-time
+        durationMinutes:
+          type: integer
+          nullable: true
+        totalNet:
+          type: number
+        details:
+          type: object
+          additionalProperties: true
+        notes:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - title
+        - examType
+        - category
+        - examDate
+        - totalNet
+        - createdAt
+        - updatedAt
+
+    CreatePracticeExamInput:
+      type: object
+      properties:
+        title:
+          type: string
+        examType:
+          type: string
+        category:
+          type: string
+        resourceId:
+          type: integer
+          nullable: true
+        lesson:
+          type: string
+          nullable: true
+        topic:
+          type: string
+          nullable: true
+        publisher:
+          type: string
+          nullable: true
+        examDate:
+          type: string
+          format: date-time
+        durationMinutes:
+          type: integer
+          nullable: true
+        totalNet:
+          type: number
+        details:
+          type: object
+          additionalProperties: true
+        notes:
+          type: string
+          nullable: true
+      required:
+        - title
+        - examType
+        - category
+
+    UpdatePracticeExamInput:
+      type: object
+      properties:
+        title:
+          type: string
+        examType:
+          type: string
+        category:
+          type: string
+        resourceId:
+          type: integer
+          nullable: true
+        lesson:
+          type: string
+          nullable: true
+        topic:
+          type: string
+          nullable: true
+        publisher:
+          type: string
+          nullable: true
+        examDate:
+          type: string
+          format: date-time
+        durationMinutes:
+          type: integer
+          nullable: true
+        totalNet:
+          type: number
+        details:
+          type: object
+          additionalProperties: true
+        notes:
+          type: string
+          nullable: true
+
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+      required:
+        - status
+
+    Question:
+      type: object
+      properties:
+        id:
+          type: integer
+        resourceId:
+          type: integer
+          nullable: true
+        imageUrl:
+          type: string
+          nullable: true
+        description:
+          type: string
+          nullable: true
+        lesson:
+          type: string
+        topic:
+          type: string
+          nullable: true
+        publisher:
+          type: string
+          nullable: true
+        testName:
+          type: string
+          nullable: true
+        testNo:
+          type: string
+          nullable: true
+        choice:
+          type: string
+          nullable: true
+          enum: [A, B, C, D, E, null]
+        options:
+          type: array
+          nullable: true
+          items:
+            type: object
+            properties:
+              label:
+                type: string
+              text:
+                type: string
+            required:
+              - label
+              - text
+        solutionUrl:
+          type: string
+          nullable: true
+        solutionYoutubeUrl:
+          type: string
+          nullable: true
+        solutionYoutubeStartSecond:
+          type: integer
+          nullable: true
+        solutionYoutubeEndSecond:
+          type: integer
+          nullable: true
+        category:
+          type: string
+          enum: [TYT, AYT, Geometri]
+        source:
+          type: string
+          enum: [Deneme, Banka, Fasikül, Ders Kitabı]
+        status:
+          type: string
+          enum: [Cozulmedi, DogruCozuldu, YanlisHocayaSor]
+        hasDrawing:
+          type: boolean
+        isOsymBadge:
+          type: boolean
+        isPremiumBadge:
+          type: boolean
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+      required:
+        - id
+        - lesson
+        - category
+        - source
+        - status
+        - hasDrawing
+        - isOsymBadge
+        - isPremiumBadge
+        - createdAt
+        - updatedAt
+
+    QuestionReviewItem:
+      allOf:
+        - $ref: "#/components/schemas/Question"
+        - type: object
+          properties:
+            totalServed:
+              type: integer
+              nullable: true
+            totalReviewed:
+              type: integer
+              nullable: true
+            correctReviewCount:
+              type: integer
+              nullable: true
+            wrongReviewCount:
+              type: integer
+              nullable: true
+            repetitionStage:
+              type: integer
+              nullable: true
+            lastServedAt:
+              type: string
+              nullable: true
+            lastReviewedAt:
+              type: string
+              nullable: true
+            nextEligibleAt:
+              type: string
+              nullable: true
+            lastOutcome:
+              type: string
+              nullable: true
+            score:
+              type: number
+              nullable: true
+
+    QuestionReviewFeedResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/QuestionReviewItem"
+        pagination:
+          type: object
+          properties:
+            total:
+              type: integer
+            limit:
+              type: integer
+            offset:
+              type: integer
+            hasMore:
+              type: boolean
+          required:
+            - total
+            - limit
+            - offset
+            - hasMore
+        algorithm:
+          type: object
+          properties:
+            name:
+              type: string
+            description:
+              type: string
+          required:
+            - name
+            - description
+      required:
+        - items
+        - pagination
+
+    QuestionReviewFeedbackInput:
+      type: object
+      properties:
+        feedback:
+          type: string
+          enum: [again, wrong, hard, correct, easy, less_often, more_often]
+      required:
+        - feedback
+
+    QuestionReviewFeedbackResponse:
+      type: object
+      properties:
+        ok:
+          type: boolean
+        feedback:
+          type: string
+        outcome:
+          type: string
+          nullable: true
+        repetitionStage:
+          type: integer
+        nextEligibleAt:
+          type: string
+      required:
+        - ok
+        - feedback
+        - repetitionStage
+        - nextEligibleAt
+
+    CreateQuestionInput:
+      type: object
+      properties:
+        resourceId:
+          type: integer
+          nullable: true
+        imageUrl:
+          type: string
+          nullable: true
+        description:
+          type: string
+          nullable: true
+        lesson:
+          type: string
+        topic:
+          type: string
+          nullable: true
+        publisher:
+          type: string
+          nullable: true
+        testName:
+          type: string
+          nullable: true
+        testNo:
+          type: string
+          nullable: true
+        choice:
+          type: string
+          nullable: true
+          enum: [A, B, C, D, E, null]
+        options:
+          type: array
+          nullable: true
+          items:
+            type: object
+            properties:
+              label:
+                type: string
+              text:
+                type: string
+            required:
+              - label
+              - text
+        solutionUrl:
+          type: string
+          nullable: true
+        solutionYoutubeUrl:
+          type: string
+          nullable: true
+        solutionYoutubeStartSecond:
+          type: integer
+          nullable: true
+        solutionYoutubeEndSecond:
+          type: integer
+          nullable: true
+        category:
+          type: string
+          enum: [TYT, AYT, Geometri]
+        source:
+          type: string
+          enum: [Deneme, Banka, Fasikül, Ders Kitabı]
+        status:
+          type: string
+          enum: [Cozulmedi, DogruCozuldu, YanlisHocayaSor]
+        isOsymBadge:
+          type: boolean
+        isPremiumBadge:
+          type: boolean
+      required:
+        - lesson
+        - topic
+        - category
+        - source
+
+    UpdateQuestionInput:
+      type: object
+      properties:
+        resourceId:
+          type: integer
+          nullable: true
+        imageUrl:
+          type: string
+          nullable: true
+        description:
+          type: string
+          nullable: true
+        lesson:
+          type: string
+        topic:
+          type: string
+          nullable: true
+        publisher:
+          type: string
+          nullable: true
+        testName:
+          type: string
+          nullable: true
+        testNo:
+          type: string
+          nullable: true
+        choice:
+          type: string
+          nullable: true
+          enum: [A, B, C, D, E, null]
+        options:
+          type: array
+          nullable: true
+          items:
+            type: object
+            properties:
+              label:
+                type: string
+              text:
+                type: string
+            required:
+              - label
+              - text
+        category:
+          type: string
+          enum: [TYT, AYT, Geometri]
+        source:
+          type: string
+          enum: [Deneme, Banka, Fasikül, Ders Kitabı]
+        status:
+          type: string
+          enum: [Cozulmedi, DogruCozuldu, YanlisHocayaSor]
+        solutionUrl:
+          type: string
+          nullable: true
+        solutionYoutubeUrl:
+          type: string
+          nullable: true
+        solutionYoutubeStartSecond:
+          type: integer
+          nullable: true
+        solutionYoutubeEndSecond:
+          type: integer
+          nullable: true
+        isOsymBadge:
+          type: boolean
+        isPremiumBadge:
+          type: boolean
+
+    UpdateTestSessionInput:
+      type: object
+      properties:
+        completedAt:
+          type: string
+          nullable: true
+          description: ISO 8601; set when test is finished
+
+    Drawing:
+      type: object
+      properties:
+        id:
+          type: integer
+        questionId:
+          type: integer
+        canvasData:
+          type: string
+        updatedAt:
+          type: string
+      required:
+        - id
+        - questionId
+        - canvasData
+        - updatedAt
+
+    SaveDrawingInput:
+      type: object
+      properties:
+        canvasData:
+          type: string
+      required:
+        - canvasData
+
+    TestSession:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        questionCount:
+          type: integer
+        completedCount:
+          type: integer
+        timeLimitSeconds:
+          type: integer
+          nullable: true
+        completedAt:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+      required:
+        - id
+        - name
+        - questionCount
+        - completedCount
+        - createdAt
+
+    TestSessionWithQuestions:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        timeLimitSeconds:
+          type: integer
+          nullable: true
+        completedAt:
+          type: string
+          nullable: true
+        questions:
+          type: array
+          items:
+            $ref: "#/components/schemas/Question"
+        createdAt:
+          type: string
+      required:
+        - id
+        - name
+        - questions
+        - createdAt
+
+    CreateTestInput:
+      type: object
+      properties:
+        name:
+          type: string
+        count:
+          type: integer
+        timeLimitSeconds:
+          type: integer
+          nullable: true
+        questionIds:
+          type: array
+          items:
+            type: integer
+        filters:
+          type: object
+          properties:
+            category:
+              type: string
+              enum: [TYT, AYT, Geometri]
+            source:
+              type: string
+              enum: [Deneme, Banka, Fasikül, Ders Kitabı]
+            lessons:
+              type: array
+              items:
+                type: string
+            topic:
+              type: string
+            topics:
+              type: array
+              items:
+                type: string
+            publisher:
+              type: string
+            status:
+              type: string
+              enum: [Cozulmedi, DogruCozuldu, YanlisHocayaSor]
+        distribution:
+          type: object
+          additionalProperties:
+            type: integer
+            minimum: 0
+      required:
+        - name
+
+    FilterOptions:
+      type: object
+      properties:
+        lessons:
+          type: array
+          items:
+            type: string
+        topics:
+          type: array
+          items:
+            type: string
+        publishers:
+          type: array
+          items:
+            type: string
+      required:
+        - lessons
+        - topics
+        - publishers
+
+    TestSolution:
+      type: object
+      properties:
+        id:
+          type: integer
+        testSessionId:
+          type: integer
+        questionId:
+          type: integer
+        userAnswer:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum: [Cozulmedi, DogruCozuldu, YanlisHocayaSor]
+        isCompleted:
+          type: boolean
+        canvasData:
+          type: string
+          nullable: true
+        inlineDrawings:
+          type: array
+          items:
+            type: object
+            properties:
+              tool:
+                type: string
+                enum: [pen, eraser]
+              color:
+                type: string
+              width:
+                type: number
+              points:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    x:
+                      type: number
+                    y:
+                      type: number
+          nullable: true
+        tempDrawing:
+          type: string
+          nullable: true
+        currentIndex:
+          type: integer
+          nullable: true
+        timer:
+          type: integer
+          nullable: true
+        elapsed:
+          type: integer
+          nullable: true
+        inlineDrawEnabled:
+          type: boolean
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+      required:
+        - id
+        - testSessionId
+        - questionId
+        - status
+        - isCompleted
+        - inlineDrawEnabled
+        - createdAt
+        - updatedAt
+
+    SaveTestSolutionInput:
+      type: object
+      properties:
+        userAnswer:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum: [Cozulmedi, DogruCozuldu, YanlisHocayaSor]
+        isCompleted:
+          type: boolean
+        canvasData:
+          type: string
+          nullable: true
+        inlineDrawings:
+          type: array
+          items:
+            type: object
+            properties:
+              tool:
+                type: string
+                enum: [pen, eraser]
+              color:
+                type: string
+              width:
+                type: number
+              points:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    x:
+                      type: number
+                    y:
+                      type: number
+          nullable: true
+        tempDrawing:
+          type: string
+          nullable: true
+        inlineDrawEnabled:
+          type: boolean
+
+    SaveTestSolutionsInput:
+      type: object
+      properties:
+        solutions:
+          type: array
+          items:
+            type: object
+            properties:
+              questionId:
+                type: integer
+              userAnswer:
+                type: string
+                nullable: true
+              status:
+                type: string
+                enum: [Cozulmedi, DogruCozuldu, YanlisHocayaSor]
+              isCompleted:
+                type: boolean
+              canvasData:
+                type: string
+                nullable: true
+              inlineDrawings:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    tool:
+                      type: string
+                      enum: [pen, eraser]
+                    color:
+                      type: string
+                    width:
+                      type: number
+                    points:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          x:
+                            type: number
+                          y:
+                            type: number
+                nullable: true
+              tempDrawing:
+                type: string
+                nullable: true
+              inlineDrawEnabled:
+                type: boolean
+      required:
+        - solutions
+
+    TestSessionProgress:
+      type: object
+      properties:
+        id:
+          type: integer
+        testSessionId:
+          type: integer
+        currentIndex:
+          type: integer
+        timer:
+          type: integer
+          nullable: true
+        elapsed:
+          type: integer
+        isCompleted:
+          type: boolean
+        completedAt:
+          type: string
+          nullable: true
+        inlineDrawEnabled:
+          type: boolean
+        collapsedLessons:
+          type: object
+          additionalProperties:
+            type: boolean
+          nullable: true
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+      required:
+        - id
+        - testSessionId
+        - currentIndex
+        - elapsed
+        - isCompleted
+        - inlineDrawEnabled
+        - createdAt
+        - updatedAt
+
+    SaveTestProgressInput:
+      type: object
+      properties:
+        currentIndex:
+          type: integer
+        timer:
+          type: integer
+          nullable: true
+        elapsed:
+          type: integer
+        isCompleted:
+          type: boolean
+        inlineDrawEnabled:
+          type: boolean
+        collapsedLessons:
+          type: object
+          additionalProperties:
+            type: boolean
+          nullable: true
+
+    Resource:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        publisher:
+          type: string
+          nullable: true
+        category:
+          type: string
+        lesson:
+          type: string
+          nullable: true
+        topic:
+          type: string
+          nullable: true
+        resourceType:
+          type: string
+        targetQuestionCount:
+          type: integer
+          nullable: true
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+      required:
+        - id
+        - name
+        - category
+        - resourceType
+        - createdAt
+        - updatedAt
+
+    ResourceWithStats:
+      allOf:
+        - $ref: "#/components/schemas/Resource"
+        - type: object
+          properties:
+            totalQuestions:
+              type: integer
+            solvedQuestions:
+              type: integer
+            correctQuestions:
+              type: integer
+            wrongQuestions:
+              type: integer
+            totalNotes:
+              type: integer
+            topicStats:
+              type: array
+              items:
+                type: object
+                properties:
+                  topic:
+                    type: string
+                  lesson:
+                    type: string
+                  total:
+                    type: integer
+                  solved:
+                    type: integer
+                  correct:
+                    type: integer
+                  wrong:
+                    type: integer
+                required:
+                  - topic
+                  - lesson
+                  - total
+                  - solved
+                  - correct
+                  - wrong
+
+    CreateResourceInput:
+      type: object
+      properties:
+        name:
+          type: string
+        publisher:
+          type: string
+          nullable: true
+        category:
+          type: string
+        lesson:
+          type: string
+          nullable: true
+        topic:
+          type: string
+          nullable: true
+        resourceType:
+          type: string
+        targetQuestionCount:
+          type: integer
+          nullable: true
+      required:
+        - name
+        - category
+        - resourceType
+
+    UpdateResourceInput:
+      type: object
+      properties:
+        name:
+          type: string
+        publisher:
+          type: string
+          nullable: true
+        category:
+          type: string
+        lesson:
+          type: string
+          nullable: true
+        topic:
+          type: string
+          nullable: true
+        resourceType:
+          type: string
+        targetQuestionCount:
+          type: integer
+          nullable: true
+
