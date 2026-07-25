@@ -76,6 +76,7 @@ interface ResourceDialogProps {
   onCreated?: (newResourceId: number) => void;
   defaultCategory?: string;
   defaultLesson?: string;
+  defaultResourceType?: string;
 }
 
 // ─── Bileşen ──────────────────────────────────────────────────────────────────
@@ -87,6 +88,7 @@ export function ResourceDialog({
   onCreated,
   defaultCategory = "TYT",
   defaultLesson,
+  defaultResourceType,
 }: ResourceDialogProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -103,7 +105,7 @@ export function ResourceDialog({
       category: defaultCategory,
       lesson: defaultLesson ?? "",
       topic: "",
-      resourceType: "Soru Bankası",
+      resourceType: defaultResourceType ?? "Soru Bankası",
     },
   });
 

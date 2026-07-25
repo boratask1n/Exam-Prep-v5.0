@@ -26,6 +26,7 @@ export const practiceExamFormSchema = z.object({
   lesson: z.string().optional(),
   topic: z.string().optional(),
   resourceId: z.number().nullable().optional(),
+  publisher: z.string().nullable().optional(),
   /** Branş ve Konu denemesi için ek alanlar */
   bransCorrect: z.coerce.number().min(0).optional().default(0),
   bransWrong: z.coerce.number().min(0).optional().default(0),
@@ -289,6 +290,7 @@ function buildPayload(
     lesson,
     topic,
     resourceId,
+    publisher: (values as any).publisher || null,
     notes: values.notes || null,
   };
 }

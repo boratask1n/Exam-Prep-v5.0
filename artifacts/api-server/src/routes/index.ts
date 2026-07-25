@@ -10,6 +10,7 @@ import authRouter from "./auth";
 import uploadsRouter from "./uploads";
 import resourcesRouter from "./resources";
 import practiceExamsRouter from "./practiceExams";
+import scheduleSlotsRouter from "./scheduleSlots";
 import { requireAuth } from "../middlewares/auth";
 
 const router: IRouter = Router();
@@ -26,5 +27,6 @@ router.use(testSolutionsRouter);
 router.use(testProgressRouter);
 router.use(testResultsRouter);
 router.use("/practice-exams", practiceExamsRouter);
+router.use("/schedule-slots", scheduleSlotsRouter);
 
 export default router;

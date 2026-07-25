@@ -140,7 +140,8 @@ function BransKonuResultFields({
   const watchWrong = form.watch("bransWrong") ?? 0;
 
   const maxQuestions = Number(watchQuestionCount) || 0;
-  const isCountEntered = maxQuestions > 0;
+  const totalAnswered = Number(watchCorrect) + Number(watchWrong);
+  const isOverflow = maxQuestions > 0 && totalAnswered > maxQuestions;
 
   return (
     <div className="space-y-2">
@@ -161,12 +162,6 @@ function BransKonuResultFields({
                   onChange={(e) => {
                     const newCount = Number(e.target.value) || 0;
                     field.onChange(e.target.value ? newCount : "");
-                    if (newCount > 0 && watchCorrect + watchWrong > newCount) {
-                      const clampedCorrect = Math.min(watchCorrect, newCount);
-                      const clampedWrong = Math.min(watchWrong, newCount - clampedCorrect);
-                      form.setValue("bransCorrect", clampedCorrect);
-                      form.setValue("bransWrong", clampedWrong);
-                    }
                   }}
                   className="text-center tabular-nums h-9 font-bold"
                 />
@@ -184,18 +179,14 @@ function BransKonuResultFields({
                 <Input
                   type="number"
                   min={0}
-                  max={Math.max(0, maxQuestions - watchWrong)}
-                  disabled={!isCountEntered}
-                  placeholder={isCountEntered ? "0" : "Soru sayısı girin"}
+                  placeholder="0"
                   {...field}
                   value={field.value === 0 ? "" : field.value}
                   onChange={(e) => {
-                    const val = Number(e.target.value) || 0;
-                    const maxAllowed = Math.max(0, maxQuestions - watchWrong);
-                    const clamped = Math.min(Math.max(val, 0), maxAllowed);
-                    field.onChange(clamped);
+                    const val = Math.max(0, Number(e.target.value) || 0);
+                    field.onChange(val);
                   }}
-                  className="text-center tabular-nums h-9 font-semibold text-emerald-600 dark:text-emerald-400 disabled:opacity-50"
+                  className="text-center tabular-nums h-9 font-semibold text-emerald-600 dark:text-emerald-400"
                 />
               </FormControl>
             </FormItem>
@@ -211,18 +202,14 @@ function BransKonuResultFields({
                 <Input
                   type="number"
                   min={0}
-                  max={Math.max(0, maxQuestions - watchCorrect)}
-                  disabled={!isCountEntered}
-                  placeholder={isCountEntered ? "0" : "Soru sayısı girin"}
+                  placeholder="0"
                   {...field}
                   value={field.value === 0 ? "" : field.value}
                   onChange={(e) => {
-                    const val = Number(e.target.value) || 0;
-                    const maxAllowed = Math.max(0, maxQuestions - watchCorrect);
-                    const clamped = Math.min(Math.max(val, 0), maxAllowed);
-                    field.onChange(clamped);
+                    const val = Math.max(0, Number(e.target.value) || 0);
+                    field.onChange(val);
                   }}
-                  className="text-center tabular-nums h-9 font-semibold text-destructive disabled:opacity-50"
+                  className="text-center tabular-nums h-9 font-semibold text-destructive"
                 />
               </FormControl>
             </FormItem>
@@ -235,9 +222,27 @@ function BransKonuResultFields({
           </div>
         </div>
       </div>
-      {!isCountEntered && (
+
+      {/* Toplam cevap göstergesi */}
+      {maxQuestions > 0 && (
+        <div className={cn(
+          "flex items-center justify-between text-xs px-2 py-1.5 rounded-lg font-medium",
+          isOverflow
+            ? "bg-destructive/10 text-destructive border border-destructive/30"
+            : "bg-muted/50 text-muted-foreground"
+        )}>
+          <span>
+            {isOverflow ? "\u26a0\ufe0f Toplam cevap sayısı soru sayısını aşıyor!" : "ℹ\ufe0f Cevaplanan"}
+          </span>
+          <span className={cn("font-bold tabular-nums", isOverflow && "text-destructive")}>
+            {totalAnswered} / {maxQuestions}
+          </span>
+        </div>
+      )}
+
+      {!maxQuestions && (
         <p className="text-[11px] text-muted-foreground italic text-center pt-0.5">
-          ⓘ Doğru ve yanlış sayılarını girmek için lütfen önce soru sayısını belirtin.
+          ⓘ Soru sayısını girerek doğru / yanlış girişini doğrulayabilirsiniz (isteğe bağlı).
         </p>
       )}
     </div>
@@ -275,12 +280,19 @@ export function PracticeExamFormDialog({
   const isKonu = watchExamType === "Konu";
   const isDetailed = isBrans || isKonu; // Branş veya Konu: Kaynak zorunlu
 
-  const watchResourceId = form.watch("resourceId");
-  // Branş ve Konu denemelerinde alanlar varsayılan olarak kilitli (read-only)
-  const isFieldLocked = isDetailed;
+  // Branş/Konu taşma kontrolü
+  const watchBransQCount = form.watch("bransQuestionCount") ?? 0;
+  const watchBransCorrect = form.watch("bransCorrect") ?? 0;
+  const watchBransWrong = form.watch("bransWrong") ?? 0;
+  const isDYOverflow =
+    isDetailed &&
+    Number(watchBransQCount) > 0 &&
+    Number(watchBransCorrect) + Number(watchBransWrong) > Number(watchBransQCount);
 
   // Deneme türüne göre kaynak filtresi
   const examResourceType = examTypeToResourceType(watchExamType);
+  // Branş ve Konu denemelerinde alanlar varsayılan olarak kilitli (read-only)
+  const isFieldLocked = isDetailed;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -360,10 +372,14 @@ export function PracticeExamFormDialog({
                     <FormControl>
                       <ResourceSelect
                         value={field.value}
-                        onValueChange={(id, name, _pub, resourceObj) => {
+                        onValueChange={(id, name, pub, resourceObj) => {
                           if (resourceObj) {
                             const resourceName = name || resourceObj.name || "";
                             form.setValue("title", resourceName, { shouldValidate: true, shouldDirty: true });
+                            const publisherName = resourceObj.publisher || pub || "";
+                            if (publisherName) {
+                              form.setValue("publisher" as any, publisherName, { shouldValidate: true, shouldDirty: true });
+                            }
                             if (resourceObj.category) {
                               form.setValue("category", resourceObj.category, { shouldValidate: true, shouldDirty: true });
                             }
@@ -380,9 +396,9 @@ export function PracticeExamFormDialog({
                           field.onChange(id);
                         }}
                         examResourceType={examResourceType}
-                        category={watchCategory}
-                        lesson={watchLesson || undefined}
-                        topic={isKonu ? (form.watch("topic") || undefined) : undefined}
+                        category={isFieldLocked ? watchCategory : undefined}
+                        lesson={isFieldLocked ? (watchLesson || undefined) : undefined}
+                        topic={isFieldLocked && isKonu ? (form.watch("topic") || undefined) : undefined}
                       />
                     </FormControl>
                     <FormMessage />
@@ -701,8 +717,8 @@ export function PracticeExamFormDialog({
               >
                 İptal
               </Button>
-              <Button type="submit" disabled={saveMutation.isPending}>
-                {saveMutation.isPending ? "Kaydedidediliyor..." : "Kaydet"}
+              <Button type="submit" disabled={saveMutation.isPending || isDYOverflow}>
+                {saveMutation.isPending ? "Kaydediliyor..." : "Kaydet"}
               </Button>
             </div>
           </form>

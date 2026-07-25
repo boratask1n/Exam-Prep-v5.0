@@ -6,3 +6,4 @@ export * from "./notes";
 export * from "./resources";
 export * from "./auth";
 export * from "./practice_exams";
+export * from "./study_slots";

@@ -1,10 +1,11 @@
 import { Link, useLocation } from "wouter";
-import { LayoutGrid, BookOpen, Sun, Moon, FolderKanban, NotebookPen, Repeat2, Library } from "lucide-react";
+import { LayoutGrid, BookOpen, Sun, Moon, FolderKanban, NotebookPen, Repeat2, Library, CalendarDays } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useEffect, useRef, useState } from "react";
 
 const navItems = [
   { href: "/", icon: LayoutGrid, label: "Analiz" },
+  { href: "/schedule", icon: CalendarDays, label: "Ders Programı" },
   { href: "/resources", icon: Library, label: "Kaynaklar" },
   { href: "/pool", icon: FolderKanban, label: "Soru Havuzu" },
   { href: "/questions/review", icon: Repeat2, label: "Soru Tekrarı" },

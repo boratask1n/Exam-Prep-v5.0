@@ -29,6 +29,7 @@ const NotesFeed = lazy(() => import("@/pages/NotesFeed"));
 const Resources = lazy(() => import("@/pages/Resources"));
 const ResourceDetail = lazy(() => import("@/pages/ResourceDetail"));
 const PracticeExams = lazy(() => import("@/pages/PracticeExams"));
+const StudySchedule = lazy(() => import("@/pages/StudySchedule"));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -100,6 +101,7 @@ function AppRouter({
   return (
     <Switch>
       <Route path="/" component={() => wrap(<Analysis />)} />
+      <Route path="/schedule" component={() => wrap(<StudySchedule />)} />
       <Route path="/analysis/charts" component={() => wrap(<AnalysisCharts />)} />
       <Route path="/resources" component={() => wrap(<Resources />)} />
       <Route path="/resources/:id" component={() => wrap(<ResourceDetail />)} />

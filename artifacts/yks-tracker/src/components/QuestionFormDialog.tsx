@@ -637,12 +637,10 @@ export function QuestionFormDialog({
           {/* Dinamik Alanlar */}
           {entryType === "kaynak" ? (
             <div className="space-y-4 rounded-xl border border-border/60 bg-muted/20 p-4">
-              <div className="space-y-1.5">
+              <div className="space-y-1.5 min-w-0 max-w-full">
                 <Label className="font-semibold">Kayıtlı Kaynak Seçin *</Label>
                 <ResourceSelect
                   value={watch("resourceId")}
-                  category={watch("category")}
-                  lesson={watch("lesson")}
                   onValueChange={(resId, _resName, _resPub, resObj) => {
                     setValue("resourceId", resId);
                     setSelectedResourceObj(resObj);
@@ -658,35 +656,16 @@ export function QuestionFormDialog({
                     }
                   }}
                 />
-                {!watch("resourceId") && (
-                  <p className="text-xs text-amber-600 font-medium pt-1">
+                {watch("resourceId") ? (
+                  <p className="text-xs text-emerald-600 font-medium pt-1 truncate h-5 flex items-center">
+                    🔒 Kaynak kilitlendi ({watch("category")} • {watch("lesson")}{watch("topic") ? ` • ${watch("topic")}` : ""})
+                  </p>
+                ) : (
+                  <p className="text-xs text-amber-600 font-medium pt-1 truncate h-5 flex items-center">
                     Lütfen önceden eklediğiniz kaynaklardan birini seçin veya sağdaki (+) butonuyla yeni ekleyin.
                   </p>
                 )}
               </div>
-
-              {watch("resourceId") ? (
-                <div className="space-y-1.5 bg-background border p-3 rounded-xl text-xs">
-                  <div className="flex items-center justify-between font-semibold text-primary pb-1 border-b">
-                    <span>{selectedResourceObj?.name || "Seçilen Kaynak"}</span>
-                    <span className="text-[10px] bg-primary/10 text-primary px-2 py-0.5 rounded-full font-medium">
-                      🔒 Kaynak Bilgileri Kilitli
-                    </span>
-                  </div>
-                  <div className="flex flex-wrap gap-2 text-xs pt-1">
-                    <span className="text-muted-foreground">Kategori: <strong className="text-foreground font-semibold">{watch("category")}</strong></span>
-                    {watch("publisher") && (
-                      <span className="text-muted-foreground">• Yayın Evi: <strong className="text-foreground font-semibold">{watch("publisher")}</strong></span>
-                    )}
-                    {watch("lesson") && (
-                      <span className="text-muted-foreground">• Ders: <strong className="text-foreground font-semibold">{watch("lesson")}</strong></span>
-                    )}
-                    {watch("topic") && (
-                      <span className="text-muted-foreground">• Konu: <strong className="text-foreground font-semibold">{watch("topic")}</strong></span>
-                    )}
-                  </div>
-                </div>
-              ) : null}
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {/* Ders seçimi */}

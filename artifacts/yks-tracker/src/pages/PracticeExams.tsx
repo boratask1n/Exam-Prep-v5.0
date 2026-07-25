@@ -10,6 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { PracticeExamFormDialog } from "@/components/practice-exams/PracticeExamFormDialog";
+import { AnalysisTabContent } from "@/components/practice-exams/AnalysisTabContent";
 import { cn } from "@/lib/utils";
 import {
   LineChart,
@@ -62,16 +63,20 @@ function ExamCard({
 }) {
   const isGenel = exam.examType === "Genel";
   const isKonu = exam.examType === "Konu";
+  const isPending = Boolean((exam.details as any)?._pending);
   const subjectEntries = exam.details
     ? Object.entries(exam.details).filter(([k]) => !k.startsWith("_"))
     : [];
 
   return (
-    <Card className="relative group flex flex-col hover:shadow-md transition-shadow">
+    <Card className={cn(
+      "relative group flex flex-col hover:shadow-md transition-shadow",
+      isPending && "border-amber-400/60 bg-amber-500/5 dark:border-amber-500/40"
+    )}>
       <CardHeader className="pb-2">
         <div className="flex justify-between items-start gap-2">
           <div className="flex-1 min-w-0">
-            <CardTitle className="text-base leading-snug truncate font-bold">
+            <CardTitle className="text-base leading-snug truncate font-bold flex items-center gap-1.5">
               {exam.title}
             </CardTitle>
             <CardDescription className="text-xs mt-0.5">
@@ -105,9 +110,15 @@ function ExamCard({
         </div>
         {/* Etiketler */}
         <div className="flex flex-wrap gap-1.5 mt-1.5">
-          <Badge variant="outline" className="text-xs py-0 h-5 font-semibold">
-            {exam.category}
-          </Badge>
+          {isPending ? (
+            <Badge variant="outline" className="text-xs py-0 h-5 font-semibold bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-400/40 animate-pulse">
+              ⏳ Net Bekleniyor
+            </Badge>
+          ) : (
+            <Badge variant="outline" className="text-xs py-0 h-5 font-semibold">
+              {exam.category}
+            </Badge>
+          )}
           <Badge
             variant="outline"
             className={cn(
@@ -135,47 +146,64 @@ function ExamCard({
       </CardHeader>
 
       <CardContent className="flex-1 space-y-3 pt-1">
-        {/* Toplam Net */}
-        <div className="flex items-end justify-between">
-          <span className="text-xs text-muted-foreground font-medium">Toplam Net</span>
-          <span
-            className={cn(
-              "text-3xl font-extrabold tabular-nums",
-              exam.totalNet > 0
-                ? "text-emerald-600 dark:text-emerald-400"
-                : "text-muted-foreground"
-            )}
-          >
-            {exam.totalNet.toFixed(2)}
-          </span>
-        </div>
-
-        {/* Genel deneme: ders bazlı netleri mini tablo */}
-        {isGenel && subjectEntries.length > 0 && (
+        {isPending ? (
+          <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-3 space-y-2 text-center mt-2">
+            <span className="block text-xs font-medium text-amber-800 dark:text-amber-200">
+              Ders programından oluşturuldu
+            </span>
+            <Button
+              size="sm"
+              className="w-full h-8 text-xs font-semibold bg-amber-600 hover:bg-amber-700 text-white shadow-sm"
+              onClick={() => onEdit(exam)}
+            >
+              ✍️ Net Gir ve Sonuçlandır
+            </Button>
+          </div>
+        ) : (
           <>
-            <Separator className="opacity-50" />
-            <div className="space-y-1">
-              {subjectEntries.map(([lesson, result]) => (
-                <div
-                  key={lesson}
-                  className="flex justify-between text-xs"
-                >
-                  <span className="text-muted-foreground truncate max-w-[60%]">{lesson}</span>
-                  <span
-                    className={cn(
-                      "font-semibold tabular-nums",
-                      result.net > 0
-                        ? "text-emerald-600 dark:text-emerald-400"
-                        : result.net < 0
-                        ? "text-destructive"
-                        : "text-muted-foreground"
-                    )}
-                  >
-                    {result.net.toFixed(2)}
-                  </span>
-                </div>
-              ))}
+            {/* Toplam Net */}
+            <div className="flex items-end justify-between">
+              <span className="text-xs text-muted-foreground font-medium">Toplam Net</span>
+              <span
+                className={cn(
+                  "text-3xl font-extrabold tabular-nums",
+                  exam.totalNet > 0
+                    ? "text-emerald-600 dark:text-emerald-400"
+                    : "text-muted-foreground"
+                )}
+              >
+                {exam.totalNet.toFixed(2)}
+              </span>
             </div>
+
+            {/* Genel deneme: ders bazlı netleri mini tablo */}
+            {isGenel && subjectEntries.length > 0 && (
+              <>
+                <Separator className="opacity-50" />
+                <div className="space-y-1">
+                  {subjectEntries.map(([lesson, result]) => (
+                    <div
+                      key={lesson}
+                      className="flex justify-between text-xs"
+                    >
+                      <span className="text-muted-foreground truncate max-w-[60%]">{lesson}</span>
+                      <span
+                        className={cn(
+                          "font-semibold tabular-nums",
+                          result.net > 0
+                            ? "text-emerald-600 dark:text-emerald-400"
+                            : result.net < 0
+                            ? "text-destructive"
+                            : "text-muted-foreground"
+                        )}
+                      >
+                        {result.net.toFixed(2)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
           </>
         )}
       </CardContent>
@@ -511,157 +539,7 @@ export default function PracticeExams() {
 
         {/* ── 4. ANALİZ & GRAFİKLER SAYFASI ── */}
         <TabsContent value="analiz" className="space-y-6 focus-visible:outline-none">
-          {exams.length < 2 ? (
-            <div className="text-center p-12 border rounded-2xl bg-muted/15 border-dashed">
-              <BarChart2 className="mx-auto h-10 w-10 text-muted-foreground/60 mb-3" />
-              <p className="text-muted-foreground text-xs">
-                Grafikleri ve trend analizlerini görüntülemek için en az 2 deneme kaydı gereklidir.
-              </p>
-            </div>
-          ) : (
-            <div className="space-y-6">
-              {/* TYT / AYT Net Gelişimi */}
-              {chronologicalGenel.length >= 2 && (
-                <Card>
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-base font-bold">Genel Deneme Net Gelişimi</CardTitle>
-                    <CardDescription className="text-xs">
-                      TYT ve AYT genel denemelerinizin zaman içindeki net değişimi
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="h-[260px]">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <LineChart
-                          data={netProgressData}
-                          margin={{ top: 5, right: 20, bottom: 5, left: 0 }}
-                        >
-                          <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-                          <XAxis dataKey="name" tick={{ fontSize: 11 }} />
-                          <YAxis tick={{ fontSize: 11 }} />
-                          <RechartsTooltip
-                            formatter={(value: number, name: string) => [
-                              `${value.toFixed(2)} Net`,
-                              name.toUpperCase(),
-                            ]}
-                          />
-                          <Legend />
-                          <Line
-                            type="monotone"
-                            dataKey="tyt"
-                            name="TYT"
-                            stroke="#3b82f6"
-                            strokeWidth={2.5}
-                            connectNulls
-                            dot={{ r: 4, fill: "#3b82f6" }}
-                            activeDot={{ r: 6 }}
-                          />
-                          <Line
-                            type="monotone"
-                            dataKey="ayt"
-                            name="AYT"
-                            stroke="#8b5cf6"
-                            strokeWidth={2.5}
-                            connectNulls
-                            dot={{ r: 4, fill: "#8b5cf6" }}
-                            activeDot={{ r: 6 }}
-                          />
-                        </LineChart>
-                      </ResponsiveContainer>
-                    </div>
-                  </CardContent>
-                </Card>
-              )}
-
-              {/* TYT Ders Bazlı Gelişim */}
-              {chronologicalTYT.length >= 2 && (
-                <Card>
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-base font-bold">TYT Ders Bazlı Net Gelişimi</CardTitle>
-                    <CardDescription className="text-xs">
-                      Türkçe, Matematik, Fen ve Sosyal net seyriniz
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="h-[260px]">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <LineChart
-                          data={tytSubjectData}
-                          margin={{ top: 5, right: 20, bottom: 5, left: 0 }}
-                        >
-                          <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-                          <XAxis dataKey="name" tick={{ fontSize: 11 }} />
-                          <YAxis tick={{ fontSize: 11 }} />
-                          <RechartsTooltip
-                            formatter={(value: number, name: string) => [
-                              `${value.toFixed(2)} Net`,
-                              name,
-                            ]}
-                          />
-                          <Legend wrapperStyle={{ fontSize: 11 }} />
-                          {tytLessons.map((lesson) => (
-                            <Line
-                              key={lesson}
-                              type="monotone"
-                              dataKey={lesson}
-                              stroke={LESSON_COLORS[lesson]}
-                              strokeWidth={2}
-                              connectNulls
-                              dot={{ r: 3 }}
-                            />
-                          ))}
-                        </LineChart>
-                      </ResponsiveContainer>
-                    </div>
-                  </CardContent>
-                </Card>
-              )}
-
-              {/* Branş — ders bazlı ortalama */}
-              {lessonAvgData.length > 0 && (
-                <Card>
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-base font-bold">Branş Denemeleri — Ders Bazlı Ortalama Net</CardTitle>
-                    <CardDescription className="text-xs">
-                      Derslere göre ortalama branş deneme başarınız
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="h-[220px]">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <BarChart
-                          data={lessonAvgData}
-                          margin={{ top: 5, right: 20, bottom: 5, left: 0 }}
-                          layout="vertical"
-                        >
-                          <CartesianGrid strokeDasharray="3 3" opacity={0.3} horizontal={false} />
-                          <XAxis type="number" tick={{ fontSize: 11 }} />
-                          <YAxis
-                            dataKey="name"
-                            type="category"
-                            width={120}
-                            tick={{ fontSize: 11 }}
-                          />
-                          <RechartsTooltip
-                            formatter={(value: number) => [
-                              `${value.toFixed(2)} Net`,
-                              "Ort. Net",
-                            ]}
-                          />
-                          <Bar
-                            dataKey="avgNet"
-                            name="Ort. Net"
-                            fill="#8b5cf6"
-                            radius={[0, 4, 4, 0]}
-                          />
-                        </BarChart>
-                      </ResponsiveContainer>
-                    </div>
-                  </CardContent>
-                </Card>
-              )}
-            </div>
-          )}
+          <AnalysisTabContent exams={exams} onNewExamClick={openNewDialog} />
         </TabsContent>
       </Tabs>
 
