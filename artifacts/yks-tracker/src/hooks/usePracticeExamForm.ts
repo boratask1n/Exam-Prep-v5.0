@@ -23,6 +23,8 @@ export const practiceExamFormSchema = z.object({
   category: z.string().min(1, "Kategori zorunludur"),
   examDate: z.string().min(1, "Tarih zorunludur"),
   durationMinutes: z.coerce.number().optional().nullable(),
+  examNo: z.coerce.number().optional().nullable(),
+  targetQuestionCount: z.coerce.number().optional().nullable(),
   lesson: z.string().optional(),
   topic: z.string().optional(),
   resourceId: z.number().nullable().optional(),
@@ -47,6 +49,26 @@ export const practiceExamFormSchema = z.object({
       message: "Kaynak seçimi zorunludur",
     });
   }
+  // Deneme Numarası validation: Branş ve Konu denemelerinde ZORUNLU
+  if (data.examType !== "Genel" && (!data.examNo || data.examNo <= 0)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["examNo"],
+      message: "Branş ve Konu denemelerinde Deneme No zorunludur (örn. 1, 2, 3)",
+    });
+  }
+  // Toplam Soru Sayısı validation: ZORUNLU
+  const qCount = data.examType === "Genel"
+    ? (data.targetQuestionCount ?? (data.category === "AYT" ? 80 : 120))
+    : (data.bransQuestionCount ?? data.targetQuestionCount);
+
+  if (!qCount || qCount <= 0) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: data.examType === "Genel" ? ["targetQuestionCount"] : ["bransQuestionCount"],
+      message: "Toplam soru sayısı zorunludur ve 0'dan büyük olmalıdır",
+    });
+  }
 });
 
 export type PracticeExamFormValues = z.infer<typeof practiceExamFormSchema>;
@@ -55,16 +77,18 @@ export type PracticeExamFormValues = z.infer<typeof practiceExamFormSchema>;
 
 interface UsePracticeExamFormOptions {
   examToEdit?: any;
+  initialResource?: any;
+  open?: boolean;
   onSuccess: () => void;
 }
 
-export function usePracticeExamForm({ examToEdit, onSuccess }: UsePracticeExamFormOptions) {
+export function usePracticeExamForm({ examToEdit, initialResource, open, onSuccess }: UsePracticeExamFormOptions) {
   const queryClient = useQueryClient();
 
   // Form ana değerleri
   const form = useForm<PracticeExamFormValues>({
     resolver: zodResolver(practiceExamFormSchema),
-    defaultValues: getDefaultValues(examToEdit),
+    defaultValues: getDefaultValues(examToEdit, initialResource),
   });
 
   const watchExamType = form.watch("examType") as PracticeExamType;
@@ -106,22 +130,31 @@ export function usePracticeExamForm({ examToEdit, onSuccess }: UsePracticeExamFo
     return calculateTotalNet(subjectResults);
   }, [watchExamType, bransNet, subjectResults]);
 
-  // Form sıfırlama (dialog açıldığında / examToEdit değiştiğinde)
+  // Form sıfırlama (dialog açıldığında / examToEdit / initialResource değiştiğinde)
   useEffect(() => {
-    const defaults = getDefaultValues(examToEdit);
-    form.reset(defaults);
+    if (open !== false) {
+      const defaults = getDefaultValues(examToEdit, initialResource);
+      form.reset(defaults);
 
-    if (examToEdit) {
-      const cfg = EXAM_CONFIGS[examToEdit.category as "TYT" | "AYT"];
-      if (cfg && examToEdit.examType === "Genel") {
-        setSubjectResults(parseSubjectResults(examToEdit.details, cfg.subjects));
+      if (examToEdit) {
+        const cfg = EXAM_CONFIGS[examToEdit.category as "TYT" | "AYT"];
+        if (cfg && examToEdit.examType === "Genel") {
+          setSubjectResults(parseSubjectResults(examToEdit.details, cfg.subjects));
+        } else {
+          setSubjectResults({});
+        }
+      } else if (defaults.examType === "Genel") {
+        const cfg = EXAM_CONFIGS[defaults.category as "TYT" | "AYT"];
+        if (cfg) {
+          setSubjectResults(buildEmptySubjectResults(cfg.subjects));
+        } else {
+          setSubjectResults({});
+        }
       } else {
         setSubjectResults({});
       }
-    } else {
-      setSubjectResults({});
     }
-  }, [examToEdit, form]);
+  }, [examToEdit, initialResource, open, form]);
 
   // Kategori değişince konfigürasyona göre ders sonuçlarını sıfırla
   useEffect(() => {
@@ -133,11 +166,14 @@ export function usePracticeExamForm({ examToEdit, onSuccess }: UsePracticeExamFo
     }
   }, [watchCategory, watchExamType, examToEdit]);
 
-  // Otomatik süre doldurma (Genel TYT → 165dk, AYT → 180dk)
+  // Otomatik süre ve soru sayısı doldurma (Genel TYT → 120 soru / 165dk, AYT → 80 soru / 180dk)
   useEffect(() => {
     if (watchExamType !== "Genel") return;
     const cfg = EXAM_CONFIGS[watchCategory as "TYT" | "AYT"];
-    if (cfg) form.setValue("durationMinutes", cfg.durationMinutes);
+    if (cfg) {
+      form.setValue("durationMinutes", cfg.durationMinutes);
+      form.setValue("targetQuestionCount", watchCategory === "AYT" ? 80 : 120);
+    }
   }, [watchCategory, watchExamType, form]);
 
   // Ders sonucu güncelle
@@ -215,7 +251,7 @@ export function usePracticeExamForm({ examToEdit, onSuccess }: UsePracticeExamFo
 
 // ─── Yardımcı fonksiyonlar ────────────────────────────────────────────────────
 
-function getDefaultValues(examToEdit?: any): PracticeExamFormValues {
+function getDefaultValues(examToEdit?: any, initialResource?: any): PracticeExamFormValues {
   if (examToEdit) {
     return {
       title: examToEdit.title ?? "",
@@ -227,24 +263,67 @@ function getDefaultValues(examToEdit?: any): PracticeExamFormValues {
         ? new Date(examToEdit.examDate).toISOString().split("T")[0]
         : new Date().toISOString().split("T")[0],
       durationMinutes: examToEdit.durationMinutes ?? (examToEdit.examType === "Genel" ? 165 : null),
+      examNo: examToEdit.examNo ?? (examToEdit.details?._brans?.examNo ?? undefined),
+      targetQuestionCount: examToEdit.targetQuestionCount ?? (examToEdit.examType === "Genel" ? (examToEdit.category === "AYT" ? 80 : 120) : examToEdit.details?._brans?.questionCount),
       lesson: examToEdit.lesson ?? "",
       topic: examToEdit.topic ?? "",
       resourceId: examToEdit.resourceId ?? null,
+      publisher: examToEdit.publisher ?? "",
       bransCorrect: examToEdit.details?._brans?.correct ?? 0,
       bransWrong: examToEdit.details?._brans?.wrong ?? 0,
-      bransQuestionCount: examToEdit.details?._brans?.questionCount ?? undefined,
+      bransQuestionCount: examToEdit.details?._brans?.questionCount ?? examToEdit.targetQuestionCount ?? undefined,
       notes: examToEdit.notes ?? "",
     };
   }
+
+  if (initialResource) {
+    let examType: PracticeExamType = "Genel";
+    if (initialResource.resourceType === "Branş Denemesi") {
+      examType = "Branş";
+    } else if (initialResource.resourceType === "Konu Denemesi") {
+      examType = "Konu";
+    } else if (initialResource.resourceType === "Genel Deneme") {
+      examType = "Genel";
+    } else if (initialResource.topic) {
+      examType = "Konu";
+    } else if (initialResource.lesson) {
+      examType = "Branş";
+    }
+
+    const category = initialResource.category === "AYT" ? "AYT" : "TYT";
+    const qCount = initialResource.targetQuestionCount || (category === "AYT" ? 80 : 120);
+
+    return {
+      title: initialResource.name ?? "",
+      examType,
+      category,
+      examDate: new Date().toISOString().split("T")[0],
+      durationMinutes: examType === "Genel" ? (category === "AYT" ? 180 : 165) : null,
+      examNo: initialResource.nextExamNo ?? undefined,
+      targetQuestionCount: qCount,
+      lesson: initialResource.lesson ?? "",
+      topic: initialResource.topic ?? "",
+      resourceId: initialResource.id ?? null,
+      publisher: initialResource.publisher ?? "",
+      bransCorrect: 0,
+      bransWrong: 0,
+      bransQuestionCount: initialResource.targetQuestionCount ?? undefined,
+      notes: "",
+    };
+  }
+
   return {
     title: "",
     examType: "Genel",
     category: "TYT",
     examDate: new Date().toISOString().split("T")[0],
     durationMinutes: 165, // Sadece genel deneme için varsayılan
+    examNo: undefined,
+    targetQuestionCount: 120,
     lesson: "",
     topic: "",
     resourceId: null,
+    publisher: "",
     bransCorrect: 0,
     bransWrong: 0,
     bransQuestionCount: undefined,
@@ -261,6 +340,10 @@ function buildPayload(
   const isBrans = values.examType === "Branş";
   const isKonu = values.examType === "Konu";
 
+  const qCount = isGenel
+    ? (values.targetQuestionCount || (values.category === "AYT" ? 80 : 120))
+    : (values.bransQuestionCount || values.targetQuestionCount || 0);
+
   const details: Record<string, unknown> = isGenel
     ? subjectResults
     : {
@@ -268,7 +351,8 @@ function buildPayload(
           correct: values.bransCorrect ?? 0,
           wrong: values.bransWrong ?? 0,
           net: calculateNet(values.bransCorrect ?? 0, values.bransWrong ?? 0),
-          questionCount: values.bransQuestionCount ?? 0,
+          questionCount: qCount,
+          examNo: values.examNo || null,
         },
       };
 
@@ -276,14 +360,16 @@ function buildPayload(
   const lesson = isGenel ? null : (values.lesson || null);
   const topic = (isBrans || isKonu) ? (values.topic || null) : null;
 
-  // resourceId — sadece Branş ve Konu denemelerinde kullanılır
-  const resourceId = (isBrans || isKonu) ? (values.resourceId ?? null) : null;
+  // resourceId — Genel, Branş ve Konu denemelerinde seçildiyse gönderilir
+  const resourceId = values.resourceId ?? null;
 
   return {
     title: values.title,
     examType: values.examType,
     category: isGenel ? values.category : (values.category || "TYT"),
     examDate: values.examDate,
+    examNo: values.examNo || null,
+    targetQuestionCount: qCount,
     durationMinutes: values.durationMinutes,
     totalNet,
     details,

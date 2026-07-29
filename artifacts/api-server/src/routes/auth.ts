@@ -115,8 +115,24 @@ async function createSession(userId: number, remember: boolean) {
   };
 }
 
+async function cleanupExpiredSessions() {
+  try {
+    await db.delete(authSessionsTable).where(sql`${authSessionsTable.expiresAt} < now()`);
+  } catch {
+    // Non-critical background cleanup
+  }
+}
+
 async function claimLegacyDataIfFreshAccount(userId: number) {
   if (process.env.DISABLE_LEGACY_CLAIM === "1") return;
+
+  const [user] = await db
+    .select({ legacyClaimed: usersTable.legacyClaimed })
+    .from(usersTable)
+    .where(eq(usersTable.id, userId))
+    .limit(1);
+
+  if (user?.legacyClaimed) return;
 
   const [userScope] = await db
     .select({
@@ -124,7 +140,11 @@ async function claimLegacyDataIfFreshAccount(userId: number) {
       firstUserId: sql<number>`min(${usersTable.id})`.mapWith(Number),
     })
     .from(usersTable);
-  if ((userScope?.count ?? 0) > 1 && userScope?.firstUserId !== userId) return;
+
+  if ((userScope?.count ?? 0) > 1 && userScope?.firstUserId !== userId) {
+    await db.update(usersTable).set({ legacyClaimed: true }).where(eq(usersTable.id, userId));
+    return;
+  }
 
   const [ownedQuestions] = await db
     .select({ count: sql<number>`count(*)`.mapWith(Number) })
@@ -139,14 +159,16 @@ async function claimLegacyDataIfFreshAccount(userId: number) {
     .from(testSessionsTable)
     .where(eq(testSessionsTable.userId, userId));
 
-  if ((ownedQuestions?.count ?? 0) + (ownedNotes?.count ?? 0) + (ownedTests?.count ?? 0) > 0) return;
+  if ((ownedQuestions?.count ?? 0) + (ownedNotes?.count ?? 0) + (ownedTests?.count ?? 0) === 0) {
+    await db.transaction(async (tx) => {
+      await tx.update(questionsTable).set({ userId }).where(isNull(questionsTable.userId));
+      await tx.update(notesTable).set({ userId }).where(isNull(notesTable.userId));
+      await tx.update(testSessionsTable).set({ userId }).where(isNull(testSessionsTable.userId));
+      await tx.update(testResultSummariesTable).set({ userId }).where(isNull(testResultSummariesTable.userId));
+    });
+  }
 
-  await db.transaction(async (tx) => {
-    await tx.update(questionsTable).set({ userId }).where(isNull(questionsTable.userId));
-    await tx.update(notesTable).set({ userId }).where(isNull(notesTable.userId));
-    await tx.update(testSessionsTable).set({ userId }).where(isNull(testSessionsTable.userId));
-    await tx.update(testResultSummariesTable).set({ userId }).where(isNull(testResultSummariesTable.userId));
-  });
+  await db.update(usersTable).set({ legacyClaimed: true }).where(eq(usersTable.id, userId));
 }
 
 router.post("/auth/register", async (req, res) => {
@@ -206,6 +228,7 @@ router.post("/auth/login", async (req, res) => {
     await db.update(usersTable).set({ lastLoginAt: new Date(), updatedAt: new Date() }).where(eq(usersTable.id, user.id));
     const session = await createSession(user.id, remember);
     await claimLegacyDataIfFreshAccount(user.id);
+    void cleanupExpiredSessions();
     return res.json({ user: publicUser(user), ...session });
   } catch (error) {
     console.error("Error logging in:", error);

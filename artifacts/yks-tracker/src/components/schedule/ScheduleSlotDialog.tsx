@@ -47,6 +47,7 @@ export interface StudySlot {
   activityType: ActivityType;
   resourceId?: number | null;
   resourceName?: string | null;
+  examNo?: number | null;
   targetQuestions?: number;
   notes?: string;
   color: string;
@@ -114,6 +115,8 @@ export function ScheduleSlotDialog({
   const [activityType, setActivityType] = useState<ActivityType>("Konu Çalışması");
   const [resourceId, setResourceId] = useState<number | null>(null);
   const [resourceName, setResourceName] = useState<string | null>(null);
+  const [examNo, setExamNo] = useState<string>("");
+  const [examNoError, setExamNoError] = useState<string | null>(null);
   const [targetQuestions, setTargetQuestions] = useState<string>("");
   const [notes, setNotes] = useState("");
   const [color, setColor] = useState("indigo");
@@ -138,8 +141,18 @@ export function ScheduleSlotDialog({
     if (activityType === "Konu Denemesi") {
       return ["Konu Denemesi"];
     }
+    if (activityType === "Genel Deneme") {
+      return ["Genel Deneme"];
+    }
     return undefined;
   }, [activityType]);
+
+  const showResourceSelect =
+    activityType === "Soru Çözümü" ||
+    activityType === "Ekstra Soru Çözümü" ||
+    activityType === "Branş Denemesi" ||
+    activityType === "Konu Denemesi" ||
+    activityType === "Genel Deneme";
 
   // Dynamic lesson options based on selected TYT / AYT category
   const filteredLessons = useMemo(() => {
@@ -159,13 +172,9 @@ export function ScheduleSlotDialog({
     }
   }, [category]);
 
-  const showResourceSelect =
-    activityType === "Soru Çözümü" ||
-    activityType === "Ekstra Soru Çözümü" ||
-    activityType === "Branş Denemesi" ||
-    activityType === "Konu Denemesi";
 
   useEffect(() => {
+    setExamNoError(null);
     if (slotToEdit) {
       setDay(slotToEdit.day);
       setStartTime(slotToEdit.startTime);
@@ -178,6 +187,7 @@ export function ScheduleSlotDialog({
       setActivityType(slotToEdit.activityType || "Konu Çalışması");
       setResourceId(slotToEdit.resourceId || null);
       setResourceName(slotToEdit.resourceName || null);
+      setExamNo(slotToEdit.examNo ? String(slotToEdit.examNo) : "");
       setTargetQuestions(slotToEdit.targetQuestions ? String(slotToEdit.targetQuestions) : "");
       setNotes(slotToEdit.notes || "");
       setColor(slotToEdit.color || "indigo");
@@ -191,6 +201,7 @@ export function ScheduleSlotDialog({
       setActivityType("Konu Çalışması");
       setResourceId(null);
       setResourceName(null);
+      setExamNo("");
       setTargetQuestions("");
       setNotes("");
       setColor("indigo");
@@ -200,11 +211,17 @@ export function ScheduleSlotDialog({
   const handleCategoryChange = (newCat: "TYT" | "AYT" | "Genel") => {
     setCategory(newCat);
     if (newCat === "TYT") {
-      setLesson("TYT Matematik");
+      setLesson(activityType === "Genel Deneme" ? "Genel Deneme" : "TYT Matematik");
       setColor("indigo");
+      if (activityType === "Genel Deneme") {
+        setTargetQuestions("120");
+      }
     } else if (newCat === "AYT") {
-      setLesson("AYT Matematik");
+      setLesson(activityType === "Genel Deneme" ? "Genel Deneme" : "AYT Matematik");
       setColor("indigo");
+      if (activityType === "Genel Deneme") {
+        setTargetQuestions("80");
+      }
     } else {
       setLesson("Ders Yok");
       setColor("slate");
@@ -228,9 +245,11 @@ export function ScheduleSlotDialog({
     else if (act === "Ekstra Soru Çözümü") setColor("rose");
     
     if (act === "Genel Deneme") {
-      setCategory("Genel");
+      const targetCat = category === "AYT" ? "AYT" : "TYT";
+      if (category === "Genel") setCategory("TYT");
       setLesson("Genel Deneme");
       setTopic("");
+      setTargetQuestions(targetCat === "AYT" ? "80" : "120");
     }
     
     // Çalışma bloğu türü her değiştirildiğinde seçili kaynağı sıfırla
@@ -276,17 +295,28 @@ export function ScheduleSlotDialog({
     e.preventDefault();
     if (!startTime || !endTime) return;
 
+    const isBransOrKonuDeneme = activityType === "Branş Denemesi" || activityType === "Konu Denemesi";
+    if (isBransOrKonuDeneme && (!examNo || parseInt(examNo, 10) <= 0)) {
+      setExamNoError("Branş ve Konu denemelerinde Deneme No zorunludur (örn. 1, 2, 3)");
+      return;
+    }
+
+    const effectiveCategory = activityType === "Genel Deneme"
+      ? (category === "AYT" ? "AYT" : "TYT")
+      : category;
+
     const newSlot: StudySlot = {
       id: slotToEdit ? slotToEdit.id : `slot_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
       day,
       startTime,
       endTime,
-      category: activityType === "Genel Deneme" ? "Genel" : category,
-      lesson: activityType === "Genel Deneme" ? "Genel Deneme" : (lesson.trim() || "Ders"),
-      topic: activityType === "Genel Deneme" ? undefined : (topic.trim() || undefined),
+      category: effectiveCategory,
+      lesson: activityType === "Genel Deneme" ? `${effectiveCategory} Genel Denemesi` : (lesson.trim() || "Ders"),
+      topic: topic.trim() || undefined,
       activityType,
       resourceId: activityType === "Genel Deneme" ? undefined : (resourceId || undefined),
       resourceName: activityType === "Genel Deneme" ? undefined : (resourceName || undefined),
+      examNo: examNo ? parseInt(examNo, 10) : undefined,
       targetQuestions: targetQuestions ? parseInt(targetQuestions, 10) : undefined,
       notes: notes.trim() || undefined,
       color,
@@ -395,8 +425,58 @@ export function ScheduleSlotDialog({
             </div>
           )}
 
-          {/* Sınav Kategorisi, Ders ve Konu Seçimi (Genel Deneme değilse) */}
-          {activityType !== "Genel Deneme" && (
+          {/* Deneme Numarası (Sırası) - Deneme Etütlerinde */}
+          {activityType.includes("Deneme") && (
+            <div className="space-y-1.5 rounded-xl border border-purple-500/20 bg-purple-500/5 p-3">
+              <Label htmlFor="exam-no" className="font-semibold text-purple-700 dark:text-purple-300">
+                Deneme No / Sırası {activityType !== "Genel Deneme" && <span className="text-destructive">*</span>}
+              </Label>
+              <Input
+                id="exam-no"
+                type="number"
+                min={1}
+                placeholder={activityType === "Genel Deneme" ? "Örn: 1 (İsteğe bağlı)" : "Örn: 3 (Zorunlu)"}
+                value={examNo}
+                onChange={(e) => {
+                  setExamNo(e.target.value);
+                  setExamNoError(null);
+                }}
+                className="h-10 font-bold tabular-nums"
+              />
+              {examNoError && (
+                <p className="text-xs text-destructive font-medium">{examNoError}</p>
+              )}
+            </div>
+          )}
+
+          {/* Sınav Kategorisi, Ders ve Konu Seçimi */}
+          {activityType === "Genel Deneme" ? (
+            <div className="space-y-3">
+              <div className="space-y-1.5 min-w-0">
+                <Label htmlFor="category-select-genel">Sınav Kategorisi *</Label>
+                <Select value={category === "AYT" ? "AYT" : "TYT"} onValueChange={(val) => handleCategoryChange(val as any)}>
+                  <SelectTrigger id="category-select-genel" className="font-semibold text-primary w-full min-w-0 h-10">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="TYT">📘 TYT Genel Deneme (165 dk)</SelectItem>
+                    <SelectItem value="AYT">📕 AYT Genel Deneme (180 dk)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="genel-topic">Deneme / Yayın Adı (İsteğe Bağlı)</Label>
+                <Input
+                  id="genel-topic"
+                  placeholder="Örn: 3D Türkiye Geneli #1, Özdebir, Bilgi Sarmal vb."
+                  value={topic}
+                  onChange={(e) => setTopic(e.target.value)}
+                  className="h-10 bg-muted/50"
+                />
+              </div>
+            </div>
+          ) : (
             <>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5 min-w-0">
@@ -432,7 +512,7 @@ export function ScheduleSlotDialog({
 
               {/* Konu Girişi */}
               <div className="space-y-1.5">
-                <Label htmlFor="custom-topic">Konu</Label>
+                <Label htmlFor="custom-topic">Konu / Deneme Adı</Label>
                 <Input
                   id="custom-topic"
                   placeholder="Örn: Problemler, Trigonometri V, Paragraf vb."

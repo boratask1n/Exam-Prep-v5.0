@@ -182,21 +182,40 @@ export default function StudySchedule() {
             ? "Konu"
             : "Genel";
 
+        const category = savedSlot.category && savedSlot.category !== "Genel"
+          ? savedSlot.category
+          : (savedSlot.lesson.startsWith("AYT") ? "AYT" : "TYT");
+
+        let title = "";
+        const publisherTag = savedSlot.resourceName ? `[${savedSlot.resourceName}] ` : "";
+
+        if (examType === "Genel") {
+          const customName = savedSlot.topic ? ` (${savedSlot.topic})` : "";
+          title = `${publisherTag}${category} Genel Denemesi${customName}`;
+        } else if (examType === "Branş") {
+          title = `${publisherTag}${savedSlot.lesson} Branş Denemesi`;
+        } else {
+          const topicStr = savedSlot.topic ? ` - ${savedSlot.topic}` : "";
+          title = `${publisherTag}${savedSlot.lesson}${topicStr} Konu Denemesi`;
+        }
+
+        const qCount = savedSlot.targetQuestions || (examType === "Genel" ? (category === "AYT" ? 80 : 120) : 0);
+
         const createdExam = await customFetch<any>("/api/practice-exams", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            title: savedSlot.topic
-              ? `${savedSlot.lesson} - ${savedSlot.topic}`
-              : `${savedSlot.lesson} Denemesi`,
+            title,
             examType,
-            category: savedSlot.category || "TYT",
-            lesson: savedSlot.lesson,
-            topic: savedSlot.topic || null,
+            category,
+            lesson: examType === "Genel" ? null : savedSlot.lesson,
+            topic: examType === "Genel" ? null : (savedSlot.topic || null),
             resourceId: savedSlot.resourceId || null,
             publisher: savedSlot.resourceName || null,
+            examNo: savedSlot.examNo || null,
+            targetQuestionCount: qCount,
             examDate: new Date().toISOString(),
-            durationMinutes: examType === "Genel" ? (savedSlot.category === "AYT" ? 180 : 165) : 60,
+            durationMinutes: examType === "Genel" ? (category === "AYT" ? 180 : 165) : 60,
             totalNet: 0,
             details: {
               _pending: true,
@@ -204,7 +223,8 @@ export default function StudySchedule() {
                 correct: 0,
                 wrong: 0,
                 net: 0,
-                questionCount: savedSlot.targetQuestions || 0,
+                questionCount: qCount,
+                examNo: savedSlot.examNo || null,
               },
             },
             notes: savedSlot.notes || "Ders programından eklendi (Net Bekleniyor)",

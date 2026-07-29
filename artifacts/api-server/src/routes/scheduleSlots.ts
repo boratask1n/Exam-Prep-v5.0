@@ -30,6 +30,7 @@ router.get("/", (async (req: Request, res: Response) => {
       activityType: s.activityType,
       resourceId: s.resourceId || undefined,
       resourceName: s.resourceName || undefined,
+      examNo: s.examNo || undefined,
       targetQuestions: s.targetQuestions || undefined,
       notes: s.notes || undefined,
       color: s.color,
@@ -59,6 +60,8 @@ router.put("/", (async (req: Request, res: Response) => {
       return;
     }
 
+    const slots = Array.isArray(req.body) ? req.body : [];
+
     // Yenilerini parse et — Hata çıkarsa silme işlemi yapılmamış olur (veri kaybını engeller)
     const toInsert = slots.map((slot, index) => {
       const slotKey = String(slot.id || `slot_${Date.now()}_${index}`);
@@ -75,6 +78,7 @@ router.put("/", (async (req: Request, res: Response) => {
         resourceId: parseOptionalInt(slot.resourceId),
         resourceName: slot.resourceName ? String(slot.resourceName) : null,
         targetQuestions: parseOptionalInt(slot.targetQuestions),
+        examNo: parseOptionalInt(slot.examNo),
         notes: slot.notes ? String(slot.notes) : null,
         color: String(slot.color || "indigo"),
         completed: Boolean(slot.completed),
@@ -82,15 +86,16 @@ router.put("/", (async (req: Request, res: Response) => {
       });
     });
 
-    // Kullanıcının mevcut tüm slotlarını sil
-    await db.delete(studySlotsTable).where(eq(studySlotsTable.userId, userId));
+    const inserted = await db.transaction(async (tx) => {
+      // Kullanıcının mevcut tüm slotlarını sil
+      await tx.delete(studySlotsTable).where(eq(studySlotsTable.userId, userId));
 
-    if (toInsert.length === 0) {
-      res.json([]);
-      return;
-    }
+      if (toInsert.length === 0) {
+        return [];
+      }
 
-    const inserted = await db.insert(studySlotsTable).values(toInsert).returning();
+      return tx.insert(studySlotsTable).values(toInsert).returning();
+    });
 
     const mapped = inserted.map((s) => ({
       id: s.slotKey,
@@ -103,6 +108,7 @@ router.put("/", (async (req: Request, res: Response) => {
       activityType: s.activityType,
       resourceId: s.resourceId || undefined,
       resourceName: s.resourceName || undefined,
+      examNo: s.examNo || undefined,
       targetQuestions: s.targetQuestions || undefined,
       notes: s.notes || undefined,
       color: s.color,

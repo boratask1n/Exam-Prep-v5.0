@@ -30,9 +30,10 @@ import {
   QuestionSource,
   QuestionStatus,
   QuestionChoice,
+  customFetch,
 } from "@workspace/api-client-react";
 import { useToast } from "@/hooks/use-toast";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { getLessonsForCategory, getTopicsForLesson } from "@/lib/lessonTopics";
 import { convertLegacyMathValueToLatex } from "@/components/math/mathExpression";
 import {
@@ -41,6 +42,8 @@ import {
   getYoutubeVideoId,
 } from "@/lib/youtubeEmbed";
 import { ResourceSelect } from "@/components/resources/ResourceSelect";
+
+import { Badge } from "@/components/ui/badge";
 
 const MathLiveChoiceEditor = lazy(() =>
   import("@/components/math/MathLiveChoiceEditor").then((module) => ({
@@ -53,7 +56,7 @@ type OptionLabel = (typeof OPTION_LABELS)[number];
 type OptionItem = { label: OptionLabel; text: string };
 const formSchema = z
   .object({
-    lesson: z.string().min(1, "Ders ad\u0131 zorunludur"),
+    lesson: z.string().min(1, "Ders adı zorunludur"),
     topic: z.string().min(1, "Konu seçimi zorunludur"),
     resourceId: z.number().optional().nullable(),
     description: z.string().optional(),
@@ -70,7 +73,7 @@ const formSchema = z
       .or(z.literal(""))
       .refine(
         (v) => !v || /^https?:\/\//i.test(v),
-        "Ge\u00e7erli bir http(s) adresi girin",
+        "Geçerli bir http(s) adresi girin",
       ),
     solutionYoutubeUrl: z
       .string()
@@ -78,7 +81,7 @@ const formSchema = z
       .or(z.literal(""))
       .refine(
         (v) => !v || /^https?:\/\//i.test(v),
-        "Ge\u00e7erli bir http(s) adresi girin",
+        "Geçerli bir http(s) adresi girin",
       ),
     solutionYoutubeStartSecond: z.string().optional().or(z.literal("")),
     solutionYoutubeEndSecond: z.string().optional().or(z.literal("")),
@@ -157,6 +160,17 @@ interface Props {
   onSaved?: () => void;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
+  defaultValues?: {
+    testName?: string;
+    publisher?: string;
+    category?: QuestionCategory;
+    lesson?: string;
+    topic?: string;
+    resourceId?: number | null;
+    source?: QuestionSource;
+    entryType?: "kaynak" | "diger" | "deneme";
+    examType?: "Genel" | "Branş" | "Konu";
+  };
 }
 
 function emptyOptionTexts(): Record<OptionLabel, string> {
@@ -221,6 +235,7 @@ export function QuestionFormDialog({
   onSaved,
   open: controlledOpen,
   onOpenChange: controlledOnOpenChange,
+  defaultValues,
 }: Props) {
   const isEdit = !!question;
   const [internalOpen, setInternalOpen] = useState(false);
@@ -232,9 +247,14 @@ export function QuestionFormDialog({
   const [useManualChoices, setUseManualChoices] = useState(false);
   const [optionTexts, setOptionTexts] =
     useState<Record<OptionLabel, string>>(emptyOptionTexts());
-  const [entryType, setEntryType] = useState<"kaynak" | "diger">(
-    question?.resourceId ? "kaynak" : "kaynak"
+  const [entryType, setEntryType] = useState<"kaynak" | "diger" | "deneme">(
+    question?.source === "Deneme"
+      ? "deneme"
+      : question?.resourceId
+      ? "kaynak"
+      : defaultValues?.entryType ?? "kaynak"
   );
+  const [denemeType, setDenemeType] = useState<"Genel" | "Branş" | "Konu">("Genel");
   const [selectedResourceObj, setSelectedResourceObj] = useState<any>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -243,6 +263,21 @@ export function QuestionFormDialog({
   const createMutation = useCreateQuestion();
   const updateMutation = useUpdateQuestion();
   const uploadMutation = useUploadQuestionImage();
+
+  const { data: practiceExams = [] } = useQuery<Array<{
+    id: number;
+    title: string;
+    examType: "Genel" | "Branş" | "Konu";
+    category: string;
+    lesson?: string | null;
+    topic?: string | null;
+    publisher?: string | null;
+    resourceId?: number | null;
+  }>>({
+    queryKey: ["practice-exams"],
+    queryFn: () => customFetch("/api/practice-exams"),
+    enabled: open,
+  });
 
   const {
     register,
@@ -256,13 +291,18 @@ export function QuestionFormDialog({
   } = useForm<FormValues>({
     resolver: zodResolver(formSchema),
     defaultValues: {
-      category: QuestionCategory.TYT,
-      source: QuestionSource.Deneme,
+      category: defaultValues?.category ?? QuestionCategory.TYT,
+      source: defaultValues?.source ?? QuestionSource.Deneme,
       status: QuestionStatus.Cozulmedi,
       solutionUrl: "",
       solutionYoutubeUrl: "",
       solutionYoutubeStartSecond: "",
       solutionYoutubeEndSecond: "",
+      testName: defaultValues?.testName ?? "",
+      publisher: defaultValues?.publisher ?? "",
+      lesson: defaultValues?.lesson ?? "",
+      topic: defaultValues?.topic ?? "",
+      resourceId: defaultValues?.resourceId ?? null,
     },
   });
 
@@ -282,6 +322,12 @@ export function QuestionFormDialog({
     return getTopicsForLesson(category, lesson);
   }, [category, lesson]);
 
+  const filteredExams = useMemo(() => {
+    return practiceExams.filter(
+      (e) => e.examType === denemeType && e.category === category
+    );
+  }, [practiceExams, denemeType, category]);
+
   const manualChoiceLabels = useMemo(() => {
     if (!useManualChoices) return OPTION_LABELS;
     return OPTION_LABELS.filter(
@@ -292,14 +338,19 @@ export function QuestionFormDialog({
   useEffect(() => {
     if (category === "Geometri") {
       setValue("lesson", "Geometri");
-    } else {
-      setValue("lesson", "");
     }
-    setValue("topic", "");
   }, [category, setValue]);
 
   useEffect(() => {
     if (open && isEdit && question) {
+      if (question.source === "Deneme") {
+        setEntryType("deneme");
+      } else if (question.resourceId) {
+        setEntryType("kaynak");
+      } else {
+        setEntryType("diger");
+      }
+
       reset({
         lesson: question.lesson,
         topic: question.topic ?? "",
@@ -345,10 +396,19 @@ export function QuestionFormDialog({
         setUseManualChoices(false);
       }
     } else if (open && !isEdit) {
+      setEntryType(defaultValues?.entryType ?? "kaynak");
+      if (defaultValues?.examType) {
+        setDenemeType(defaultValues.examType);
+      }
       reset({
-        category: QuestionCategory.TYT,
-        source: QuestionSource.Deneme,
+        category: defaultValues?.category ?? QuestionCategory.TYT,
+        source: defaultValues?.source ?? (defaultValues?.entryType === "deneme" ? QuestionSource.Deneme : QuestionSource.Banka),
         status: QuestionStatus.Cozulmedi,
+        testName: defaultValues?.testName ?? "",
+        publisher: defaultValues?.publisher ?? "",
+        lesson: defaultValues?.lesson ?? "",
+        topic: defaultValues?.topic ?? "",
+        resourceId: defaultValues?.resourceId ?? null,
         solutionUrl: "",
         solutionYoutubeUrl: "",
         solutionYoutubeStartSecond: "",
@@ -359,7 +419,7 @@ export function QuestionFormDialog({
       setUseManualChoices(false);
       setOptionTexts(emptyOptionTexts());
     }
-  }, [isEdit, open, question, reset]);
+  }, [isEdit, open, question, reset, defaultValues]);
 
   const onFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -410,6 +470,11 @@ export function QuestionFormDialog({
   const onSubmit = async (data: FormValues) => {
     try {
       if (!data.lesson?.trim()) {
+        toast({
+          title: "Ders Seçimi Zorunlu",
+          description: "Lütfen bir ders seçin.",
+          variant: "destructive",
+        });
         setError("lesson", { type: "manual", message: "Ders adı zorunludur" });
         return;
       }
@@ -422,12 +487,23 @@ export function QuestionFormDialog({
         return;
       }
 
-      if (!data.topic?.trim()) {
-        setError("topic", {
-          type: "manual",
-          message: "Konu seçimi zorunludur",
-        });
-        return;
+      // Deneme sorularında konu boş ise otomatik "Genel" konusu atanır
+      let finalTopic = data.topic?.trim() || "";
+      if (!finalTopic) {
+        if (entryType === "deneme") {
+          finalTopic = "Genel";
+        } else {
+          toast({
+            title: "Konu Seçimi Zorunlu",
+            description: "Lütfen bir konu seçin.",
+            variant: "destructive",
+          });
+          setError("topic", {
+            type: "manual",
+            message: "Konu seçimi zorunludur",
+          });
+          return;
+        }
       }
 
       let imageUrl: string | null | undefined = undefined;
@@ -440,9 +516,8 @@ export function QuestionFormDialog({
 
       if (useManualChoices && (!manualOptions || manualOptions.length < 2)) {
         toast({
-          title: "En az 2 \u015f\u0131k girin",
-          description:
-            "Manuel \u015f\u0131k modunda en az iki \u015f\u0131k metni doldurmal\u0131s\u0131n.",
+          title: "En az 2 şık girin",
+          description: "Manuel şık modunda en az iki şık metni doldurmalısın.",
           variant: "destructive",
         });
         return;
@@ -469,7 +544,11 @@ export function QuestionFormDialog({
 
       const payload = {
         ...data,
-        source: data.source as any,
+        topic: finalTopic,
+        testName: data.testName || defaultValues?.testName || null,
+        publisher: data.publisher || defaultValues?.publisher || null,
+        resourceId: data.resourceId ?? defaultValues?.resourceId ?? null,
+        source: entryType === "deneme" ? QuestionSource.Deneme : (data.source as any),
         imageUrl: isEdit ? imageUrl : (imageUrl ?? null),
         options: manualOptions,
         choice: data.choice || null,
@@ -487,7 +566,7 @@ export function QuestionFormDialog({
 
       if (isEdit && question) {
         await updateMutation.mutateAsync({ id: question.id, data: payload });
-        toast({ title: "Soru g\u00fcncellendi" });
+        toast({ title: "Soru güncellendi" });
       } else {
         await createMutation.mutateAsync({ data: payload });
         toast({ title: "Soru havuza eklendi" });
@@ -502,11 +581,11 @@ export function QuestionFormDialog({
       setImageFile(null);
       setUseManualChoices(false);
       setOptionTexts(emptyOptionTexts());
-    } catch {
+    } catch (error: any) {
+      console.error("Question save error:", error);
       toast({
         title: "Hata",
-        description:
-          "\u0130\u015flem s\u0131ras\u0131nda bir hata olu\u015ftu.",
+        description: error?.message || "İşlem sırasında bir hata oluştu.",
         variant: "destructive",
       });
     }
@@ -610,14 +689,30 @@ export function QuestionFormDialog({
             <Label className="font-semibold text-xs text-primary uppercase tracking-wider">
               Soru Ekleme Yöntemi *
             </Label>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-3 gap-2">
               <Button
                 type="button"
                 variant={entryType === "kaynak" ? "default" : "outline"}
-                onClick={() => setEntryType("kaynak")}
-                className="rounded-xl text-xs sm:text-sm font-medium"
+                onClick={() => {
+                  setEntryType("kaynak");
+                  setValue("source", QuestionSource.Banka);
+                }}
+                className="rounded-xl text-xs sm:text-sm font-medium px-2"
               >
                 Kayıtlı Kaynak
+              </Button>
+              <Button
+                type="button"
+                variant={entryType === "deneme" ? "default" : "outline"}
+                onClick={() => {
+                  setEntryType("deneme");
+                  setValue("source", QuestionSource.Deneme);
+                  setValue("resourceId", null);
+                  setSelectedResourceObj(null);
+                }}
+                className="rounded-xl text-xs sm:text-sm font-medium px-2"
+              >
+                Deneme Sorusu
               </Button>
               <Button
                 type="button"
@@ -627,9 +722,9 @@ export function QuestionFormDialog({
                   setValue("resourceId", null);
                   setSelectedResourceObj(null);
                 }}
-                className="rounded-xl text-xs sm:text-sm font-medium"
+                className="rounded-xl text-xs sm:text-sm font-medium px-2"
               >
-                YouTube Videosu, Web...
+                YouTube / Web...
               </Button>
             </div>
           </div>
@@ -693,16 +788,16 @@ export function QuestionFormDialog({
                   </Select>
                 </div>
 
-                {/* Konu seçimi */}
+                {/* Konu seçimi (Serbest/Açık) */}
                 <div className="space-y-2">
-                  <Label>Konu * {selectedResourceObj?.topic && <span className="text-[11px] text-muted-foreground font-normal">(Kaynaktan kilitli)</span>}</Label>
+                  <Label>Konu *</Label>
                   <Select
                     value={watch("topic") || "NONE"}
                     onValueChange={(val) => {
                       setValue("topic", val === "NONE" ? "" : val, { shouldValidate: true });
                       clearErrors("topic");
                     }}
-                    disabled={(!lesson && category !== "Geometri") || !!selectedResourceObj?.topic}
+                    disabled={!lesson && category !== "Geometri"}
                   >
                     <SelectTrigger className="bg-muted/30 border-border/50 rounded-xl">
                       <SelectValue placeholder={lesson ? "Konu seçin..." : "Önce ders seçin"} />
@@ -719,6 +814,268 @@ export function QuestionFormDialog({
                   {errors.topic && <p className="text-destructive text-xs">{errors.topic.message}</p>}
                 </div>
               </div>
+            </div>
+          ) : entryType === "deneme" ? (
+            <div className="space-y-4 rounded-xl border border-purple-500/30 bg-purple-500/5 p-4">
+              {defaultValues?.testName ? (
+                /* Deneme Kartından Otomatik Çekilen Bilgi Paneli */
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between p-3 rounded-xl bg-purple-500/10 border border-purple-500/20">
+                    <div className="space-y-0.5">
+                      <p className="text-xs font-semibold text-purple-700 dark:text-purple-300">
+                        🏆 Deneme: <span className="font-bold">{watch("testName")}</span>
+                      </p>
+                      <p className="text-[11px] text-purple-600/80 dark:text-purple-400/80">
+                        {watch("category")} • {denemeType === "Genel" ? "Genel Deneme" : denemeType === "Branş" ? "Branş Denemesi" : "Konu Denemesi"}
+                        {watch("publisher") ? ` • ${watch("publisher")}` : ""}
+                      </p>
+                    </div>
+                    <Badge variant="outline" className="bg-purple-500/20 text-purple-700 dark:text-purple-300 border-purple-400/40 text-xs shrink-0">
+                      🔒 Deneme Kilitli
+                    </Badge>
+                  </div>
+
+                  {/* Genel Deneme: Sadece Ders ve Konu Seçimi */}
+                  {denemeType === "Genel" && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1">
+                      <div className="space-y-2">
+                        <Label>Ders Seçin *</Label>
+                        <Select
+                          value={watch("lesson") || ""}
+                          onValueChange={(val) => {
+                            setValue("lesson", val);
+                            setValue("topic", "");
+                            clearErrors("lesson");
+                          }}
+                          disabled={category === "Geometri"}
+                        >
+                          <SelectTrigger className="bg-muted/30 border-border/50 rounded-xl">
+                            <SelectValue placeholder={category === "Geometri" ? "Geometri" : "Ders seçin..."} />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {lessonOptions.map((l) => (
+                              <SelectItem key={l} value={l}>
+                                {l}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        {errors.lesson && <p className="text-destructive text-xs">{errors.lesson.message}</p>}
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label>Konu Seçin *</Label>
+                        <Select
+                          value={watch("topic") || "NONE"}
+                          onValueChange={(val) => {
+                            setValue("topic", val === "NONE" ? "" : val, { shouldValidate: true });
+                            clearErrors("topic");
+                          }}
+                          disabled={!lesson && category !== "Geometri"}
+                        >
+                          <SelectTrigger className="bg-muted/30 border-border/50 rounded-xl">
+                            <SelectValue placeholder={lesson ? "Konu seçin..." : "Önce ders seçin"} />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="NONE">Konu seçilmedi</SelectItem>
+                            {topicOptions.map((t) => (
+                              <SelectItem key={t} value={t}>
+                                {t}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        {errors.topic && <p className="text-destructive text-xs">{errors.topic.message}</p>}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Branş Denemesi: Ders Otomatik Çekildi/Kilitli, Sadece Konu Seçimi */}
+                  {denemeType === "Branş" && (
+                    <div className="space-y-3 pt-1">
+                      <div className="p-2.5 rounded-lg bg-muted/40 border border-border/50 text-xs flex justify-between items-center">
+                        <span className="text-muted-foreground font-medium">Ders:</span>
+                        <span className="font-bold text-foreground">{watch("lesson") || "Belirtilmedi"} (Denemeden Çekildi)</span>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Konu Seçin *</Label>
+                        <Select
+                          value={watch("topic") || "NONE"}
+                          onValueChange={(val) => {
+                            setValue("topic", val === "NONE" ? "" : val, { shouldValidate: true });
+                            clearErrors("topic");
+                          }}
+                          disabled={!lesson && category !== "Geometri"}
+                        >
+                          <SelectTrigger className="bg-muted/30 border-border/50 rounded-xl">
+                            <SelectValue placeholder="Konu seçin..." />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="NONE">Konu seçilmedi</SelectItem>
+                            {topicOptions.map((t) => (
+                              <SelectItem key={t} value={t}>
+                                {t}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        {errors.topic && <p className="text-destructive text-xs">{errors.topic.message}</p>}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Konu Denemesi: Hem Ders hem Konu Kilitli */}
+                  {denemeType === "Konu" && (
+                    <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-xs font-semibold text-emerald-700 dark:text-emerald-300 flex items-center justify-between">
+                      <span>🔒 Ders ve Konu Otomatik Çekildi</span>
+                      <span className="font-bold">{watch("lesson")} • {watch("topic")}</span>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                /* Manuel Deneme Sorusu Ekleme Paneli */
+                <>
+                  <div className="space-y-2">
+                    <Label className="font-semibold text-xs text-purple-600 dark:text-purple-400 uppercase tracking-wider">
+                      Deneme Türü Seçimi
+                    </Label>
+                    <div className="grid grid-cols-3 gap-2">
+                      {(["Genel", "Branş", "Konu"] as const).map((t) => (
+                        <Button
+                          key={t}
+                          type="button"
+                          variant={denemeType === t ? "default" : "outline"}
+                          size="sm"
+                          onClick={() => setDenemeType(t)}
+                          className="rounded-xl text-xs font-medium"
+                        >
+                          {t === "Genel" ? "Genel Deneme" : t === "Branş" ? "Branş Denemesi" : "Konu Denemesi"}
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Kaydedilmiş Deneme Seçimi */}
+                  <div className="space-y-2">
+                    <Label className="font-semibold text-xs">Kaydedilmiş Denemelerinizden Seçin (Opsiyonel)</Label>
+                    <Select
+                      onValueChange={(val) => {
+                        if (val === "NONE") return;
+                        const examId = Number(val);
+                        const selectedExam = practiceExams.find((e) => e.id === examId);
+                        if (selectedExam) {
+                          setValue("testName", selectedExam.title);
+                          if (selectedExam.publisher) setValue("publisher", selectedExam.publisher);
+                          if (selectedExam.category) setValue("category", selectedExam.category as QuestionCategory);
+                          if (selectedExam.lesson) setValue("lesson", selectedExam.lesson);
+                          if (selectedExam.topic) setValue("topic", selectedExam.topic);
+                          if (selectedExam.resourceId) setValue("resourceId", selectedExam.resourceId);
+                        }
+                      }}
+                    >
+                      <SelectTrigger className="bg-muted/30 border-border/50 rounded-xl">
+                        <SelectValue placeholder={filteredExams.length > 0 ? "Mevcut denemelerinizden seçin..." : "Kayıtlı deneme bulunamadı (Manuel girin)"} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="NONE">Seçim yapma (Manuel gir)</SelectItem>
+                        {filteredExams.map((e) => (
+                          <SelectItem key={e.id} value={String(e.id)}>
+                            {e.title} ({e.category}{e.lesson ? ` • ${e.lesson}` : ""}{e.topic ? ` • ${e.topic}` : ""})
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label>Deneme / Sınav Adı *</Label>
+                      <Input
+                        {...register("testName")}
+                        placeholder="Örn: 3D Türkiye Geneli Deneme 1"
+                        className="bg-muted/30 border-border/50 rounded-xl"
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label>Yayınevi / Yayıncı</Label>
+                      <Input
+                        {...register("publisher")}
+                        placeholder="Örn: 3D, Bilgi Sarmal, Özdebir..."
+                        className="bg-muted/30 border-border/50 rounded-xl"
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label>Kategori *</Label>
+                      <Select
+                        value={watch("category")}
+                        onValueChange={(val) => setValue("category", val as QuestionCategory)}
+                      >
+                        <SelectTrigger className="bg-muted/30 border-border/50 rounded-xl">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {Object.values(QuestionCategory).map((c) => (
+                            <SelectItem key={c} value={c}>
+                              {c}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label>Ders *</Label>
+                      <Select
+                        value={watch("lesson") || ""}
+                        onValueChange={(val) => {
+                          setValue("lesson", val);
+                          setValue("topic", "");
+                          clearErrors("lesson");
+                        }}
+                        disabled={category === "Geometri"}
+                      >
+                        <SelectTrigger className="bg-muted/30 border-border/50 rounded-xl">
+                          <SelectValue placeholder={category === "Geometri" ? "Geometri" : "Ders seçin..."} />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {lessonOptions.map((l) => (
+                            <SelectItem key={l} value={l}>
+                              {l}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="space-y-2 md:col-span-2">
+                      <Label>Konu *</Label>
+                      <Select
+                        value={watch("topic") || "NONE"}
+                        onValueChange={(val) => {
+                          setValue("topic", val === "NONE" ? "" : val, { shouldValidate: true });
+                          clearErrors("topic");
+                        }}
+                        disabled={!lesson && category !== "Geometri"}
+                      >
+                        <SelectTrigger className="bg-muted/30 border-border/50 rounded-xl">
+                          <SelectValue placeholder={lesson ? "Konu seçin..." : "Önce ders seçin"} />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="NONE">Konu seçilmedi</SelectItem>
+                          {topicOptions.map((t) => (
+                            <SelectItem key={t} value={t}>
+                              {t}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      {errors.topic && <p className="text-destructive text-xs">{errors.topic.message}</p>}
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 rounded-xl border border-border/60 bg-muted/20 p-4">
@@ -857,10 +1214,10 @@ export function QuestionFormDialog({
             </div>
 
             <div className="space-y-2">
-              <Label>Test No</Label>
+              <Label>Soru No</Label>
               <Input
                 {...register("testNo")}
-                placeholder="42"
+                placeholder="Örn: 42"
                 className="bg-muted/30 border-border/50 rounded-xl"
               />
             </div>

@@ -13,6 +13,7 @@ export const RESOURCE_TYPES = [
   "Soru Bankası",
   "Fasikül",
   "Ders Kitabı",
+  "Genel Deneme",
   "Branş Denemesi",
   "Konu Denemesi",
 ] as const;
@@ -21,6 +22,7 @@ export type ResourceType = (typeof RESOURCE_TYPES)[number];
 
 /** Deneme formunda kaynak olarak kullanılabilecek türler */
 export const EXAM_RESOURCE_TYPES = [
+  "Genel Deneme",
   "Branş Denemesi",
   "Konu Denemesi",
 ] as const satisfies readonly ResourceType[];
@@ -42,6 +44,7 @@ export type PracticeExamType = (typeof PRACTICE_EXAM_TYPES)[number];
 
 /**
  * Kaynak türleri için konu davranış kuralları:
+ * - "Genel Deneme"    → konu YOK (gizli)
  * - "Branş Denemesi"    → konu YOK (gizli)
  * - "Soru Bankası"      → konu YOK (otomatik Genel)
  * - "Ders Kitabı"       → konu YOK (otomatik Genel)
@@ -53,6 +56,7 @@ export type PracticeExamType = (typeof PRACTICE_EXAM_TYPES)[number];
 export const NO_TOPIC_TYPES = [
   "Soru Bankası",
   "Ders Kitabı",
+  "Genel Deneme",
   "Branş Denemesi",
 ] as const;
 
@@ -68,12 +72,14 @@ export function requiresTopic(resourceType: string): boolean {
 
 /** Kaynak türünün ders seçimi gerektirip gerektirmediğini döndürür */
 export function requiresLesson(resourceType: string): boolean {
-  return resourceType !== ""; // tüm türler ders gerektirir
+  return resourceType !== "Genel Deneme" && resourceType !== "";
 }
 
 /** Deneme türüne karşılık gelen kaynak türünü döndürür */
 export function examTypeToResourceType(examType: PracticeExamType): ExamResourceType | null {
+  if (examType === "Genel") return "Genel Deneme";
   if (examType === "Branş") return "Branş Denemesi";
   if (examType === "Konu") return "Konu Denemesi";
   return null;
 }
+

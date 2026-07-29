@@ -5,7 +5,7 @@ import { questionsTable } from "./questions";
 
 export const drawingsTable = pgTable("drawings", {
   id: serial("id").primaryKey(),
-  questionId: integer("question_id").notNull().references(() => questionsTable.id, { onDelete: "cascade" }),
+  questionId: integer("question_id").notNull().unique().references(() => questionsTable.id, { onDelete: "cascade" }),
   canvasData: text("canvas_data").notNull().default("[]"),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });

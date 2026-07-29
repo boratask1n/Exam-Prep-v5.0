@@ -235,6 +235,14 @@ export async function getQuestionReviewFeed(params: {
     );
   }
 
+  // Count total matching questions lightweight
+  const countResult = await db
+    .select({ count: sql<number>`count(*)`.mapWith(Number) })
+    .from(questionsTable)
+    .where(conditions.length > 0 ? and(...conditions) : undefined);
+  const totalCount = countResult[0]?.count ?? 0;
+
+  // Limit candidate pool directly in SQL (max 200 candidates) ordered by review priority heuristics
   const rows = (await db
     .select({
       id: questionsTable.id,
@@ -276,7 +284,12 @@ export async function getQuestionReviewFeed(params: {
     )
     .where(
       conditions.length > 0 ? and(...conditions) : undefined,
-    )) as ReviewQuestionRow[];
+    )
+    .orderBy(
+      sql`case when ${questionsTable.status} = 'YanlisHocayaSor' then 1 when ${questionReviewStatsTable.nextEligibleAt} <= now() or ${questionReviewStatsTable.totalServed} is null then 2 else 3 end`,
+      sql`coalesce(${questionReviewStatsTable.nextEligibleAt}, ${questionsTable.createdAt}) asc`,
+    )
+    .limit(200)) as ReviewQuestionRow[];
 
   const now = new Date();
   const scoredRows = rows
@@ -290,10 +303,10 @@ export async function getQuestionReviewFeed(params: {
   return {
     items: selected,
     pagination: {
-      total: rows.length,
+      total: totalCount,
       limit,
       offset: 0,
-      hasMore: rows.length > selected.length,
+      hasMore: totalCount > selected.length,
     },
     algorithm: {
       name: "active-recall-question-feed",

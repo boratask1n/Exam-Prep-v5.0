@@ -1,4 +1,4 @@
-import { index, integer, pgTable, serial, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
+import { boolean, index, integer, pgTable, serial, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
 
 export const usersTable = pgTable(
   "users",
@@ -11,6 +11,7 @@ export const usersTable = pgTable(
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
     lastLoginAt: timestamp("last_login_at"),
+    legacyClaimed: boolean("legacy_claimed").notNull().default(false),
   },
   (table) => ({
     emailUnique: uniqueIndex("users_email_uq").on(table.email),

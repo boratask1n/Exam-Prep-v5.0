@@ -31,6 +31,7 @@ function serializeResource(r: any) {
     topic: r.topic ?? null,
     resourceType: r.resourceType,
     targetQuestionCount: r.targetQuestionCount ?? 0,
+    coverImageUrl: r.coverImageUrl ?? null,
     createdAt: r.createdAt instanceof Date ? r.createdAt.toISOString() : r.createdAt,
     updatedAt: r.updatedAt instanceof Date ? r.updatedAt.toISOString() : r.updatedAt,
   };
@@ -204,7 +205,7 @@ router.get("/:id", async (req, res) => {
 // POST /api/resources
 router.post("/", async (req, res) => {
   const userId = getAuthUserId(req);
-  const { name, publisher, category, lesson, topic, resourceType, targetQuestionCount } = req.body;
+  const { name, publisher, category, lesson, topic, resourceType, targetQuestionCount, coverImageUrl } = req.body;
 
   if (!name || typeof name !== "string" || !name.trim()) {
     return res.status(400).json({ error: "Kaynak adı zorunludur" });
@@ -225,6 +226,7 @@ router.post("/", async (req, res) => {
       topic: parseOptionalString(topic) ?? null,
       resourceType: parseOptionalString(resourceType) ?? "Soru Bankası",
       targetQuestionCount: parseOptionalInt(targetQuestionCount) ?? 0,
+      coverImageUrl: parseOptionalString(coverImageUrl) ?? null,
     })
     .returning();
 
@@ -248,7 +250,7 @@ router.put("/:id", async (req, res) => {
     return res.status(404).json({ error: "Resource not found" });
   }
 
-  const { name, publisher, category, lesson, topic, resourceType, targetQuestionCount } = req.body;
+  const { name, publisher, category, lesson, topic, resourceType, targetQuestionCount, coverImageUrl } = req.body;
 
   if (name !== undefined && (!name || typeof name !== "string" || !name.trim())) {
     return res.status(400).json({ error: "Kaynak adı zorunludur" });
@@ -269,6 +271,7 @@ router.put("/:id", async (req, res) => {
       resourceType: parseOptionalString(resourceType) ?? existing.resourceType,
       targetQuestionCount:
         targetQuestionCount !== undefined ? parseOptionalInt(targetQuestionCount) ?? 0 : existing.targetQuestionCount,
+      coverImageUrl: coverImageUrl !== undefined ? parseOptionalString(coverImageUrl) ?? null : existing.coverImageUrl,
       updatedAt: new Date(),
     })
     .where(and(eq(resourcesTable.id, id), eq(resourcesTable.userId, userId)))

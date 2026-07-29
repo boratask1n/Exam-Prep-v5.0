@@ -17,6 +17,8 @@ export const practiceExamsTable = pgTable(
     topic: text("topic"),
     publisher: text("publisher"),
     examDate: timestamp("exam_date").notNull().defaultNow(),
+    examNo: integer("exam_no"),
+    targetQuestionCount: integer("target_question_count"),
     durationMinutes: integer("duration_minutes"),
     totalNet: real("total_net").notNull().default(0),
     details: jsonb("details").$type<Record<string, { correct: number; wrong: number; net: number }>>(),

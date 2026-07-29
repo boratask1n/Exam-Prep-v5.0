@@ -233,42 +233,68 @@ export default function Resources() {
               const progressPercent =
                 baseTarget > 0 ? Math.min(100, Math.round((solved / baseTarget) * 100)) : 0;
 
+              const hasCover = Boolean((resource as any).coverImageUrl);
+
               return (
                 <Card key={resource.id} className="relative flex flex-col justify-between overflow-hidden transition-all hover:shadow-md border">
                   <CardHeader
                     className="pb-3 cursor-pointer hover:bg-muted/20 transition-colors"
                     onClick={() => setLocation(`/resources/${resource.id}`)}
                   >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="space-y-1">
-                        <CardTitle className="text-base font-semibold leading-tight line-clamp-1 hover:text-primary transition-colors">
-                          {resource.name}
-                        </CardTitle>
+                    <div className="flex gap-3 items-start">
+                      {/* Cover thumbnail */}
+                      <div className="relative shrink-0 w-14 h-20 rounded-md overflow-hidden border shadow-sm bg-gradient-to-br from-indigo-500/20 via-purple-500/15 to-pink-500/20 flex flex-col justify-between p-1.5">
+                        {hasCover ? (
+                          <img
+                            src={(resource as any).coverImageUrl}
+                            alt={resource.name}
+                            className="absolute inset-0 w-full h-full object-cover"
+                            onError={(e) => { (e.target as any).style.display = "none"; }}
+                          />
+                        ) : (
+                          <div className="flex flex-col justify-between h-full w-full">
+                            <span className="text-[9px] font-black uppercase tracking-wider text-primary/80 truncate">
+                              {resource.publisher || resource.category}
+                            </span>
+                            <BookOpen className="h-4 w-4 mx-auto text-primary/70 my-auto" />
+                            <Badge variant="outline" className="text-[8px] px-0.5 py-0 justify-center bg-background/80 border-primary/20">
+                              {resource.category}
+                            </Badge>
+                          </div>
+                        )}
+                        <div className="absolute left-0 top-0 bottom-0 w-1 bg-black/15" />
+                      </div>
+
+                      <div className="space-y-1 min-w-0 flex-1">
+                        <div className="flex items-start justify-between gap-1">
+                          <CardTitle className="text-base font-semibold leading-tight line-clamp-2 hover:text-primary transition-colors">
+                            {resource.name}
+                          </CardTitle>
+                          <Badge variant="outline" className="shrink-0 text-[10px] font-normal">
+                            {resource.resourceType}
+                          </Badge>
+                        </div>
                         {resource.publisher && (
-                          <CardDescription className="text-xs font-medium text-muted-foreground">
+                          <CardDescription className="text-xs font-medium text-muted-foreground truncate">
                             {resource.publisher}
                           </CardDescription>
                         )}
+                        <div className="flex flex-wrap gap-1 pt-1">
+                          <Badge variant="secondary" className="text-[10px] font-normal">
+                            {resource.category}
+                          </Badge>
+                          {resource.lesson && (
+                            <Badge variant="secondary" className="text-[10px] font-normal bg-primary/10 text-primary">
+                              {resource.lesson}
+                            </Badge>
+                          )}
+                          {(resource as any).topic && (
+                            <Badge variant="outline" className="text-[10px] font-normal border-primary/30 text-primary">
+                              {(resource as any).topic}
+                            </Badge>
+                          )}
+                        </div>
                       </div>
-                      <Badge variant="outline" className="shrink-0 font-normal">
-                        {resource.resourceType}
-                      </Badge>
-                    </div>
-
-                    <div className="flex flex-wrap gap-1.5 pt-2">
-                      <Badge variant="secondary" className="text-[11px] font-normal">
-                        {resource.category}
-                      </Badge>
-                      {resource.lesson && (
-                        <Badge variant="secondary" className="text-[11px] font-normal bg-primary/10 text-primary">
-                          {resource.lesson}
-                        </Badge>
-                      )}
-                      {(resource as any).topic && (
-                        <Badge variant="outline" className="text-[11px] font-normal border-primary/30 text-primary">
-                          {(resource as any).topic}
-                        </Badge>
-                      )}
                     </div>
                   </CardHeader>
 

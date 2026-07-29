@@ -230,20 +230,23 @@ router.post("/tests", async (req, res) => {
     return;
   }
 
-  const [session] = await db
-    .insert(testSessionsTable)
+  const session = await db.transaction(async (tx) => {
+    const [createdSession] = await tx
+      .insert(testSessionsTable)
       .values({ userId, name: body.name, timeLimitSeconds: body.timeLimitSeconds ?? null })
-    .returning();
+      .returning();
 
-  if (questionIds.length > 0) {
-    await db.insert(testSessionQuestionsTable).values(
-      questionIds.map((qId, idx) => ({
-        testSessionId: session.id,
-        questionId: qId,
-        orderIndex: idx,
-      }))
-    );
-  }
+    if (questionIds.length > 0) {
+      await tx.insert(testSessionQuestionsTable).values(
+        questionIds.map((qId, idx) => ({
+          testSessionId: createdSession.id,
+          questionId: qId,
+          orderIndex: idx,
+        }))
+      );
+    }
+    return createdSession;
+  });
 
   return res.status(201).json({
     id: session.id,

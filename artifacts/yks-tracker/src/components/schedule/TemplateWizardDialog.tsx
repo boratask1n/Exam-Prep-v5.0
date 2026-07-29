@@ -58,7 +58,7 @@ const PRESETS: TemplatePreset[] = [
       });
       // Pazar: Deneme & Analiz
       list.push(
-        { day: "Pazar", startTime: "09:00", endTime: "11:45", lesson: "Deneme Çözümü", topic: "TYT Genel Denemesi", activityType: "Genel Deneme", targetQuestions: 125, color: "fuchsia", notes: "Optik form ile gerçek sınav simülasyonu" },
+        { day: "Pazar", startTime: "09:00", endTime: "11:45", lesson: "Deneme Çözümü", topic: "TYT Genel Denemesi", activityType: "Genel Deneme", targetQuestions: 120, color: "fuchsia", notes: "Optik form ile gerçek sınav simülasyonu" },
         { day: "Pazar", startTime: "12:00", endTime: "13:30", lesson: "Mola", activityType: "Mola", color: "slate" },
         { day: "Pazar", startTime: "13:30", endTime: "15:30", lesson: "Deneme Çözümü", topic: "Deneme Analizi & Eksik Notlar", activityType: "Tekrar", color: "purple" },
         { day: "Pazar", startTime: "16:00", endTime: "17:30", lesson: "Haftalık Planlama", topic: "Gelecek Haftanın Hedefleri", activityType: "Tekrar", color: "slate" }

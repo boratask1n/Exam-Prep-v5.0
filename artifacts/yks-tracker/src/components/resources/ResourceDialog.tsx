@@ -32,6 +32,7 @@ import {
   CATEGORIES,
   requiresTopic,
   supportsTopic,
+  requiresLesson,
   type ResourceType,
 } from "@/lib/resourceConfig";
 
@@ -45,10 +46,11 @@ const formSchema = z
     lesson: z.string().optional(),
     topic: z.string().optional(),
     resourceType: z.string().default("Soru Bankası"),
+    coverImageUrl: z.string().optional(),
   })
   .superRefine((data, ctx) => {
-    // Ders zorunluluğu (Geometri hariç tüm türler için)
-    if (data.category !== "Geometri" && !data.lesson?.trim()) {
+    // Ders zorunluluğu (Geometri ve Genel Deneme hariç tüm türler için)
+    if (requiresLesson(data.resourceType) && data.category !== "Geometri" && !data.lesson?.trim()) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["lesson"],
@@ -106,6 +108,7 @@ export function ResourceDialog({
       lesson: defaultLesson ?? "",
       topic: "",
       resourceType: defaultResourceType ?? "Soru Bankası",
+      coverImageUrl: "",
     },
   });
 
@@ -120,7 +123,7 @@ export function ResourceDialog({
   // Konu seçiminin zorunlu olup olmadığı
   const topicRequired = requiresTopic(selectedResourceType);
   // Ders seçiminin disabled olup olmadığı
-  const lessonDisabled = selectedCategory === "Geometri";
+  const lessonDisabled = selectedCategory === "Geometri" || selectedResourceType === "Genel Deneme";
 
   const availableLessons = getLessonsForCategory(selectedCategory);
   const availableTopics = useMemo(() => {
@@ -151,6 +154,7 @@ export function ResourceDialog({
           lesson: resourceForEdit.lesson ?? "",
           topic: (resourceForEdit as any).topic ?? "",
           resourceType: resourceForEdit.resourceType,
+          coverImageUrl: (resourceForEdit as any).coverImageUrl ?? "",
         });
       } else {
         form.reset({
@@ -160,6 +164,7 @@ export function ResourceDialog({
           lesson: defaultCategory === "Geometri" ? "Geometri" : (defaultLesson ?? ""),
           topic: "",
           resourceType: "Soru Bankası",
+          coverImageUrl: "",
         });
       }
     }
@@ -181,6 +186,7 @@ export function ResourceDialog({
           ? (values.topic?.trim() || null)
           : (values.resourceType === "Soru Bankası" || values.resourceType === "Ders Kitabı" ? "Tüm Konular (Genel)" : null),
         resourceType: values.resourceType,
+        coverImageUrl: values.coverImageUrl?.trim() || null,
       } as any;
 
       if (isEditing && resourceForEdit) {
@@ -293,7 +299,13 @@ export function ResourceDialog({
             >
               <SelectTrigger>
                 <SelectValue
-                  placeholder={lessonDisabled ? "Geometri" : "Ders Seçin"}
+                  placeholder={
+                    selectedResourceType === "Genel Deneme"
+                      ? "Tüm Dersler (Genel)"
+                      : lessonDisabled
+                      ? "Geometri"
+                      : "Ders Seçin"
+                  }
                 />
               </SelectTrigger>
               <SelectContent>
@@ -385,6 +397,69 @@ export function ResourceDialog({
               Boş bırakırsanız otomatik isim önerisi kullanılır:{" "}
               <strong>{suggestedName || "Genel Kaynak"}</strong>
             </p>
+          </div>
+
+          {/* Kapak Fotoğrafı (Kütüphane Görünümü) */}
+          <div className="space-y-2 border-t pt-3">
+            <Label htmlFor="coverImageUrl" className="flex items-center justify-between text-xs font-semibold">
+              <span>📚 Kapak Fotoğrafı (Kütüphane Görünümü)</span>
+              <span className="text-[11px] text-muted-foreground font-normal">İsteğe Bağlı</span>
+            </Label>
+
+            <div className="flex gap-2 items-center">
+              <Input
+                id="coverImageUrl"
+                placeholder="Görsel URL yapıştırın (https://...)"
+                {...form.register("coverImageUrl")}
+                className="h-9 text-xs flex-1"
+              />
+              <label className="cursor-pointer">
+                <Input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) {
+                      const reader = new FileReader();
+                      reader.onload = (evt) => {
+                        if (evt.target?.result) {
+                          form.setValue("coverImageUrl", evt.target.result as string, { shouldDirty: true });
+                        }
+                      };
+                      reader.readAsDataURL(file);
+                    }
+                  }}
+                />
+                <Button type="button" variant="outline" size="sm" className="h-9 text-xs px-2.5 shrink-0" asChild>
+                  <span>📁 Görsel Yükle</span>
+                </Button>
+              </label>
+            </div>
+
+            {/* Önizleme veya kaldır */}
+            {form.watch("coverImageUrl") && (
+              <div className="flex items-center justify-between p-2 rounded-xl bg-muted/40 border text-xs">
+                <div className="flex items-center gap-2 overflow-hidden">
+                  <img
+                    src={form.watch("coverImageUrl")}
+                    alt="Kapak Önizleme"
+                    className="h-10 w-8 object-cover rounded shadow-sm border shrink-0"
+                    onError={(e) => { (e.target as any).style.display = "none"; }}
+                  />
+                  <span className="truncate text-muted-foreground text-[11px]">Kapak Görseli Ekli</span>
+                </div>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => form.setValue("coverImageUrl", "", { shouldDirty: true })}
+                  className="h-7 text-[11px] text-destructive hover:text-destructive"
+                >
+                  Kaldır
+                </Button>
+              </div>
+            )}
           </div>
 
           <div className="flex justify-end gap-2 pt-2">

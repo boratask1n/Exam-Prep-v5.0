@@ -24,6 +24,7 @@ export const resourcesTable = pgTable(
     topic: text("topic"),
     resourceType: text("resource_type").notNull().default("Soru Bankası"),
     targetQuestionCount: integer("target_question_count").default(0),
+    coverImageUrl: text("cover_image_url"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },

@@ -1,7 +1,7 @@
 import { Router, type IRouter, type Request } from "express";
 import { db } from "@workspace/db";
 import { questionsTable, drawingsTable } from "@workspace/db";
-import { eq, and, ilike, sql, or } from "drizzle-orm";
+import { eq, and, ilike, sql, or, desc } from "drizzle-orm";
 import {
   CreateQuestionBody,
   UpdateQuestionBody,
@@ -271,7 +271,7 @@ router.get("/questions", async (req, res) => {
     .select()
     .from(questionsTable)
     .where(conditions.length > 0 ? and(...conditions) : undefined)
-    .orderBy(questionsTable.createdAt)
+    .orderBy(desc(questionsTable.createdAt), desc(questionsTable.id))
     .limit(limit)
     .offset(offset);
 
@@ -620,25 +620,6 @@ router.put("/questions/:id/drawing", async (req, res) => {
     return;
   }
 
-  const [existing] = await db
-    .select()
-    .from(drawingsTable)
-    .where(eq(drawingsTable.questionId, id));
-
-  let drawing;
-  if (existing) {
-    [drawing] = await db
-      .update(drawingsTable)
-      .set({ canvasData: body.canvasData, updatedAt: new Date() })
-      .where(eq(drawingsTable.questionId, id))
-      .returning();
-  } else {
-    [drawing] = await db
-      .insert(drawingsTable)
-      .values({ questionId: id, canvasData: body.canvasData })
-      .returning();
-  }
-
   let hasDrawing = false;
   try {
     const parsed = JSON.parse(body.canvasData);
@@ -653,10 +634,24 @@ router.put("/questions/:id/drawing", async (req, res) => {
     hasDrawing = false;
   }
 
-  await db
-    .update(questionsTable)
-    .set({ hasDrawing, updatedAt: new Date() })
-    .where(eq(questionsTable.id, id));
+  const drawing = await db.transaction(async (tx) => {
+    const [insertedOrUpdated] = await tx
+      .insert(drawingsTable)
+      .values({ questionId: id, canvasData: body.canvasData })
+      .onConflictDoUpdate({
+        target: drawingsTable.questionId,
+        set: { canvasData: body.canvasData, updatedAt: new Date() },
+      })
+      .returning();
+
+    await tx
+      .update(questionsTable)
+      .set({ hasDrawing, updatedAt: new Date() })
+      .where(eq(questionsTable.id, id));
+
+    return insertedOrUpdated;
+  });
+
   res.json({ ...drawing, updatedAt: drawing.updatedAt.toISOString() });
 });
 

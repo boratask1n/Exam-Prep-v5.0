@@ -45,9 +45,12 @@ import {
   useDeleteResource,
   Question,
   QuestionStatus,
+  QuestionSource,
+  QuestionCategory,
 } from "@workspace/api-client-react";
 import { ResourceDialog } from "@/components/resources/ResourceDialog";
 import { QuestionFormDialog } from "@/components/QuestionFormDialog";
+import { PracticeExamFormDialog } from "@/components/practice-exams/PracticeExamFormDialog";
 import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
 import { formatVideoTimestampRange, getYoutubeWatchUrl } from "@/lib/youtubeEmbed";
@@ -66,6 +69,7 @@ export default function ResourceDetail() {
 
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [addQuestionOpen, setAddQuestionOpen] = useState(false);
+  const [addExamOpen, setAddExamOpen] = useState(false);
 
   const [deleteResourceDialogOpen, setDeleteResourceDialogOpen] = useState(false);
   const [questionToDelete, setQuestionToDelete] = useState<Question | null>(null);
@@ -77,6 +81,19 @@ export default function ResourceDetail() {
   const resource = useMemo(() => {
     return resources.find((r) => r.id === resourceId) || null;
   }, [resources, resourceId]);
+
+  const defaultValuesForResource = useMemo(() => {
+    if (!resource) return undefined;
+    return {
+      resourceId: resource.id,
+      publisher: resource.publisher || undefined,
+      category: (resource.category as QuestionCategory) || QuestionCategory.TYT,
+      lesson: resource.lesson || undefined,
+      topic: resource.topic || undefined,
+      testName: resource.name || undefined,
+      source: resource.resourceType === "Deneme" || resource.resourceType === "Branş Denemesi" || resource.resourceType === "Genel Deneme" ? QuestionSource.Deneme : QuestionSource.Banka,
+    };
+  }, [resource]);
 
   // Fetch questions for this resource
   const { data: questionsResponse, isLoading: isLoadingQuestions } = useListQuestions(
@@ -205,34 +222,59 @@ export default function ResourceDetail() {
       <div className="space-y-6">
         {/* Navigation & Header */}
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between border-b pb-4">
-          <div className="space-y-1">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setLocation("/resources")}
-              className="gap-1.5 text-xs text-muted-foreground hover:text-foreground pl-0 -ml-2"
-            >
-              <ArrowLeft className="h-4 w-4" />
-              Kaynaklar Listesine Dön
-            </Button>
-
-            <div className="flex flex-wrap items-center gap-2">
-              <h1 className="text-2xl font-bold tracking-tight">{resource?.name}</h1>
-              <Badge variant="default" className="bg-primary/10 text-primary border-primary/20">
-                {resource?.resourceType}
-              </Badge>
-              <Badge variant="secondary">{resource?.category}</Badge>
-              {resource?.lesson && <Badge variant="outline">{resource.lesson}</Badge>}
-              {(resource as any)?.topic && (
-                <Badge variant="outline" className="border-primary/40 text-primary">
-                  {(resource as any).topic}
-                </Badge>
+          <div className="flex items-start gap-3.5">
+            {/* Book Cover Thumbnail */}
+            <div className="relative shrink-0 w-16 h-24 sm:w-20 sm:h-28 rounded-xl overflow-hidden border shadow-md bg-gradient-to-br from-indigo-500/20 via-purple-500/15 to-pink-500/20 flex flex-col justify-between p-2">
+              {(resource as any)?.coverImageUrl ? (
+                <img
+                  src={(resource as any).coverImageUrl}
+                  alt={resource?.name}
+                  className="absolute inset-0 w-full h-full object-cover"
+                  onError={(e) => { (e.target as any).style.display = "none"; }}
+                />
+              ) : (
+                <div className="flex flex-col justify-between h-full w-full">
+                  <span className="text-[9px] font-black uppercase tracking-wider text-primary/80 truncate">
+                    {resource?.publisher || resource?.category}
+                  </span>
+                  <BookOpen className="h-6 w-6 mx-auto text-primary/70 my-auto" />
+                  <Badge variant="outline" className="text-[9px] px-1 py-0 justify-center bg-background/80 border-primary/20">
+                    {resource?.category}
+                  </Badge>
+                </div>
               )}
+              <div className="absolute left-0 top-0 bottom-0 w-1 bg-black/15" />
             </div>
 
-            {resource?.publisher && (
-              <p className="text-xs text-muted-foreground">Yayın Evi: <strong>{resource.publisher}</strong></p>
-            )}
+            <div className="space-y-1">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setLocation("/resources")}
+                className="gap-1.5 text-xs text-muted-foreground hover:text-foreground pl-0 -ml-2"
+              >
+                <ArrowLeft className="h-4 w-4" />
+                Kaynaklar Listesine Dön
+              </Button>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <h1 className="text-2xl font-bold tracking-tight">{resource?.name}</h1>
+                <Badge variant="default" className="bg-primary/10 text-primary border-primary/20">
+                  {resource?.resourceType}
+                </Badge>
+                <Badge variant="secondary">{resource?.category}</Badge>
+                {resource?.lesson && <Badge variant="outline">{resource.lesson}</Badge>}
+                {(resource as any)?.topic && (
+                  <Badge variant="outline" className="border-primary/40 text-primary">
+                    {(resource as any).topic}
+                  </Badge>
+                )}
+              </div>
+
+              {resource?.publisher && (
+                <p className="text-xs text-muted-foreground">Yayın Evi: <strong>{resource.publisher}</strong></p>
+              )}
+            </div>
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
@@ -251,6 +293,14 @@ export default function ResourceDetail() {
               className="gap-1.5 text-xs text-destructive hover:text-destructive"
             >
               <Trash2 className="h-3.5 w-3.5" /> Sil
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setAddExamOpen(true)}
+              className="gap-1.5 text-xs"
+            >
+              <Plus className="h-3.5 w-3.5" /> Deneme Neti Ekle
             </Button>
             <Button onClick={() => setAddQuestionOpen(true)} size="sm" className="gap-1.5">
               <Plus className="h-4 w-4" /> Bu Kaynağa Soru Ekle
@@ -556,6 +606,7 @@ export default function ResourceDetail() {
           }
         }}
         question={questionToEdit || undefined}
+        defaultValues={defaultValuesForResource}
         onSaved={() => {
           queryClient.invalidateQueries({ queryKey: ["/api/questions"] });
           queryClient.invalidateQueries({ queryKey: ["/api/resources"] });
@@ -597,6 +648,13 @@ export default function ResourceDetail() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Practice Exam Form Dialog */}
+      <PracticeExamFormDialog
+        open={addExamOpen}
+        onOpenChange={setAddExamOpen}
+        initialResource={resource}
+      />
 
       {/* Image Zoom Modal */}
       {imageModalUrl && (

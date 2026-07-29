@@ -25,6 +25,7 @@ interface PracticeExamFormDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   examToEdit?: any;
+  initialResource?: any;
 }
 
 // ─── Alt Bileşenler ───────────────────────────────────────────────────────────
@@ -255,6 +256,7 @@ export function PracticeExamFormDialog({
   open,
   onOpenChange,
   examToEdit,
+  initialResource,
 }: PracticeExamFormDialogProps) {
   const {
     form,
@@ -272,6 +274,8 @@ export function PracticeExamFormDialog({
     onSubmit,
   } = usePracticeExamForm({
     examToEdit,
+    initialResource,
+    open,
     onSuccess: () => onOpenChange(false),
   });
 
@@ -356,17 +360,17 @@ export function PracticeExamFormDialog({
               )}
             />
 
-            {/* ── Kaynak Seçimi (Branş ve Konu için ZORUNLU) ── */}
-            {isDetailed && examResourceType && (
+            {/* ── Kaynak Seçimi (Branş/Konu için ZORUNLU, Genel için İSTEĞE BAĞLI) ── */}
+            {examResourceType && (
               <FormField
                 control={form.control}
                 name="resourceId"
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>
-                      Kaynak <span className="text-destructive">*</span>{" "}
+                      Kaynak {isDetailed && <span className="text-destructive">*</span>}{" "}
                       <span className="text-xs text-muted-foreground font-normal">
-                        (Sadece {examResourceType} kaynakları)
+                        ({isGenel ? "İsteğe bağlı - Kaynaklarım'dan deneme seçimi" : `Sadece ${examResourceType} kaynakları`})
                       </span>
                     </FormLabel>
                     <FormControl>
@@ -383,10 +387,10 @@ export function PracticeExamFormDialog({
                             if (resourceObj.category) {
                               form.setValue("category", resourceObj.category, { shouldValidate: true, shouldDirty: true });
                             }
-                            if (resourceObj.lesson) {
+                            if (!isGenel && resourceObj.lesson) {
                               form.setValue("lesson", resourceObj.lesson, { shouldValidate: true, shouldDirty: true });
                             }
-                            if (resourceObj.topic) {
+                            if (!isGenel && resourceObj.topic) {
                               form.setValue("topic", resourceObj.topic, { shouldValidate: true, shouldDirty: true });
                             }
                             if (resourceObj.targetQuestionCount || resourceObj.questionCount) {
@@ -582,14 +586,38 @@ export function PracticeExamFormDialog({
               </div>
             )}
 
-            {/* Tarih + Süre */}
-            <div className="grid grid-cols-2 gap-4">
+            {/* Deneme Numarası + Tarih + Süre */}
+            <div className="grid grid-cols-3 gap-3">
+              <FormField
+                control={form.control}
+                name="examNo"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="text-xs font-semibold">
+                      Deneme No {!isGenel && <span className="text-destructive">*</span>}
+                    </FormLabel>
+                    <FormControl>
+                      <Input
+                        type="number"
+                        min={1}
+                        placeholder={isGenel ? "Örn: 1" : "Örn: 3 *"}
+                        {...field}
+                        value={field.value ?? ""}
+                        onChange={(e) => field.onChange(e.target.value ? Number(e.target.value) : "")}
+                        className="tabular-nums font-bold h-9"
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
               <FormField
                 control={form.control}
                 name="examDate"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Deneme Tarihi</FormLabel>
+                    <FormLabel className="text-xs font-semibold">Tarih</FormLabel>
                     <FormControl>
                       <DatePicker
                         value={field.value}
@@ -607,17 +635,8 @@ export function PracticeExamFormDialog({
                 name="durationMinutes"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>
-                      Süre (Dakika)
-                      {isGenel ? (
-                        <span className="ml-1 text-xs text-muted-foreground font-normal">
-                          · Otomatik
-                        </span>
-                      ) : (
-                        <span className="ml-1 text-xs text-muted-foreground font-normal">
-                          (Opsiyonel)
-                        </span>
-                      )}
+                    <FormLabel className="text-xs font-semibold">
+                      Süre (Dk)
                     </FormLabel>
                     <FormControl>
                       <Input
@@ -627,7 +646,7 @@ export function PracticeExamFormDialog({
                         value={field.value ?? ""}
                         disabled={isGenel}
                         placeholder={isGenel ? "Otomatik" : "Süre girin"}
-                        className="tabular-nums"
+                        className="tabular-nums h-9"
                       />
                     </FormControl>
                     <FormMessage />
@@ -643,8 +662,8 @@ export function PracticeExamFormDialog({
                   <p className="text-sm font-medium">
                     {watchCategory} Soru Dağılımı
                   </p>
-                  <span className="text-xs text-muted-foreground">
-                    {examConfig.totalQuestions} Soru · {examConfig.durationMinutes} dk
+                  <span className="text-xs text-muted-foreground font-semibold">
+                    {watchCategory === "AYT" ? 80 : 120} Soru · {examConfig.durationMinutes} dk
                   </span>
                 </div>
                 <SubjectResultsTable

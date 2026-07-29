@@ -20,6 +20,7 @@ export const studySlotsTable = pgTable(
     resourceId: integer("resource_id"),
     resourceName: text("resource_name"),
     targetQuestions: integer("target_questions"),
+    examNo: integer("exam_no"),
     notes: text("notes"),
     color: text("color").notNull().default("indigo"),
     completed: boolean("completed").notNull().default(false),
