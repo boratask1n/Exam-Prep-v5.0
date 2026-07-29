@@ -67,7 +67,7 @@ set "SQL_DRYRUN=BEGIN; %SQL% ROLLBACK;"
 
 if /I not "%MODE%"=="DRYRUN" (
   set /p TAKE_BACKUP=Temizlemeden once yedek almak ister misiniz? ^(E/H^): 
-  if /I "%TAKE_BACKUP%"=="E" (
+  if /I "!TAKE_BACKUP!"=="E" (
     call "%~dp0YEDEK_AL.bat"
     if errorlevel 1 (
       echo [HATA] Yedek alma basarisiz. Temizleme islemi durduruldu.
@@ -78,7 +78,7 @@ if /I not "%MODE%"=="DRYRUN" (
 
   echo.
   set /p CONFIRM=Devam etmek icin EVET yazin: 
-  if /I not "%CONFIRM%"=="EVET" (
+  if /I not "!CONFIRM!"=="EVET" (
     echo Islem iptal edildi.
     pause
     exit /b 0
