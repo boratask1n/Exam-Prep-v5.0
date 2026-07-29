@@ -64,6 +64,31 @@ export interface PracticeExam {
   totalNet: number;
   details?: Record<string, SubjectResult> | null;
   notes?: string | null;
+  publisher?: string | null;
+  targetQuestionCount?: number | null;
+}
+
+// ─── Yardımcı Fonksiyon (Hesaplama) ──────────────────────────────────────────
+export function calculateSuccessPercentage(exam: PracticeExam): number {
+  let totalQ = 0;
+  if (exam.examType === "Genel") {
+    totalQ = exam.category === "AYT" ? 80 : 120;
+  } else if (exam.targetQuestionCount && exam.targetQuestionCount > 0) {
+    totalQ = exam.targetQuestionCount;
+  } else if (exam.details) {
+    Object.values(exam.details).forEach((v) => {
+      totalQ += (v.questionCount || (v.correct + v.wrong));
+    });
+  }
+  
+  if (totalQ <= 0) {
+    // Soru sayısı bulunamazsa varsayılan neti 100 üzerinden orantısız kabul et (veya 0)
+    // Sıfıra bölmeyi engelle
+    return Math.max(0, exam.totalNet);
+  }
+  
+  const percentage = (exam.totalNet / totalQ) * 100;
+  return Math.round(percentage * 10) / 10;
 }
 
 interface AnalysisTabContentProps {
@@ -259,45 +284,53 @@ export function AnalysisTabContent({ exams, onNewExamClick }: AnalysisTabContent
       return true;
     });
 
-    const trendData = bransList.map((e) => ({
-      id: e.id,
-      date: format(new Date(e.examDate), "d MMM", { locale: tr }),
-      title: e.title,
-      net: e.totalNet,
-      lesson: e.lesson || "Genel",
-      publisher: e.resourceName || "Bilinmiyor",
-    }));
-
-    // Yayın bazlı ortalama net kıyaslaması
-    const pubMap = new Map<string, { totalNet: number; count: number; maxNet: number }>();
+    // Ders bazlı ortalama başarı yüzdesi kıyaslaması
+    const lessonMap = new Map<string, { totalPercentage: number; count: number }>();
     bransList.forEach((e) => {
-      const pub = e.resourceName || "Diğer / Belirtilmedi";
-      const curr = pubMap.get(pub) || { totalNet: 0, count: 0, maxNet: 0 };
-      pubMap.set(pub, {
-        totalNet: curr.totalNet + e.totalNet,
+      const lesson = e.lesson || "Belirtilmemiş Ders";
+      const percentage = calculateSuccessPercentage(e);
+      const curr = lessonMap.get(lesson) || { totalPercentage: 0, count: 0 };
+      lessonMap.set(lesson, {
+        totalPercentage: curr.totalPercentage + percentage,
         count: curr.count + 1,
-        maxNet: Math.max(curr.maxNet, e.totalNet),
+      });
+    });
+
+    const lessonComparisonData = Array.from(lessonMap.entries()).map(([lesson, val]) => ({
+      lesson,
+      avgSuccess: Math.round((val.totalPercentage / val.count) * 10) / 10,
+      count: val.count,
+    })).sort((a, b) => b.avgSuccess - a.avgSuccess);
+
+    // Yayın bazlı ortalama başarı yüzdesi kıyaslaması
+    const pubMap = new Map<string, { totalPercentage: number; count: number }>();
+    bransList.forEach((e) => {
+      const pub = e.publisher || e.resourceName || "Diğer / Belirtilmedi";
+      const percentage = calculateSuccessPercentage(e);
+      const curr = pubMap.get(pub) || { totalPercentage: 0, count: 0 };
+      pubMap.set(pub, {
+        totalPercentage: curr.totalPercentage + percentage,
+        count: curr.count + 1,
       });
     });
 
     const publisherComparison = Array.from(pubMap.entries()).map(([pub, val]) => ({
       publisher: pub,
-      avgNet: Math.round((val.totalNet / val.count) * 100) / 100,
-      maxNet: val.maxNet,
+      avgSuccess: Math.round((val.totalPercentage / val.count) * 10) / 10,
       count: val.count,
-    })).sort((a, b) => b.avgNet - a.avgNet);
+    })).sort((a, b) => b.avgSuccess - a.avgSuccess);
 
     const count = bransList.length;
-    const avgNet = count > 0 ? Math.round((bransList.reduce((s, e) => s + e.totalNet, 0) / count) * 100) / 100 : 0;
-    const maxNet = count > 0 ? Math.max(...bransList.map((e) => e.totalNet)) : 0;
+    const avgSuccess = count > 0 
+      ? Math.round((bransList.reduce((s, e) => s + calculateSuccessPercentage(e), 0) / count) * 10) / 10 
+      : 0;
 
     return {
       bransList,
-      trendData,
+      lessonComparisonData,
       publisherComparison,
       count,
-      avgNet,
-      maxNet,
+      avgSuccess,
     };
   }, [sortedExams, bransLesson]);
 
@@ -309,44 +342,71 @@ export function AnalysisTabContent({ exams, onNewExamClick }: AnalysisTabContent
       return true;
     });
 
-    // Konu bazlı gruplama
-    const topicMap = new Map<string, { topic: string; lesson: string; totalNet: number; count: number; maxNet: number }>();
-    konuList.forEach((e) => {
-      const topicName = e.topic || "Genel Konular";
-      const lessonName = e.lesson || "Genel";
-      const key = `${lessonName} - ${topicName}`;
+    // Her dersin altında konuları grupla
+    const lessonTopicMap = new Map<string, Map<string, { totalPercentage: number; count: number }>>();
+    
+    // Güçlü / zayıf bulabilmek için düz (flat) listeye de ihtiyacımız var
+    const flatTopicsMap = new Map<string, { topic: string; lesson: string; totalPercentage: number; count: number }>();
 
-      const curr = topicMap.get(key) || { topic: topicName, lesson: lessonName, totalNet: 0, count: 0, maxNet: 0 };
-      topicMap.set(key, {
+    konuList.forEach((e) => {
+      const lessonName = e.lesson || "Belirtilmemiş Ders";
+      const topicName = e.topic || "Genel Konular";
+      const percentage = calculateSuccessPercentage(e);
+
+      // Lesson bazlı map
+      if (!lessonTopicMap.has(lessonName)) {
+        lessonTopicMap.set(lessonName, new Map());
+      }
+      const tMap = lessonTopicMap.get(lessonName)!;
+      const currT = tMap.get(topicName) || { totalPercentage: 0, count: 0 };
+      tMap.set(topicName, {
+        totalPercentage: currT.totalPercentage + percentage,
+        count: currT.count + 1,
+      });
+
+      // Düz map (Tüm konular)
+      const flatKey = `${lessonName} - ${topicName}`;
+      const currF = flatTopicsMap.get(flatKey) || { topic: topicName, lesson: lessonName, totalPercentage: 0, count: 0 };
+      flatTopicsMap.set(flatKey, {
         topic: topicName,
         lesson: lessonName,
-        totalNet: curr.totalNet + e.totalNet,
-        count: curr.count + 1,
-        maxNet: Math.max(curr.maxNet, e.totalNet),
+        totalPercentage: currF.totalPercentage + percentage,
+        count: currF.count + 1,
       });
     });
 
-    const topicComparison = Array.from(topicMap.values()).map((val) => ({
+    const lessonsData = Array.from(lessonTopicMap.entries()).map(([lesson, tMap]) => {
+      const topics = Array.from(tMap.entries()).map(([topic, val]) => ({
+        topic,
+        avgSuccess: Math.round((val.totalPercentage / val.count) * 10) / 10,
+        count: val.count,
+      })).sort((a, b) => b.avgSuccess - a.avgSuccess); // Başarıya göre sırala
+      return { lesson, topics };
+    }).sort((a, b) => a.lesson.localeCompare(b.lesson)); // Dersleri alfabetik diz
+
+    const topicComparison = Array.from(flatTopicsMap.values()).map((val) => ({
       topic: val.topic,
       lesson: val.lesson,
-      avgNet: Math.round((val.totalNet / val.count) * 100) / 100,
-      maxNet: val.maxNet,
+      avgSuccess: Math.round((val.totalPercentage / val.count) * 10) / 10,
       count: val.count,
-    })).sort((a, b) => b.avgNet - a.avgNet);
+    })).sort((a, b) => b.avgSuccess - a.avgSuccess);
 
     const strongTopics = [...topicComparison].slice(0, 5);
     const weakTopics = [...topicComparison].reverse().slice(0, 5);
 
     const count = konuList.length;
-    const avgNet = count > 0 ? Math.round((konuList.reduce((s, e) => s + e.totalNet, 0) / count) * 100) / 100 : 0;
+    const avgSuccess = count > 0 
+      ? Math.round((konuList.reduce((s, e) => s + calculateSuccessPercentage(e), 0) / count) * 10) / 10 
+      : 0;
 
     return {
       konuList,
+      lessonsData,
       topicComparison,
       strongTopics,
       weakTopics,
       count,
-      avgNet,
+      avgSuccess,
     };
   }, [sortedExams, konuLesson]);
 
@@ -651,23 +711,23 @@ export function AnalysisTabContent({ exams, onNewExamClick }: AnalysisTabContent
             <CardHeader className="pb-2">
               <CardTitle className="text-base font-bold flex items-center gap-2">
                 <TrendingUp className="h-4 w-4 text-purple-500" />
-                {bransLesson === "all" ? "Tüm Derslerin" : bransLesson} Branş Denemeleri Net Gelişimi
+                Ders Ders Branş Deneme Net Grafikleri
               </CardTitle>
             </CardHeader>
             <CardContent className="h-72 pt-4">
-              {bransStats.trendData.length === 0 ? (
+              {bransStats.lessonComparisonData.length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-full text-muted-foreground text-xs">
                   Seçili filtre için branş denemesi bulunamadı.
                 </div>
               ) : (
                 <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={bransStats.trendData} margin={{ top: 10, right: 20, left: 0, bottom: 20 }}>
+                  <BarChart data={bransStats.lessonComparisonData} margin={{ top: 10, right: 20, left: 0, bottom: 20 }}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} opacity={0.3} />
-                    <XAxis dataKey="date" tick={{ fontSize: 11 }} />
-                    <YAxis tick={{ fontSize: 11 }} />
-                    <RechartsTooltip contentStyle={{ borderRadius: 8, fontSize: 12 }} />
-                    <Line type="monotone" dataKey="net" name="Net Score" stroke="#8b5cf6" strokeWidth={3} dot={{ r: 4 }} />
-                  </LineChart>
+                    <XAxis dataKey="lesson" tick={{ fontSize: 11 }} />
+                    <YAxis domain={[0, 100]} tick={{ fontSize: 11 }} tickFormatter={(val) => `${val}%`} />
+                    <RechartsTooltip contentStyle={{ borderRadius: 8, fontSize: 12 }} formatter={(val) => [`%${val}`, "Başarı Yüzdesi"]} />
+                    <Bar dataKey="avgSuccess" name="Başarı Yüzdesi (%)" fill="#8b5cf6" radius={[6, 6, 0, 0]} />
+                  </BarChart>
                 </ResponsiveContainer>
               )}
             </CardContent>
@@ -689,10 +749,10 @@ export function AnalysisTabContent({ exams, onNewExamClick }: AnalysisTabContent
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={bransStats.publisherComparison} layout="vertical" margin={{ top: 5, right: 30, left: 40, bottom: 5 }}>
                     <CartesianGrid strokeDasharray="3 3" horizontal={false} opacity={0.3} />
-                    <XAxis type="number" tick={{ fontSize: 11 }} />
+                    <XAxis type="number" domain={[0, 100]} tick={{ fontSize: 11 }} tickFormatter={(val) => `${val}%`} />
                     <YAxis dataKey="publisher" type="category" tick={{ fontSize: 11 }} width={110} />
-                    <RechartsTooltip contentStyle={{ borderRadius: 8, fontSize: 12 }} />
-                    <Bar dataKey="avgNet" name="Ortalama Net" fill="#8b5cf6" radius={[0, 6, 6, 0]} />
+                    <RechartsTooltip contentStyle={{ borderRadius: 8, fontSize: 12 }} formatter={(val) => [`%${val}`, "Başarı Yüzdesi"]} />
+                    <Bar dataKey="avgSuccess" name="Başarı Yüzdesi (%)" fill="#8b5cf6" radius={[0, 6, 6, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               </CardContent>
@@ -728,39 +788,40 @@ export function AnalysisTabContent({ exams, onNewExamClick }: AnalysisTabContent
             </Badge>
           </div>
 
-          {/* Her Dersin Kendine Özel Konu Karşılaştırma Grafiği */}
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-base font-bold flex items-center gap-2">
-                <FileText className="h-4 w-4 text-amber-500" />
-                {konuLesson === "all" ? "Tüm Derslerin" : konuLesson} Konu Karşılaştırmaları
-              </CardTitle>
-              <CardDescription className="text-xs">
-                Konu bazında ortalama net skorlarınızın grafiksel kıyaslaması
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="h-80 pt-4">
-              {konuStats.topicComparison.length === 0 ? (
-                <div className="flex flex-col items-center justify-center h-full text-muted-foreground text-xs">
-                  Henüz konu denemesi verisi girilmedi.
-                </div>
-              ) : (
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={konuStats.topicComparison} layout="vertical" margin={{ top: 5, right: 30, left: 60, bottom: 5 }}>
-                    <CartesianGrid strokeDasharray="3 3" horizontal={false} opacity={0.3} />
-                    <XAxis type="number" tick={{ fontSize: 11 }} />
-                    <YAxis dataKey="topic" type="category" tick={{ fontSize: 11 }} width={140} />
-                    <RechartsTooltip contentStyle={{ borderRadius: 8, fontSize: 12 }} />
-                    <Bar dataKey="avgNet" name="Ortalama Net" radius={[0, 6, 6, 0]}>
-                      {konuStats.topicComparison.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={entry.avgNet >= 10 ? "#10b981" : entry.avgNet >= 5 ? "#f59e0b" : "#ef4444"} />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              )}
-            </CardContent>
-          </Card>
+          {/* Her Dersin Kendine Özel Konu Karşılaştırma Grafikleri */}
+          {konuStats.lessonsData.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-48 border rounded-xl bg-muted/20 text-muted-foreground text-xs">
+              Henüz konu denemesi verisi girilmedi.
+            </div>
+          ) : (
+            <div className="grid gap-6 lg:grid-cols-2">
+              {konuStats.lessonsData.map((lessonData) => (
+                <Card key={lessonData.lesson} className="overflow-hidden flex flex-col">
+                  <CardHeader className="pb-2 bg-muted/30">
+                    <CardTitle className="text-sm font-bold flex items-center gap-2">
+                      <FileText className="h-4 w-4 text-amber-500" />
+                      {lessonData.lesson} Konu Karşılaştırmaları
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="h-64 pt-4 flex-1">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={lessonData.topics} layout="vertical" margin={{ top: 5, right: 30, left: 60, bottom: 5 }}>
+                        <CartesianGrid strokeDasharray="3 3" horizontal={false} opacity={0.3} />
+                        <XAxis type="number" domain={[0, 100]} tick={{ fontSize: 11 }} tickFormatter={(val) => `${val}%`} />
+                        <YAxis dataKey="topic" type="category" tick={{ fontSize: 11 }} width={120} />
+                        <RechartsTooltip contentStyle={{ borderRadius: 8, fontSize: 12 }} formatter={(val) => [`%${val}`, "Başarı Yüzdesi"]} />
+                        <Bar dataKey="avgSuccess" name="Başarı Yüzdesi (%)" radius={[0, 6, 6, 0]}>
+                          {lessonData.topics.map((entry, index) => (
+                            <Cell key={`cell-${index}`} fill={entry.avgSuccess >= 70 ? "#10b981" : entry.avgSuccess >= 40 ? "#f59e0b" : "#ef4444"} />
+                          ))}
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
 
           {/* Güçlü ve Zayıf Konular Kartları */}
           {konuStats.topicComparison.length > 0 && (
@@ -781,7 +842,7 @@ export function AnalysisTabContent({ exams, onNewExamClick }: AnalysisTabContent
                         <span className="text-[11px] text-muted-foreground">{t.lesson}</span>
                       </div>
                       <Badge variant="outline" className="font-extrabold text-emerald-600 bg-emerald-500/10 border-emerald-500/30">
-                        {t.avgNet} Net Ort.
+                        %{t.avgSuccess} Başarı
                       </Badge>
                     </div>
                   ))}
@@ -804,7 +865,7 @@ export function AnalysisTabContent({ exams, onNewExamClick }: AnalysisTabContent
                         <span className="text-[11px] text-muted-foreground">{t.lesson}</span>
                       </div>
                       <Badge variant="outline" className="font-extrabold text-rose-600 bg-rose-500/10 border-rose-500/30">
-                        {t.avgNet} Net Ort.
+                        %{t.avgSuccess} Başarı
                       </Badge>
                     </div>
                   ))}

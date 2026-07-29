@@ -43,6 +43,8 @@ if /I "%MODE%"=="DRYRUN" (
 echo ============================================
 echo.
 echo Silinecek tablolar:
+echo   - practice_exams
+echo   - resources
 echo   - drawings
 echo   - test_session_progress
 echo   - test_solutions
@@ -60,7 +62,7 @@ echo   - users
 echo   - uploads klasoru
 echo.
 
-set "SQL=TRUNCATE TABLE analytics_ai_insights, test_result_topic_stats, test_result_summaries, test_session_progress, test_solutions, test_session_questions, test_sessions, drawings, question_review_stats, note_review_stats, notes, questions, auth_sessions, users RESTART IDENTITY CASCADE;"
+set "SQL=TRUNCATE TABLE analytics_ai_insights, practice_exams, resources, test_result_topic_stats, test_result_summaries, test_session_progress, test_solutions, test_session_questions, test_sessions, drawings, question_review_stats, note_review_stats, notes, questions, auth_sessions, users RESTART IDENTITY CASCADE;"
 set "SQL_DRYRUN=BEGIN; %SQL% ROLLBACK;"
 
 if /I not "%MODE%"=="DRYRUN" (

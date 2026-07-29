@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { customFetch, useListResources } from "@workspace/api-client-react";
 import { format } from "date-fns";
@@ -15,6 +15,7 @@ import {
   ArrowRight,
   ArrowLeft,
   Library,
+  Search,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -22,7 +23,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { PracticeExamFormDialog } from "@/components/practice-exams/PracticeExamFormDialog";
-import { AnalysisTabContent } from "@/components/practice-exams/AnalysisTabContent";
+import { AnalysisTabContent, calculateSuccessPercentage } from "@/components/practice-exams/AnalysisTabContent";
+import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
 // ─── Tip tanımları ────────────────────────────────────────────────────────────
@@ -493,13 +495,69 @@ function ResourcePackDetailPage({
   );
 }
 
-// ─── Ana Sayfa ────────────────────────────────────────────────────────────────
+// ─── Sayfalama Kontrolleri ────────────────────────────────────────────────────
+function PaginationControls({
+  currentPage,
+  totalItems,
+  itemsPerPage,
+  onPageChange,
+}: {
+  currentPage: number;
+  totalItems: number;
+  itemsPerPage: number;
+  onPageChange: (page: number) => void;
+}) {
+  const totalPages = Math.ceil(totalItems / itemsPerPage);
+  if (totalPages <= 1) return null;
 
+  return (
+    <div className="flex flex-col sm:flex-row items-center justify-between mt-6 pt-4 border-t border-border/50 gap-4">
+      <p className="text-xs text-muted-foreground">
+        Toplam <span className="font-semibold text-foreground">{totalItems}</span> kayıttan{" "}
+        <span className="font-semibold text-foreground">{(currentPage - 1) * itemsPerPage + 1}</span> -{" "}
+        <span className="font-semibold text-foreground">{Math.min(currentPage * itemsPerPage, totalItems)}</span> arası gösteriliyor
+      </p>
+      <div className="flex items-center gap-2">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => onPageChange(currentPage - 1)}
+          disabled={currentPage === 1}
+        >
+          <ArrowLeft className="h-3.5 w-3.5 mr-1.5" />
+          Önceki
+        </Button>
+        <span className="text-xs font-semibold px-2">
+          Sayfa {currentPage} / {totalPages}
+        </span>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => onPageChange(currentPage + 1)}
+          disabled={currentPage >= totalPages}
+        >
+          Sonraki
+          <ArrowRight className="h-3.5 w-3.5 ml-1.5" />
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+// ─── ANA SAYFA BİLEŞENİ ───────────────────────────────────────────────────────
 export default function PracticeExams() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [examToEdit, setExamToEdit] = useState<PracticeExam | null>(null);
   const [activeTab, setActiveTab] = useState<string>("genel-denemeler");
   const [viewMode, setViewMode] = useState<"resource" | "list">("resource");
+
+  const [searchQuery, setSearchQuery] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 20;
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [activeTab, searchQuery, viewMode]);
 
   const [selectedResource, setSelectedResource] = useState<any | null>(null);
 
@@ -608,16 +666,33 @@ export default function PracticeExams() {
     return new Date(b.examDate).getTime() - new Date(a.examDate).getTime();
   });
 
-  const pendingExams = sortedExams.filter((e) => Boolean((e.details as any)?._pending));
-  const generalExams = sortedExams.filter((e) => e.examType === "Genel");
+  const searchedExams = sortedExams.filter((e) => {
+    if (!searchQuery) return true;
+    const q = searchQuery.toLowerCase();
+    return (
+      e.title.toLowerCase().includes(q) ||
+      e.publisher?.toLowerCase().includes(q) ||
+      e.lesson?.toLowerCase().includes(q) ||
+      e.topic?.toLowerCase().includes(q) ||
+      e.resourceName?.toLowerCase().includes(q)
+    );
+  });
+
+  const pendingExams = searchedExams.filter((e) => Boolean((e.details as any)?._pending));
+  const generalExams = searchedExams.filter((e) => e.examType === "Genel");
   const tytExams = generalExams.filter((e) => e.category === "TYT");
   const aytExams = generalExams.filter((e) => e.category === "AYT");
-  const bransExams = sortedExams.filter((e) => e.examType === "Branş");
-  const konuExams = sortedExams.filter((e) => e.examType === "Konu");
+  const bransExams = searchedExams.filter((e) => e.examType === "Branş");
+  const konuExams = searchedExams.filter((e) => e.examType === "Konu");
 
   const generalResourceGroups = groupExamsByResource(generalExams);
   const bransResourceGroups = groupExamsByResource(bransExams);
   const konuResourceGroups = groupExamsByResource(konuExams);
+
+  const getPaginatedData = <T,>(arr: T[]) => {
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    return arr.slice(startIndex, startIndex + itemsPerPage);
+  };
 
   return (
     <div className="container mx-auto p-4 sm:p-6 space-y-6">
@@ -668,6 +743,17 @@ export default function PracticeExams() {
                 Yeni Deneme Neti Ekle
               </Button>
             </div>
+          </div>
+
+          {/* Arama Çubuğu */}
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Deneme adı, yayın evi, ders veya konu ara..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-9 bg-background/60 shadow-sm border-border/50 transition-all focus:bg-background"
+            />
           </div>
 
           {/* Net Sonucu Bekleyen Denemeler Uyarısı */}
@@ -777,28 +863,44 @@ export default function PracticeExams() {
                 </div>
               ) : viewMode === "resource" ? (
                 /* Kaynak Odaklı Kütüphane Görünümü */
-                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                  {generalResourceGroups.map((group, idx) => (
-                    <ResourcePackCard
-                      key={idx}
-                      resource={group.resource}
-                      exams={group.exams}
-                      onOpenDrillDown={handleOpenResourcePage}
-                    />
-                  ))}
-                </div>
+                <>
+                  <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                    {getPaginatedData(generalResourceGroups).map((group, idx) => (
+                      <ResourcePackCard
+                        key={idx}
+                        resource={group.resource}
+                        exams={group.exams}
+                        onOpenDrillDown={handleOpenResourcePage}
+                      />
+                    ))}
+                  </div>
+                  <PaginationControls
+                    currentPage={currentPage}
+                    totalItems={generalResourceGroups.length}
+                    itemsPerPage={itemsPerPage}
+                    onPageChange={setCurrentPage}
+                  />
+                </>
               ) : (
                 /* Düz Liste Görünümü */
-                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                  {generalExams.map((exam) => (
-                    <ExamCard
-                      key={exam.id}
-                      exam={exam}
-                      onEdit={openEditDialog}
-                      onDelete={handleDelete}
-                    />
-                  ))}
-                </div>
+                <>
+                  <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                    {getPaginatedData(generalExams).map((exam) => (
+                      <ExamCard
+                        key={exam.id}
+                        exam={exam}
+                        onEdit={openEditDialog}
+                        onDelete={handleDelete}
+                      />
+                    ))}
+                  </div>
+                  <PaginationControls
+                    currentPage={currentPage}
+                    totalItems={generalExams.length}
+                    itemsPerPage={itemsPerPage}
+                    onPageChange={setCurrentPage}
+                  />
+                </>
               )}
             </TabsContent>
 
@@ -818,10 +920,10 @@ export default function PracticeExams() {
                   </p>
                 </Card>
                 <Card className="p-3.5">
-                  <p className="text-xs text-muted-foreground font-medium">Genel Ort. Branş Neti</p>
+                  <p className="text-xs text-muted-foreground font-medium">Genel Başarı Yüzdesi</p>
                   <p className="text-2xl font-extrabold text-blue-600 dark:text-blue-400 tabular-nums">
                     {bransExams.length > 0
-                      ? (bransExams.reduce((a, b) => a + b.totalNet, 0) / bransExams.length).toFixed(1)
+                      ? "%" + (bransExams.reduce((a, b) => a + calculateSuccessPercentage(b), 0) / bransExams.length).toFixed(1)
                       : "-"}
                   </p>
                 </Card>
@@ -846,27 +948,43 @@ export default function PracticeExams() {
                   </Button>
                 </div>
               ) : viewMode === "resource" ? (
-                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                  {bransResourceGroups.map((group, idx) => (
-                    <ResourcePackCard
-                      key={idx}
-                      resource={group.resource}
-                      exams={group.exams}
-                      onOpenDrillDown={handleOpenResourcePage}
-                    />
-                  ))}
-                </div>
+                <>
+                  <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                    {getPaginatedData(bransResourceGroups).map((group, idx) => (
+                      <ResourcePackCard
+                        key={idx}
+                        resource={group.resource}
+                        exams={group.exams}
+                        onOpenDrillDown={handleOpenResourcePage}
+                      />
+                    ))}
+                  </div>
+                  <PaginationControls
+                    currentPage={currentPage}
+                    totalItems={bransResourceGroups.length}
+                    itemsPerPage={itemsPerPage}
+                    onPageChange={setCurrentPage}
+                  />
+                </>
               ) : (
-                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                  {bransExams.map((exam) => (
-                    <ExamCard
-                      key={exam.id}
-                      exam={exam}
-                      onEdit={openEditDialog}
-                      onDelete={handleDelete}
-                    />
-                  ))}
-                </div>
+                <>
+                  <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                    {getPaginatedData(bransExams).map((exam) => (
+                      <ExamCard
+                        key={exam.id}
+                        exam={exam}
+                        onEdit={openEditDialog}
+                        onDelete={handleDelete}
+                      />
+                    ))}
+                  </div>
+                  <PaginationControls
+                    currentPage={currentPage}
+                    totalItems={bransExams.length}
+                    itemsPerPage={itemsPerPage}
+                    onPageChange={setCurrentPage}
+                  />
+                </>
               )}
             </TabsContent>
 
@@ -886,10 +1004,10 @@ export default function PracticeExams() {
                   </p>
                 </Card>
                 <Card className="p-3.5">
-                  <p className="text-xs text-muted-foreground font-medium">Ortalama Konu Neti</p>
+                  <p className="text-xs text-muted-foreground font-medium">Konu Başarı Oranı (%)</p>
                   <p className="text-2xl font-extrabold text-purple-600 dark:text-purple-400 tabular-nums">
                     {konuExams.length > 0
-                      ? (konuExams.reduce((a, b) => a + b.totalNet, 0) / konuExams.length).toFixed(1)
+                      ? "%" + (konuExams.reduce((a, b) => a + calculateSuccessPercentage(b), 0) / konuExams.length).toFixed(1)
                       : "-"}
                   </p>
                 </Card>
@@ -914,27 +1032,43 @@ export default function PracticeExams() {
                   </Button>
                 </div>
               ) : viewMode === "resource" ? (
-                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                  {konuResourceGroups.map((group, idx) => (
-                    <ResourcePackCard
-                      key={idx}
-                      resource={group.resource}
-                      exams={group.exams}
-                      onOpenDrillDown={handleOpenResourcePage}
-                    />
-                  ))}
-                </div>
+                <>
+                  <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                    {getPaginatedData(konuResourceGroups).map((group, idx) => (
+                      <ResourcePackCard
+                        key={idx}
+                        resource={group.resource}
+                        exams={group.exams}
+                        onOpenDrillDown={handleOpenResourcePage}
+                      />
+                    ))}
+                  </div>
+                  <PaginationControls
+                    currentPage={currentPage}
+                    totalItems={konuResourceGroups.length}
+                    itemsPerPage={itemsPerPage}
+                    onPageChange={setCurrentPage}
+                  />
+                </>
               ) : (
-                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                  {konuExams.map((exam) => (
-                    <ExamCard
-                      key={exam.id}
-                      exam={exam}
-                      onEdit={openEditDialog}
-                      onDelete={handleDelete}
-                    />
-                  ))}
-                </div>
+                <>
+                  <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                    {getPaginatedData(konuExams).map((exam) => (
+                      <ExamCard
+                        key={exam.id}
+                        exam={exam}
+                        onEdit={openEditDialog}
+                        onDelete={handleDelete}
+                      />
+                    ))}
+                  </div>
+                  <PaginationControls
+                    currentPage={currentPage}
+                    totalItems={konuExams.length}
+                    itemsPerPage={itemsPerPage}
+                    onPageChange={setCurrentPage}
+                  />
+                </>
               )}
             </TabsContent>
 

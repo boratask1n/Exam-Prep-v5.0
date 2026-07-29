@@ -1,7 +1,7 @@
 @echo off
 setlocal enabledelayedexpansion
 cd /d "%~dp0..\.."
-
+set "PATH=%~dp0..\bin;C:\Program Files\nodejs;%APPDATA%\npm;%LOCALAPPDATA%\pnpm;%PATH%"
 echo.
 echo ============================================
 echo  Exam-Prep Masaustu Uygulama Build

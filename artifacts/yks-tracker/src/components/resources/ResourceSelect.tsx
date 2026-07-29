@@ -129,9 +129,21 @@ export function ResourceSelect({
                     {effectiveAllowedTypes ? effectiveAllowedTypes.join(", ") : "Kaynaklarınız"}
                   </SelectLabel>
                   {resources.map((r) => (
-                    /* Sadece düz metin — Radix bu metni trigger'da gösterir, taşma olmaz */
                     <SelectItem key={r.id} value={String(r.id)}>
-                      {r.name}{r.publisher ? ` (${r.publisher})` : ""}
+                      <div className="flex items-center gap-2.5 max-w-[280px] sm:max-w-xs overflow-hidden">
+                        {(r as any).coverImageUrl ? (
+                          <img 
+                            src={(r as any).coverImageUrl} 
+                            className="w-6 h-8 object-cover rounded shadow-sm shrink-0 border"
+                            alt="cover" 
+                          />
+                        ) : (
+                          <div className="w-6 h-8 bg-muted border rounded flex flex-col items-center justify-center shrink-0">
+                            <span className="text-[7px] font-black uppercase text-muted-foreground tracking-tighter">YKS</span>
+                          </div>
+                        )}
+                        <span className="truncate">{r.name}{r.publisher ? ` (${r.publisher})` : ""}</span>
+                      </div>
                     </SelectItem>
                   ))}
                 </SelectGroup>
