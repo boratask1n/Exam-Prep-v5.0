@@ -89,6 +89,26 @@ const getCurrentDayName = (): DayName => {
   return days[new Date().getDay()];
 };
 
+const getWeekDates = () => {
+  const today = new Date();
+  const currentDay = today.getDay();
+  // We want Monday (1) to be the start of the week.
+  // In JS, Sunday is 0. So if today is Sunday, we go back 6 days to get Monday.
+  const diffToMonday = currentDay === 0 ? -6 : 1 - currentDay;
+  
+  const monday = new Date(today);
+  monday.setDate(today.getDate() + diffToMonday);
+
+  const dates: Record<DayName, string> = {} as any;
+  DAYS_OF_WEEK.forEach((day, index) => {
+    const d = new Date(monday);
+    d.setDate(monday.getDate() + index);
+    dates[day] = d.toLocaleDateString("tr-TR", { day: "numeric", month: "short" });
+  });
+
+  return dates;
+};
+
 export default function StudySchedule() {
   const queryClient = useQueryClient();
 
@@ -106,6 +126,9 @@ export default function StudySchedule() {
   const [copyDialogOpen, setCopyDialogOpen] = useState(false);
 
   const allLessons = getAllLessons();
+  
+  const weekDates = useMemo(() => getWeekDates(), []);
+  const todayName = getCurrentDayName();
 
   // Load slots using React Query (cached across page navigation)
   const { data: slots = [], isLoading } = useQuery<StudySlot[]>({
@@ -419,8 +442,10 @@ export default function StudySchedule() {
                   queryClient.setQueryData(["/api/schedule-slots"], updatedSlots);
                   // Trigger invalidation of analysis stats as well
                   queryClient.invalidateQueries({ queryKey: ["practice-exams"] });
+                  alert("Hafta başarıyla bitirildi! Çözdüğünüz soru sayıları analizlerinize yansıdı.");
                 } catch (error) {
                   console.error("Haftayı bitirme hatası:", error);
+                  alert("Haftayı bitirirken bir hata oluştu.");
                 }
               }
             }}
@@ -491,12 +516,15 @@ export default function StudySchedule() {
             return (
               <Card
                 key={day}
-                className="border-border/60 flex flex-col h-full bg-card/70 hover:border-primary/40 transition-colors print:border-slate-400 print:bg-white print:break-inside-avoid print:shadow-none"
+                className={cn(
+                  "border-border/60 flex flex-col h-full bg-card/70 hover:border-primary/40 transition-colors print:border-slate-400 print:bg-white print:break-inside-avoid print:shadow-none",
+                  day === todayName && "border-primary/50 bg-primary/[0.03]"
+                )}
               >
                 <CardHeader className="p-2.5 border-b border-border/50 bg-muted/20 flex flex-row items-center justify-between space-y-0 print:p-2 print:border-slate-300">
                   <div>
-                    <CardTitle className="text-xs font-extrabold text-foreground print:text-slate-900">
-                      {day}
+                    <CardTitle className="text-xs font-extrabold text-foreground print:text-slate-900 flex items-center gap-1">
+                      {day} <span className="text-[10px] text-muted-foreground font-normal">({weekDates[day]})</span>
                     </CardTitle>
                     <span className="text-[10px] text-muted-foreground print:text-slate-600">
                       {daySlots.length} Etüt {completedCount > 0 && `(✓${completedCount})`}

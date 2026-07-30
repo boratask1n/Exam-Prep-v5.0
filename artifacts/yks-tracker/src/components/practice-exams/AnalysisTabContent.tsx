@@ -26,22 +26,22 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Progress } from "@/components/ui/progress";
 import { cn } from "@/lib/utils";
-import {
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip as RechartsTooltip,
-  ResponsiveContainer,
-  BarChart,
-  Bar,
-  Legend,
-  AreaChart,
-  Area,
-  ReferenceLine,
-  Cell,
-} from "recharts";
+import { Suspense, lazy } from "react";
+
+const LineChart = lazy(() => import("recharts").then((module) => ({ default: module.LineChart })));
+const Line = lazy(() => import("recharts").then((module) => ({ default: module.Line })));
+const XAxis = lazy(() => import("recharts").then((module) => ({ default: module.XAxis })));
+const YAxis = lazy(() => import("recharts").then((module) => ({ default: module.YAxis })));
+const CartesianGrid = lazy(() => import("recharts").then((module) => ({ default: module.CartesianGrid })));
+const RechartsTooltip = lazy(() => import("recharts").then((module) => ({ default: module.Tooltip })));
+const ResponsiveContainer = lazy(() => import("recharts").then((module) => ({ default: module.ResponsiveContainer })));
+const BarChart = lazy(() => import("recharts").then((module) => ({ default: module.BarChart })));
+const Bar = lazy(() => import("recharts").then((module) => ({ default: module.Bar })));
+const Legend = lazy(() => import("recharts").then((module) => ({ default: module.Legend })));
+const AreaChart = lazy(() => import("recharts").then((module) => ({ default: module.AreaChart })));
+const Area = lazy(() => import("recharts").then((module) => ({ default: module.Area })));
+const ReferenceLine = lazy(() => import("recharts").then((module) => ({ default: module.ReferenceLine })));
+const Cell = lazy(() => import("recharts").then((module) => ({ default: module.Cell })));
 
 interface SubjectResult {
   correct: number;
@@ -101,13 +101,21 @@ type TimeRangeOption = "all" | "7d" | "30d" | "90d";
 
 export function AnalysisTabContent({ exams, onNewExamClick }: AnalysisTabContentProps) {
   // Ana Sekme (4 Kulvar)
-  const [activeTab, setActiveTab] = useState<MainTab>("overview");
+  const [activeTab, setActiveTab] = useState<MainTab>("genel");
 
   // Filtre durumları
   const [timeRangeFilter, setTimeRangeFilter] = useState<TimeRangeOption>("all");
   const [genelCategory, setGenelCategory] = useState<"TYT" | "AYT">("TYT");
   const [bransLesson, setBransLesson] = useState<string>("all");
   const [konuLesson, setKonuLesson] = useState<string>("all");
+
+  const handleTabChange = (newTab: MainTab) => {
+    setActiveTab(newTab);
+    setTimeRangeFilter("all");
+    setGenelCategory("TYT");
+    setBransLesson("all");
+    setKonuLesson("all");
+  };
 
   // Dinamik Ders Listesi
   const availableLessons = useMemo(() => {
@@ -143,74 +151,7 @@ export function AnalysisTabContent({ exams, onNewExamClick }: AnalysisTabContent
     );
   }, [timeFilteredExams]);
 
-  // ─── 1. ANA PERFORMANS (OVERVIEW) VERİLERİ ──────────────────────────────────
-  const overviewStats = useMemo(() => {
-    const totalCount = timeFilteredExams.length;
-    const genelExams = timeFilteredExams.filter((e) => e.examType === "Genel");
-    const bransExams = timeFilteredExams.filter((e) => e.examType === "Branş");
-    const konuExams = timeFilteredExams.filter((e) => e.examType === "Konu");
-
-    const tytGenel = genelExams.filter((e) => e.category === "TYT");
-    const aytGenel = genelExams.filter((e) => e.category === "AYT");
-
-    const avgNet = (arr: PracticeExam[]) =>
-      arr.length > 0 ? Math.round((arr.reduce((s, e) => s + e.totalNet, 0) / arr.length) * 100) / 100 : 0;
-
-    const maxNet = (arr: PracticeExam[]) =>
-      arr.length > 0 ? Math.max(...arr.map((e) => e.totalNet)) : 0;
-
-    // Toplam Soru Hacmi Hesabı
-    let totalQuestions = 0;
-    timeFilteredExams.forEach((e) => {
-      if (e.examType === "Genel") {
-        totalQuestions += e.category === "AYT" ? 80 : 120;
-      } else if (e.details) {
-        Object.entries(e.details).forEach(([k, v]) => {
-          if (!k.startsWith("_")) totalQuestions += v.questionCount || v.correct + v.wrong;
-        });
-      }
-    });
-
-    // Tür bazlı kıyaslama grafiği verisi
-    const typeDistributionData = [
-      {
-        type: "Genel Denemeler",
-        count: genelExams.length,
-        avgNet: avgNet(genelExams),
-        maxNet: maxNet(genelExams),
-        color: "#3b82f6",
-      },
-      {
-        type: "Branş Denemeleri",
-        count: bransExams.length,
-        avgNet: avgNet(bransExams),
-        maxNet: maxNet(bransExams),
-        color: "#8b5cf6",
-      },
-      {
-        type: "Konu Denemeleri",
-        count: konuExams.length,
-        avgNet: avgNet(konuExams),
-        maxNet: maxNet(konuExams),
-        color: "#f59e0b",
-      },
-    ];
-
-    return {
-      totalCount,
-      genelCount: genelExams.length,
-      bransCount: bransExams.length,
-      konuCount: konuExams.length,
-      totalQuestions,
-      tytCount: tytGenel.length,
-      tytAvg: avgNet(tytGenel),
-      tytMax: maxNet(tytGenel),
-      aytCount: aytGenel.length,
-      aytAvg: avgNet(aytGenel),
-      aytMax: maxNet(aytGenel),
-      typeDistributionData,
-    };
-  }, [timeFilteredExams]);
+  // removed overviewStats
 
   // ─── 2. GENEL DENEMELER VERİLERİ ───────────────────────────────────────────
   const genelStats = useMemo(() => {
@@ -440,22 +381,11 @@ export function AnalysisTabContent({ exams, onNewExamClick }: AnalysisTabContent
       </div>
 
       {/* ── 4 ANA KULVAR SEKMELERİ NAVİGASYONU ── */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-        <Button
-          variant={activeTab === "overview" ? "default" : "outline"}
-          onClick={() => setActiveTab("overview")}
-          className="h-11 flex flex-col items-center justify-center gap-0.5 rounded-xl text-xs font-bold"
-        >
-          <span className="flex items-center gap-1.5">
-            <PieChartIcon className="h-4 w-4 text-blue-500" />
-            Ana Performans
-          </span>
-          <span className="text-[10px] font-normal opacity-80">{overviewStats.totalCount} Deneme Toplam</span>
-        </Button>
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
 
         <Button
           variant={activeTab === "genel" ? "default" : "outline"}
-          onClick={() => setActiveTab("genel")}
+          onClick={() => handleTabChange("genel")}
           className="h-11 flex flex-col items-center justify-center gap-0.5 rounded-xl text-xs font-bold"
         >
           <span className="flex items-center gap-1.5">
@@ -467,7 +397,7 @@ export function AnalysisTabContent({ exams, onNewExamClick }: AnalysisTabContent
 
         <Button
           variant={activeTab === "brans" ? "default" : "outline"}
-          onClick={() => setActiveTab("brans")}
+          onClick={() => handleTabChange("brans")}
           className="h-11 flex flex-col items-center justify-center gap-0.5 rounded-xl text-xs font-bold"
         >
           <span className="flex items-center gap-1.5">
@@ -479,7 +409,7 @@ export function AnalysisTabContent({ exams, onNewExamClick }: AnalysisTabContent
 
         <Button
           variant={activeTab === "konu" ? "default" : "outline"}
-          onClick={() => setActiveTab("konu")}
+          onClick={() => handleTabChange("konu")}
           className="h-11 flex flex-col items-center justify-center gap-0.5 rounded-xl text-xs font-bold"
         >
           <span className="flex items-center gap-1.5">
@@ -490,85 +420,7 @@ export function AnalysisTabContent({ exams, onNewExamClick }: AnalysisTabContent
         </Button>
       </div>
 
-      {/* ── KULVAR 1: ANA PERFORMANS SEKME İÇERİĞİ ── */}
-      {activeTab === "overview" && (
-        <div className="space-y-6">
-          {/* KPI Kartları */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <Card className="p-4 border-blue-500/20 bg-blue-500/5">
-              <p className="text-xs text-muted-foreground font-semibold flex items-center gap-1">
-                <BookOpen className="h-3.5 w-3.5 text-blue-500" />
-                Toplam Çözülen Deneme
-              </p>
-              <p className="text-2xl sm:text-3xl font-black text-blue-600 dark:text-blue-400 mt-1 tabular-nums">
-                {overviewStats.totalCount}
-              </p>
-              <p className="text-[11px] text-muted-foreground mt-1">
-                {overviewStats.genelCount} Genel · {overviewStats.bransCount} Branş · {overviewStats.konuCount} Konu
-              </p>
-            </Card>
-
-            <Card className="p-4 border-emerald-500/20 bg-emerald-500/5">
-              <p className="text-xs text-muted-foreground font-semibold flex items-center gap-1">
-                <Zap className="h-3.5 w-3.5 text-emerald-500" />
-                Çözülen Toplam Soru
-              </p>
-              <p className="text-2xl sm:text-3xl font-black text-emerald-600 dark:text-emerald-400 mt-1 tabular-nums">
-                {overviewStats.totalQuestions}
-              </p>
-              <p className="text-[11px] text-muted-foreground mt-1">Sınav Pratiği Hacmi</p>
-            </Card>
-
-            <Card className="p-4 border-purple-500/20 bg-purple-500/5">
-              <p className="text-xs text-muted-foreground font-semibold flex items-center gap-1">
-                <Award className="h-3.5 w-3.5 text-purple-500" />
-                TYT Genel Ort. Net
-              </p>
-              <p className="text-2xl sm:text-3xl font-black text-purple-600 dark:text-purple-400 mt-1 tabular-nums">
-                {overviewStats.tytAvg} <span className="text-xs text-muted-foreground font-normal">/ 120</span>
-              </p>
-              <p className="text-[11px] text-muted-foreground mt-1">En Yüksek: {overviewStats.tytMax} Net</p>
-            </Card>
-
-            <Card className="p-4 border-amber-500/20 bg-amber-500/5">
-              <p className="text-xs text-muted-foreground font-semibold flex items-center gap-1">
-                <Flame className="h-3.5 w-3.5 text-amber-500" />
-                AYT Genel Ort. Net
-              </p>
-              <p className="text-2xl sm:text-3xl font-black text-amber-600 dark:text-amber-400 mt-1 tabular-nums">
-                {overviewStats.aytAvg} <span className="text-xs text-muted-foreground font-normal">/ 80</span>
-              </p>
-              <p className="text-[11px] text-muted-foreground mt-1">En Yüksek: {overviewStats.aytMax} Net</p>
-            </Card>
-          </div>
-
-          {/* Tür Bazlı Çözülen Deneme Dağılım Grafiği */}
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-base font-bold flex items-center gap-2">
-                <BarChart2 className="h-4 w-4 text-primary" />
-                Deneme Türlerinin Karşılaştırması
-              </CardTitle>
-              <CardDescription className="text-xs">
-                Genel, Branş ve Konu denemelerinin çözülme adedi ve ortalama net performansı
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="h-72 pt-4">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={overviewStats.typeDistributionData} margin={{ top: 10, right: 20, left: 0, bottom: 20 }}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} opacity={0.3} />
-                  <XAxis dataKey="type" tick={{ fontSize: 12 }} />
-                  <YAxis yAxisId="left" orientation="left" tick={{ fontSize: 11 }} />
-                  <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 11 }} />
-                  <RechartsTooltip contentStyle={{ borderRadius: 8, fontSize: 12 }} />
-                  <Bar yAxisId="left" dataKey="count" name="Çözülen Adet" fill="#3b82f6" radius={[6, 6, 0, 0]} />
-                  <Bar yAxisId="right" dataKey="avgNet" name="Ortalama Net" fill="#10b981" radius={[6, 6, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </CardContent>
-          </Card>
-        </div>
-      )}
+      {/* ── KULVAR 1: ANA PERFORMANS KALDIRILDI ── */}
 
       {/* ── KULVAR 2: GENEL DENEMELER SEKME İÇERİĞİ ── */}
       {activeTab === "genel" && (

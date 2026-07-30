@@ -1,5 +1,5 @@
 import { Router, Request, Response, RequestHandler } from "express";
-import { db, studySlotsTable, insertStudySlotSchema, studyScheduleCompletionsTable } from "@workspace/db";
+import { db, studySlotsTable, insertStudySlotSchema, studyScheduleCompletionsTable, questionActivityLogsTable } from "@workspace/db";
 import { eq, and } from "drizzle-orm";
 import { getAuthUserId } from "../middlewares/auth";
 
@@ -171,12 +171,31 @@ router.post("/finish-week", (async (req: Request, res: Response) => {
       // Find all completed slots
       const completedSlots = await tx.select().from(studySlotsTable).where(and(eq(studySlotsTable.userId, userId), eq(studySlotsTable.completed, true)));
       
-      // Archive their completions so they become detached from the active schedule slot
+      const activityLogs: any[] = [];
+      
       for (const slot of completedSlots) {
-        await tx.update(studyScheduleCompletionsTable)
-          .set({ slotKey: `${slot.slotKey}_archived_${Date.now()}` })
-          .where(and(eq(studyScheduleCompletionsTable.userId, userId), eq(studyScheduleCompletionsTable.slotKey, slot.slotKey)));
+        let qCount = slot.targetQuestions || 0;
+        if (qCount === 0 && slot.activityType === "Genel Deneme") {
+          qCount = slot.category === "AYT" ? 160 : 120;
+        }
+
+        if (qCount > 0) {
+          activityLogs.push({
+            userId,
+            lesson: slot.lesson || "Bilinmeyen Ders",
+            questionCount: qCount,
+            activityType: "Schedule",
+            date: new Date(),
+          });
+        }
       }
+
+      if (activityLogs.length > 0) {
+        await tx.insert(questionActivityLogsTable).values(activityLogs);
+      }
+
+      // Delete the completions for the active schedule slot so we don't pollute completions
+      await tx.delete(studyScheduleCompletionsTable).where(eq(studyScheduleCompletionsTable.userId, userId));
 
       // Reset completed to false in the schedule
       await tx.update(studySlotsTable).set({ completed: false }).where(eq(studySlotsTable.userId, userId));

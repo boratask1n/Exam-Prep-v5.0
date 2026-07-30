@@ -22,8 +22,16 @@ import {
 import { cn } from "@/lib/utils";
 import { clearTestLocalStorage } from "@/lib/testSessionStorage";
 import { DatePicker } from "@/components/ui/date-picker";
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer } from "recharts";
+import { Suspense, lazy } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+
+const BarChart = lazy(() => import("recharts").then((module) => ({ default: module.BarChart })));
+const Bar = lazy(() => import("recharts").then((module) => ({ default: module.Bar })));
+const XAxis = lazy(() => import("recharts").then((module) => ({ default: module.XAxis })));
+const YAxis = lazy(() => import("recharts").then((module) => ({ default: module.YAxis })));
+const CartesianGrid = lazy(() => import("recharts").then((module) => ({ default: module.CartesianGrid })));
+const RechartsTooltip = lazy(() => import("recharts").then((module) => ({ default: module.Tooltip })));
+const ResponsiveContainer = lazy(() => import("recharts").then((module) => ({ default: module.ResponsiveContainer })));
 import { AnalysisTabContent, PracticeExam } from "@/components/practice-exams/AnalysisTabContent";
 
 type OverviewResponse = {
@@ -600,17 +608,19 @@ export default function Analysis() {
               <article className="glass-panel rounded-[1.5rem] border-border/55 p-5 sm:p-6 flex flex-col">
                 <h2 className="text-lg font-semibold text-foreground mb-4">Ana Performans (Denemeler)</h2>
                 <div className="flex-1 min-h-[250px]">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={overviewStats} margin={{ top: 10, right: 20, left: -20, bottom: 20 }}>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} opacity={0.3} />
-                      <XAxis dataKey="type" tick={{ fontSize: 11 }} />
-                      <YAxis yAxisId="left" orientation="left" tick={{ fontSize: 11 }} />
-                      <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 11 }} />
-                      <RechartsTooltip contentStyle={{ borderRadius: 8, fontSize: 12, backgroundColor: 'hsl(var(--card))', color: 'hsl(var(--foreground))' }} />
-                      <Bar yAxisId="left" dataKey="count" name="Çözülen Adet" fill="#3b82f6" radius={[4, 4, 0, 0]} />
-                      <Bar yAxisId="right" dataKey="avgNet" name="Ortalama Net" fill="#10b981" radius={[4, 4, 0, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
+                  <Suspense fallback={<div className="flex h-full w-full items-center justify-center text-sm text-muted-foreground">Grafik Yükleniyor...</div>}>
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={overviewStats} margin={{ top: 10, right: 20, left: -20, bottom: 20 }}>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} opacity={0.3} />
+                        <XAxis dataKey="type" tick={{ fontSize: 11 }} />
+                        <YAxis yAxisId="left" orientation="left" tick={{ fontSize: 11 }} />
+                        <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 11 }} />
+                        <RechartsTooltip contentStyle={{ borderRadius: 8, fontSize: 12, backgroundColor: 'hsl(var(--card))', color: 'hsl(var(--foreground))' }} />
+                        <Bar yAxisId="left" dataKey="count" name="Çözülen Adet" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+                        <Bar yAxisId="right" dataKey="avgNet" name="Ortalama Net" fill="#10b981" radius={[4, 4, 0, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </Suspense>
                 </div>
               </article>
 
@@ -623,15 +633,17 @@ export default function Analysis() {
                       Yeterli veri yok.
                     </div>
                   ) : (
-                    <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={subjectChartData} margin={{ top: 10, right: 20, left: -20, bottom: 20 }}>
-                        <CartesianGrid strokeDasharray="3 3" vertical={false} opacity={0.3} />
-                        <XAxis dataKey="lesson" tick={{ fontSize: 11 }} />
-                        <YAxis tick={{ fontSize: 11 }} />
-                        <RechartsTooltip contentStyle={{ borderRadius: 8, fontSize: 12, backgroundColor: 'hsl(var(--card))', color: 'hsl(var(--foreground))' }} />
-                        <Bar dataKey="totalQuestions" name="Soru Sayısı" fill="#8b5cf6" radius={[4, 4, 0, 0]} />
-                      </BarChart>
-                    </ResponsiveContainer>
+                    <Suspense fallback={<div className="flex h-full w-full items-center justify-center text-sm text-muted-foreground">Grafik Yükleniyor...</div>}>
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={subjectChartData} margin={{ top: 10, right: 20, left: -20, bottom: 20 }}>
+                          <CartesianGrid strokeDasharray="3 3" vertical={false} opacity={0.3} />
+                          <XAxis dataKey="lesson" tick={{ fontSize: 11 }} />
+                          <YAxis tick={{ fontSize: 11 }} />
+                          <RechartsTooltip contentStyle={{ borderRadius: 8, fontSize: 12, backgroundColor: 'hsl(var(--card))', color: 'hsl(var(--foreground))' }} />
+                          <Bar dataKey="totalQuestions" name="Soru Sayısı" fill="#8b5cf6" radius={[4, 4, 0, 0]} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </Suspense>
                   )}
                 </div>
               </article>

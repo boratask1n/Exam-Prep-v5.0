@@ -4,10 +4,10 @@ import {
   testSessionProgressTable,
   testSessionQuestionsTable,
   testSessionsTable,
-  testSolutionsTable,
   testResultSummariesTable,
   testResultTopicStatsTable,
   studyScheduleCompletionsTable,
+  questionActivityLogsTable,
 } from "@workspace/db";
 import { and, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import { applyQuestionReviewOutcomesFromTest } from "./questionReviewService";
@@ -237,9 +237,7 @@ function formatRepeatPriority(wrongRatio: number) {
 }
 
 function shouldFlagWeakTopic(answeredCount: number, wrongCount: number, wrongRatio: number) {
-  // Global rule: enough solved data + high wrong ratio
   if (answeredCount >= 4 && wrongRatio >= 0.5) return true;
-  // Single-test spike rule: even one test with 3+ wrong is a strong weakness signal
   if (wrongCount >= 3) return true;
   return false;
 }
@@ -467,6 +465,7 @@ export async function getAnalyticsOverview(userId: number, startDateRaw?: string
       weakTopics: [],
       repeatReminders: [],
       recentResults: [],
+      lessonStats: [],
     };
   }
 
@@ -482,7 +481,6 @@ export async function getAnalyticsOverview(userId: number, startDateRaw?: string
     .from(testResultTopicStatsTable)
     .where(inArray(testResultTopicStatsTable.testResultId, resultIds));
 
-  // Programdan çözülen ekstra soruları da alalım (Soru Bankası, Deneme vb.)
   const scheduleCompletions = await db
     .select()
     .from(studyScheduleCompletionsTable)
@@ -494,7 +492,17 @@ export async function getAnalyticsOverview(userId: number, startDateRaw?: string
       ),
     );
 
-  // Genel Deneme ise veya dersi yoksa bunları alt derslere böl (TYT / AYT standart)
+  const archivedActivityLogs = await db
+    .select()
+    .from(questionActivityLogsTable)
+    .where(
+      and(
+        eq(questionActivityLogsTable.userId, userId),
+        gte(questionActivityLogsTable.date, start),
+        lte(questionActivityLogsTable.date, end),
+      ),
+    );
+
   const syntheticScheduleTopicRows: any[] = [];
   
   for (const comp of scheduleCompletions) {
@@ -505,7 +513,6 @@ export async function getAnalyticsOverview(userId: number, startDateRaw?: string
         syntheticScheduleTopicRows.push({ lesson: "TYT Fizik", topic: "Genel", totalQuestions: 7, correctCount: 0, wrongCount: 0, skippedCount: 0, answeredCount: 0, isSchedule: true });
         syntheticScheduleTopicRows.push({ lesson: "TYT Kimya", topic: "Genel", totalQuestions: 7, correctCount: 0, wrongCount: 0, skippedCount: 0, answeredCount: 0, isSchedule: true });
         syntheticScheduleTopicRows.push({ lesson: "TYT Biyoloji", topic: "Genel", totalQuestions: 6, correctCount: 0, wrongCount: 0, skippedCount: 0, answeredCount: 0, isSchedule: true });
-        // Sosyal: Tarih, Coğrafya, Felsefe, Din (5'er)
         syntheticScheduleTopicRows.push({ lesson: "Tarih", topic: "Genel", totalQuestions: 5, correctCount: 0, wrongCount: 0, skippedCount: 0, answeredCount: 0, isSchedule: true });
         syntheticScheduleTopicRows.push({ lesson: "Coğrafya", topic: "Genel", totalQuestions: 5, correctCount: 0, wrongCount: 0, skippedCount: 0, answeredCount: 0, isSchedule: true });
       } else if (comp.category === "AYT") {
@@ -514,7 +521,6 @@ export async function getAnalyticsOverview(userId: number, startDateRaw?: string
         syntheticScheduleTopicRows.push({ lesson: "AYT Kimya", topic: "Genel", totalQuestions: 13, correctCount: 0, wrongCount: 0, skippedCount: 0, answeredCount: 0, isSchedule: true });
         syntheticScheduleTopicRows.push({ lesson: "AYT Biyoloji", topic: "Genel", totalQuestions: 13, correctCount: 0, wrongCount: 0, skippedCount: 0, answeredCount: 0, isSchedule: true });
       } else {
-        // Eğer kategori belli değilse direkt kendisini ekle
         syntheticScheduleTopicRows.push({
           lesson: comp.lesson,
           topic: comp.topic || "Genel",
@@ -540,9 +546,22 @@ export async function getAnalyticsOverview(userId: number, startDateRaw?: string
     }
   }
 
+  for (const log of archivedActivityLogs) {
+    syntheticScheduleTopicRows.push({
+      lesson: log.lesson,
+      topic: "Genel",
+      totalQuestions: log.questionCount,
+      correctCount: 0,
+      wrongCount: 0,
+      skippedCount: 0,
+      answeredCount: 0,
+      isSchedule: true,
+    });
+  }
+
   const allTopicRows = [...topicRows, ...syntheticScheduleTopicRows];
 
-  const scheduleTotal = scheduleCompletions.reduce((acc, row) => acc + row.questionCount, 0);
+  const scheduleTotal = scheduleCompletions.reduce((acc, row) => acc + row.questionCount, 0) + archivedActivityLogs.reduce((acc, row) => acc + row.questionCount, 0);
 
   const summary = summaries.reduce(
     (acc, row) => {
@@ -587,8 +606,6 @@ export async function getAnalyticsOverview(userId: number, startDateRaw?: string
     }
     const lesson = subjectMap.get(row.lesson)!;
     lesson.totalQuestions += row.totalQuestions;
-    // Program üzerinden (soru bankası vb.) çözülen sorular doğru/yanlış bilgisi
-    // taşımaz; başarı oranı hesabında paydayı şişirmemesi için ayrı takip ediyoruz.
     if ((row as any).isSchedule) {
       lesson.scheduleQuestions += row.totalQuestions;
     }
@@ -615,6 +632,11 @@ export async function getAnalyticsOverview(userId: number, startDateRaw?: string
     topic.wrongCount += row.wrongCount;
     topic.skippedCount += row.skippedCount;
   }
+
+  const lessonStats = Array.from(subjectMap.values()).map(s => ({
+    lesson: s.lesson,
+    totalQuestions: s.totalQuestions
+  })).sort((a, b) => b.totalQuestions - a.totalQuestions);
 
   const weakTopics = Array.from(topicMap.values())
     .map((row) => ({
