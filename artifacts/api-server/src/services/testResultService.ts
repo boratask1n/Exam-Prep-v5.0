@@ -456,6 +456,7 @@ export async function getAnalyticsOverview(userId: number, startDateRaw?: string
       dateRange: { startDate: start.toISOString(), endDate: end.toISOString() },
       summary: {
         totalQuestions: 0,
+        testTotalQuestions: 0,
         correctCount: 0,
         wrongCount: 0,
         skippedCount: 0,
@@ -499,19 +500,19 @@ export async function getAnalyticsOverview(userId: number, startDateRaw?: string
   for (const comp of scheduleCompletions) {
     if (comp.activityType === "Genel Deneme" || comp.lesson === "Genel Deneme" || comp.lesson === "Ders") {
       if (comp.category === "TYT") {
-        syntheticScheduleTopicRows.push({ lesson: "TYT Türkçe", topic: "Genel", totalQuestions: 40, correctCount: 0, wrongCount: 0, skippedCount: 0, answeredCount: 0 });
-        syntheticScheduleTopicRows.push({ lesson: "TYT Matematik", topic: "Genel", totalQuestions: 40, correctCount: 0, wrongCount: 0, skippedCount: 0, answeredCount: 0 });
-        syntheticScheduleTopicRows.push({ lesson: "TYT Fizik", topic: "Genel", totalQuestions: 7, correctCount: 0, wrongCount: 0, skippedCount: 0, answeredCount: 0 });
-        syntheticScheduleTopicRows.push({ lesson: "TYT Kimya", topic: "Genel", totalQuestions: 7, correctCount: 0, wrongCount: 0, skippedCount: 0, answeredCount: 0 });
-        syntheticScheduleTopicRows.push({ lesson: "TYT Biyoloji", topic: "Genel", totalQuestions: 6, correctCount: 0, wrongCount: 0, skippedCount: 0, answeredCount: 0 });
+        syntheticScheduleTopicRows.push({ lesson: "TYT Türkçe", topic: "Genel", totalQuestions: 40, correctCount: 0, wrongCount: 0, skippedCount: 0, answeredCount: 0, isSchedule: true });
+        syntheticScheduleTopicRows.push({ lesson: "TYT Matematik", topic: "Genel", totalQuestions: 40, correctCount: 0, wrongCount: 0, skippedCount: 0, answeredCount: 0, isSchedule: true });
+        syntheticScheduleTopicRows.push({ lesson: "TYT Fizik", topic: "Genel", totalQuestions: 7, correctCount: 0, wrongCount: 0, skippedCount: 0, answeredCount: 0, isSchedule: true });
+        syntheticScheduleTopicRows.push({ lesson: "TYT Kimya", topic: "Genel", totalQuestions: 7, correctCount: 0, wrongCount: 0, skippedCount: 0, answeredCount: 0, isSchedule: true });
+        syntheticScheduleTopicRows.push({ lesson: "TYT Biyoloji", topic: "Genel", totalQuestions: 6, correctCount: 0, wrongCount: 0, skippedCount: 0, answeredCount: 0, isSchedule: true });
         // Sosyal: Tarih, Coğrafya, Felsefe, Din (5'er)
-        syntheticScheduleTopicRows.push({ lesson: "Tarih", topic: "Genel", totalQuestions: 5, correctCount: 0, wrongCount: 0, skippedCount: 0, answeredCount: 0 });
-        syntheticScheduleTopicRows.push({ lesson: "Coğrafya", topic: "Genel", totalQuestions: 5, correctCount: 0, wrongCount: 0, skippedCount: 0, answeredCount: 0 });
+        syntheticScheduleTopicRows.push({ lesson: "Tarih", topic: "Genel", totalQuestions: 5, correctCount: 0, wrongCount: 0, skippedCount: 0, answeredCount: 0, isSchedule: true });
+        syntheticScheduleTopicRows.push({ lesson: "Coğrafya", topic: "Genel", totalQuestions: 5, correctCount: 0, wrongCount: 0, skippedCount: 0, answeredCount: 0, isSchedule: true });
       } else if (comp.category === "AYT") {
-        syntheticScheduleTopicRows.push({ lesson: "AYT Matematik", topic: "Genel", totalQuestions: 40, correctCount: 0, wrongCount: 0, skippedCount: 0, answeredCount: 0 });
-        syntheticScheduleTopicRows.push({ lesson: "AYT Fizik", topic: "Genel", totalQuestions: 14, correctCount: 0, wrongCount: 0, skippedCount: 0, answeredCount: 0 });
-        syntheticScheduleTopicRows.push({ lesson: "AYT Kimya", topic: "Genel", totalQuestions: 13, correctCount: 0, wrongCount: 0, skippedCount: 0, answeredCount: 0 });
-        syntheticScheduleTopicRows.push({ lesson: "AYT Biyoloji", topic: "Genel", totalQuestions: 13, correctCount: 0, wrongCount: 0, skippedCount: 0, answeredCount: 0 });
+        syntheticScheduleTopicRows.push({ lesson: "AYT Matematik", topic: "Genel", totalQuestions: 40, correctCount: 0, wrongCount: 0, skippedCount: 0, answeredCount: 0, isSchedule: true });
+        syntheticScheduleTopicRows.push({ lesson: "AYT Fizik", topic: "Genel", totalQuestions: 14, correctCount: 0, wrongCount: 0, skippedCount: 0, answeredCount: 0, isSchedule: true });
+        syntheticScheduleTopicRows.push({ lesson: "AYT Kimya", topic: "Genel", totalQuestions: 13, correctCount: 0, wrongCount: 0, skippedCount: 0, answeredCount: 0, isSchedule: true });
+        syntheticScheduleTopicRows.push({ lesson: "AYT Biyoloji", topic: "Genel", totalQuestions: 13, correctCount: 0, wrongCount: 0, skippedCount: 0, answeredCount: 0, isSchedule: true });
       } else {
         // Eğer kategori belli değilse direkt kendisini ekle
         syntheticScheduleTopicRows.push({
@@ -522,6 +523,7 @@ export async function getAnalyticsOverview(userId: number, startDateRaw?: string
           wrongCount: 0,
           skippedCount: 0,
           answeredCount: 0,
+          isSchedule: true,
         });
       }
     } else {
@@ -533,6 +535,7 @@ export async function getAnalyticsOverview(userId: number, startDateRaw?: string
         wrongCount: 0,
         skippedCount: 0,
         answeredCount: 0,
+        isSchedule: true,
       });
     }
   }
@@ -551,6 +554,8 @@ export async function getAnalyticsOverview(userId: number, startDateRaw?: string
     },
     { totalQuestions: scheduleTotal, correctCount: 0, wrongCount: 0, skippedCount: 0 },
   );
+  const testTotalQuestions = summaries.reduce((acc, row) => acc + row.totalQuestions, 0);
+
 
   const subjectMap = new Map<
     string,
@@ -582,9 +587,9 @@ export async function getAnalyticsOverview(userId: number, startDateRaw?: string
     }
     const lesson = subjectMap.get(row.lesson)!;
     lesson.totalQuestions += row.totalQuestions;
-    // Eğer answeredCount veya doğru/yanlış/boş 0 ise bu muhtemelen bir schedule completion'dır. (Gerçek testlerde genelde statlar olur)
-    // Daha güvenli kontrol için row nesnesinde isSchedule flagi taşıyabiliriz ama şimdilik totalQuestions eklendiğini varsayıyoruz.
-    if ((row as any).answeredCount === 0 && row.correctCount === 0 && row.wrongCount === 0 && row.skippedCount === 0) {
+    // Program üzerinden (soru bankası vb.) çözülen sorular doğru/yanlış bilgisi
+    // taşımaz; başarı oranı hesabında paydayı şişirmemesi için ayrı takip ediyoruz.
+    if ((row as any).isSchedule) {
       lesson.scheduleQuestions += row.totalQuestions;
     }
     lesson.correctCount += row.correctCount;
@@ -702,15 +707,18 @@ export async function getAnalyticsOverview(userId: number, startDateRaw?: string
     dateRange: { startDate: start.toISOString(), endDate: end.toISOString() },
     summary: {
       ...summary,
-      testTotalQuestions: summaries.reduce((acc, row) => acc + row.totalQuestions, 0),
-      successRate: summary.totalQuestions > 0 ? summary.correctCount / summary.totalQuestions : 0,
+      testTotalQuestions,
+      successRate: testTotalQuestions > 0 ? summary.correctCount / testTotalQuestions : 0,
     },
     subjectStats: Array.from(subjectMap.values())
-      .map((row) => ({
-        ...row,
-        successRate: row.totalQuestions > 0 ? row.correctCount / row.totalQuestions : 0,
-        net: row.correctCount - row.wrongCount / 4,
-      }))
+      .map((row) => {
+        const gradedQuestions = row.totalQuestions - row.scheduleQuestions;
+        return {
+          ...row,
+          successRate: gradedQuestions > 0 ? row.correctCount / gradedQuestions : 0,
+          net: row.correctCount - row.wrongCount / 4,
+        };
+      })
       .sort((a, b) => b.totalQuestions - a.totalQuestions),
     topicStats: allTopicStats,
     weakTopics: filteredWeakTopics,

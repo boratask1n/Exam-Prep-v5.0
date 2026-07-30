@@ -22,6 +22,7 @@ import {
 import {
   useCreateResource,
   useUpdateResource,
+  useUploadQuestionImage,
   ResourceWithStats,
 } from "@workspace/api-client-react";
 import { useToast } from "@/hooks/use-toast";
@@ -35,6 +36,61 @@ import {
   requiresLesson,
   type ResourceType,
 } from "@/lib/resourceConfig";
+
+// ─── Kapak fotoğrafı sıkıştırma ────────────────────────────────────────────
+// Kaynak kapakları küçük bir küçük resim (thumbnail); ham telefon fotoğrafını
+// (2-8MB) olduğu gibi base64 metin olarak veritabanına yazmak yerine, soru
+// görsellerinde kullanılan yöntemle aynı şekilde sıkıştırıp dosya olarak
+// yüklüyor, veritabanına sadece kısa bir URL kaydediyoruz.
+async function prepareCoverImage(file: File) {
+  const supportedInput = ["image/jpeg", "image/png", "image/webp"].includes(file.type);
+  if (!supportedInput) {
+    throw new Error("Sadece JPEG, PNG veya WEBP görsel yükleyebilirsin.");
+  }
+
+  const dataUrl = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (event) => resolve(String(event.target?.result ?? ""));
+    reader.onerror = () => reject(new Error("Görsel okunamadı."));
+    reader.readAsDataURL(file);
+  });
+
+  const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error("Görsel işlenemedi."));
+    img.src = dataUrl;
+  });
+
+  const maxSide = 600; // kapak sadece küçük bir kart görselinde kullanılıyor
+  const scale = Math.min(1, maxSide / Math.max(image.naturalWidth, image.naturalHeight));
+  const width = Math.max(1, Math.round(image.naturalWidth * scale));
+  const height = Math.max(1, Math.round(image.naturalHeight * scale));
+
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext("2d");
+  if (!context) throw new Error("Görsel işlenemedi.");
+  context.drawImage(image, 0, 0, width, height);
+
+  const optimizedBlob = await new Promise<Blob | null>((resolve) => {
+    canvas.toBlob(resolve, "image/webp", 0.82);
+  });
+  if (!optimizedBlob) throw new Error("Görsel sıkıştırılamadı.");
+
+  const base64Data = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = String(reader.result ?? "");
+      resolve(result.split(",")[1] ?? "");
+    };
+    reader.onerror = () => reject(new Error("Görsel okunamadı."));
+    reader.readAsDataURL(optimizedBlob);
+  });
+
+  return { base64Data, mimeType: "image/webp" };
+}
 
 // ─── Form şeması ──────────────────────────────────────────────────────────────
 
@@ -98,6 +154,7 @@ export function ResourceDialog({
 
   const createMutation = useCreateResource();
   const updateMutation = useUpdateResource();
+  const uploadCoverMutation = useUploadQuestionImage();
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
@@ -418,21 +475,26 @@ export function ResourceDialog({
                   type="file"
                   accept="image/*"
                   className="hidden"
-                  onChange={(e) => {
+                  onChange={async (e) => {
                     const file = e.target.files?.[0];
-                    if (file) {
-                      const reader = new FileReader();
-                      reader.onload = (evt) => {
-                        if (evt.target?.result) {
-                          form.setValue("coverImageUrl", evt.target.result as string, { shouldDirty: true });
-                        }
-                      };
-                      reader.readAsDataURL(file);
+                    if (!file) return;
+                    try {
+                      const { base64Data, mimeType } = await prepareCoverImage(file);
+                      const res = await uploadCoverMutation.mutateAsync({
+                        data: { imageData: base64Data, mimeType },
+                      });
+                      form.setValue("coverImageUrl", res.url, { shouldDirty: true });
+                    } catch (err: any) {
+                      toast({
+                        title: "Görsel yüklenemedi",
+                        description: err?.message || "Görsel işlenirken bir hata oluştu.",
+                        variant: "destructive",
+                      });
                     }
                   }}
                 />
-                <Button type="button" variant="outline" size="sm" className="h-9 text-xs px-2.5 shrink-0" asChild>
-                  <span>📁 Görsel Yükle</span>
+                <Button type="button" variant="outline" size="sm" className="h-9 text-xs px-2.5 shrink-0" disabled={uploadCoverMutation.isPending} asChild>
+                  <span>{uploadCoverMutation.isPending ? "⏳ Yükleniyor..." : "📁 Görsel Yükle"}</span>
                 </Button>
               </label>
             </div>
@@ -472,10 +534,12 @@ export function ResourceDialog({
             </Button>
             <Button
               type="submit"
-              disabled={createMutation.isPending || updateMutation.isPending}
+              disabled={createMutation.isPending || updateMutation.isPending || uploadCoverMutation.isPending}
             >
               {createMutation.isPending || updateMutation.isPending
                 ? "Kaydediliyor..."
+                : uploadCoverMutation.isPending
+                ? "Görsel yükleniyor..."
                 : isEditing
                 ? "Güncelle"
                 : "Kaynak Oluştur"}

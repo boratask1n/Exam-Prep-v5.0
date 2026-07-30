@@ -1,4 +1,4 @@
-import { pgTable, serial, text, integer, boolean, timestamp, index, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, integer, boolean, timestamp, index, uniqueIndex, jsonb } from "drizzle-orm/pg-core";
 import { usersTable } from "./auth";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
@@ -60,7 +60,7 @@ export const studyScheduleCompletionsTable = pgTable(
   },
   (table) => ({
     userIdIdx: index("study_schedule_completions_user_id_idx").on(table.userId),
-    slotKeyIdx: index("study_schedule_completions_slot_key_idx").on(table.userId, table.slotKey),
+    slotKeyUq: uniqueIndex("study_schedule_completions_user_slot_uq").on(table.userId, table.slotKey),
   })
 );
 

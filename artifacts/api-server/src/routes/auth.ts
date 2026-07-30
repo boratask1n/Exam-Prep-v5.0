@@ -291,4 +291,9 @@ router.delete("/auth/account", requireAuth, async (req, res) => {
   }
 });
 
+// Periyodik temizlik (Her 6 saatte bir)
+setInterval(() => {
+  void cleanupExpiredSessions();
+}, 6 * 60 * 60 * 1000);
+
 export default router;

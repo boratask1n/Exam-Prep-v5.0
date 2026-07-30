@@ -105,28 +105,19 @@ router.put("/", (async (req: Request, res: Response) => {
             qCount = slot.category === "AYT" ? 160 : 120;
           }
 
-          // Eğer veritabanında yoksa ekle (insert on conflict do nothing)
-          const existing = await tx
-            .select({ id: studyScheduleCompletionsTable.id })
-            .from(studyScheduleCompletionsTable)
-            .where(and(
-              eq(studyScheduleCompletionsTable.userId, userId),
-              eq(studyScheduleCompletionsTable.slotKey, slot.slotKey)
-            ))
-            .then(res => res[0]);
-
-          if (!existing) {
-            await tx.insert(studyScheduleCompletionsTable).values({
-              userId,
-              slotKey: slot.slotKey,
-              category: slot.category,
-              lesson: slot.lesson,
-              topic: slot.topic,
-              activityType: slot.activityType,
-              questionCount: qCount,
-              completedAt: new Date()
-            });
-          }
+          // Eğer veritabanında yoksa ekle (insert on conflict do nothing atomik)
+          await tx.insert(studyScheduleCompletionsTable).values({
+            userId,
+            slotKey: slot.slotKey,
+            category: slot.category,
+            lesson: slot.lesson,
+            topic: slot.topic,
+            activityType: slot.activityType,
+            questionCount: qCount,
+            completedAt: new Date()
+          }).onConflictDoNothing({
+            target: [studyScheduleCompletionsTable.userId, studyScheduleCompletionsTable.slotKey]
+          });
         } else {
           // completed: false ise ve daha önce eklendiyse sil
           await tx

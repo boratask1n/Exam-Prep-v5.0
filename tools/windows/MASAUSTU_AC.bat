@@ -8,7 +8,7 @@ echo  Exam-Prep Masaustu Ac
 echo ============================================
 echo.
 echo Sunucu bu bilgisayarsa BASLAT.bat calismali.
-echo Baska bir sunucuya baglanacaksan uygulamadaki Exam Prep > Sunucu Adresini Degistir menusunu kullan.
+echo Baska bir sunucuya baglanacaksan uygulamadaki Exam Prep ^> Sunucu Adresini Degistir menusunu kullan.
 echo.
 
 where pnpm >nul 2>nul

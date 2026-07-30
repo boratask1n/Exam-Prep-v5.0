@@ -56,6 +56,10 @@ const REVIEW_INTERVAL_MINUTES = [
   0, 15, 120, 720, 1440, 4320, 10080, 20160, 43200,
 ];
 const MIN_SERVE_GAP_MS = 45 * 1000;
+// Soru sayısı binlere çıktığında tüm tabloyu belleğe çekmemek için,
+// SQL tarafında öncelikli (vadesi gelmiş / hiç gösterilmemiş) soruların
+// sınırlı bir havuzunu çekip skorlama/ağırlıklı seçimi bu havuz üzerinde yapıyoruz.
+const FEED_CANDIDATE_POOL_SIZE = 500;
 
 function getReviewDueAt(
   row: Pick<ReviewQuestionRow, "nextEligibleAt" | "createdAt">,
@@ -285,11 +289,15 @@ export async function getQuestionReviewFeed(params: {
     .where(
       conditions.length > 0 ? and(...conditions) : undefined,
     )
+    // Vadesi gelmiş ve hiç gösterilmemiş sorular önce gelsin; büyük
+    // soru havuzlarında tüm tabloyu değil, sınırlı bir aday havuzunu çekiyoruz.
     .orderBy(
-      sql`case when ${questionsTable.status} = 'YanlisHocayaSor' then 1 when ${questionReviewStatsTable.nextEligibleAt} <= now() or ${questionReviewStatsTable.totalServed} is null then 2 else 3 end`,
-      sql`coalesce(${questionReviewStatsTable.nextEligibleAt}, ${questionsTable.createdAt}) asc`,
+      sql`(case when ${questionReviewStatsTable.nextEligibleAt} is null or ${questionReviewStatsTable.nextEligibleAt} <= now() then 0 else 1 end)`,
+      sql`(case when ${questionReviewStatsTable.totalServed} is null or ${questionReviewStatsTable.totalServed} = 0 then 0 else 1 end)`,
+      sql`${questionReviewStatsTable.nextEligibleAt} asc nulls first`,
+      questionsTable.createdAt,
     )
-    .limit(200)) as ReviewQuestionRow[];
+    .limit(FEED_CANDIDATE_POOL_SIZE)) as ReviewQuestionRow[];
 
   const now = new Date();
   const scoredRows = rows
