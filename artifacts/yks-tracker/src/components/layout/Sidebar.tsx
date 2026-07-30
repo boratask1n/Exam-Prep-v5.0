@@ -240,7 +240,7 @@ export function Sidebar({ children, userName, onLogout, onDeleteAccount }: Sideb
         </div>
       </aside>
 
-      <nav className="fixed bottom-0 left-3 right-3 z-50 mb-3 flex h-16 items-center justify-around rounded-[1.4rem] border border-border/60 bg-white/94 px-6 shadow-[0_16px_30px_-26px_rgba(15,23,42,0.30)] md:hidden dark:border-white/8 dark:bg-slate-950/90">
+      <nav className="fixed bottom-0 left-3 right-3 z-50 mb-3 flex h-16 items-center justify-start gap-1 overflow-x-auto rounded-[1.4rem] border border-border/60 bg-white/94 px-3 shadow-[0_16px_30px_-26px_rgba(15,23,42,0.30)] md:hidden dark:border-white/8 dark:bg-slate-950/90 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {navItems.map((item) => {
           const isActive = isItemActive(item.href);
 
@@ -249,12 +249,12 @@ export function Sidebar({ children, userName, onLogout, onDeleteAccount }: Sideb
               key={item.href}
               href={item.href}
               className={cn(
-                "flex h-full w-16 flex-col items-center justify-center gap-1 transition-colors",
-                isActive ? "text-primary" : "text-muted-foreground",
+                "flex h-full min-w-[4.25rem] shrink-0 flex-col items-center justify-center gap-1 px-1 transition-colors",
+                isActive ? "text-primary font-semibold" : "text-muted-foreground",
               )}
             >
               <item.icon className={cn("h-5 w-5", isActive && "fill-primary/15")} />
-              <span className="text-[10px] font-medium">{item.label}</span>
+              <span className="text-[10px] leading-tight text-center truncate max-w-[4.5rem]">{item.label}</span>
             </Link>
           );
         })}

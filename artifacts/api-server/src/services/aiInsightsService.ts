@@ -485,7 +485,7 @@ async function loadAiRulesText() {
 
 async function buildAiInsightsContext(
   userId: number,
-  overview: Awaited<ReturnType<typeof getAnalyticsOverview>>,
+  overview: AiAnalyticsOverview,
 ): Promise<AiInsightsContext> {
   const lessonPriority = new Set(overview.subjectStats.slice(0, 6).map((row) => row.lesson));
   const weakTopicKeys = new Set(

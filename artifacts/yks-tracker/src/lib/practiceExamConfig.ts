@@ -60,7 +60,7 @@ export const AYT_EXAM_CONFIG: ExamConfig = {
     { lesson: "Felsefe Grubu", questionCount: 12, group: "Sözel" },
     { lesson: "Din Kültürü", questionCount: 6, group: "Sözel" },
     // Sayısal grubu
-    { lesson: "Matematik", questionCount: 40, group: "Sayısal" },
+    { lesson: "Matematik", questionCount: 30, group: "Sayısal" },
     { lesson: "Geometri", questionCount: 10, group: "Sayısal" },
     { lesson: "Fizik", questionCount: 14, group: "Sayısal" },
     { lesson: "Kimya", questionCount: 13, group: "Sayısal" },

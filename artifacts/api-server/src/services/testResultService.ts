@@ -4,6 +4,7 @@ import {
   testSessionProgressTable,
   testSessionQuestionsTable,
   testSessionsTable,
+  testSolutionsTable,
   testResultSummariesTable,
   testResultTopicStatsTable,
   studyScheduleCompletionsTable,

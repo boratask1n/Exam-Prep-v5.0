@@ -179,11 +179,7 @@ export default function Analysis() {
 
   const { data: practiceExams = [] } = useQuery<PracticeExam[]>({
     queryKey: ["/api/practice-exams"],
-    queryFn: async () => {
-      const res = (await customFetch("/api/practice-exams")) as Response;
-      if (!res.ok) return [];
-      return res.json();
-    },
+    queryFn: () => customFetch<PracticeExam[]>("/api/practice-exams"),
   });
 
   const loadCachedAiInsights = () => {
