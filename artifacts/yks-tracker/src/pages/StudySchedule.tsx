@@ -84,10 +84,15 @@ const DEFAULT_INITIAL_SLOTS: StudySlot[] = [
   },
 ];
 
+const getCurrentDayName = (): DayName => {
+  const days: DayName[] = ["Pazar", "Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma", "Cumartesi"];
+  return days[new Date().getDay()];
+};
+
 export default function StudySchedule() {
   const queryClient = useQueryClient();
 
-  const [activeDay, setActiveDay] = useState<DayName>("Pazartesi");
+  const [activeDay, setActiveDay] = useState<DayName>(getCurrentDayName());
   const [viewMode, setViewMode] = useState<"weekly" | "daily">("weekly");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedLessonFilter, setSelectedLessonFilter] = useState("all");
@@ -95,7 +100,7 @@ export default function StudySchedule() {
   // Schedule Slot Modals
   const [slotDialogOpen, setSlotDialogOpen] = useState(false);
   const [slotToEdit, setSlotToEdit] = useState<StudySlot | null>(null);
-  const [dialogInitialDay, setDialogInitialDay] = useState<DayName>("Pazartesi");
+  const [dialogInitialDay, setDialogInitialDay] = useState<DayName>(getCurrentDayName());
 
   const [templateDialogOpen, setTemplateDialogOpen] = useState(false);
   const [copyDialogOpen, setCopyDialogOpen] = useState(false);
@@ -395,13 +400,32 @@ export default function StudySchedule() {
           </Button>
 
           <Button
-            variant="ghost"
+            variant="outline"
             size="icon"
             title="Programı Sıfırla"
             onClick={handleResetSchedule}
             className="text-rose-500 hover:text-rose-600 hover:bg-rose-500/10"
           >
             <Trash2 className="h-4 w-4" />
+          </Button>
+
+          <Button
+            variant="default"
+            className="gap-2 shadow-sm bg-emerald-600 hover:bg-emerald-700 text-white"
+            onClick={async () => {
+              if (window.confirm("Haftayı bitirmek istediğinize emin misiniz? Tamamlanan etütler analiz grafiklerine kalıcı olarak kaydedilecek ve programdaki tikleri kaldırılacaktır. (Programınız silinmeyecektir, sonraki hafta için tekrar kullanabilirsiniz.)")) {
+                try {
+                  const updatedSlots = await customFetch("/api/schedule-slots/finish-week", { method: "POST" });
+                  queryClient.setQueryData(["/api/schedule-slots"], updatedSlots);
+                  // Trigger invalidation of analysis stats as well
+                  queryClient.invalidateQueries({ queryKey: ["practice-exams"] });
+                } catch (error) {
+                  console.error("Haftayı bitirme hatası:", error);
+                }
+              }
+            }}
+          >
+            <CheckCircle2 className="h-4 w-4" /> Haftayı Bitir
           </Button>
         </div>
       </div>

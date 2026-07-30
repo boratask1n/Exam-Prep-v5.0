@@ -518,8 +518,7 @@ export function ScheduleSlotDialog({
                   placeholder="Örn: Problemler, Trigonometri V, Paragraf vb."
                   value={topic}
                   onChange={(e) => setTopic(e.target.value)}
-                  readOnly={isResourceLocked}
-                  className="h-10 bg-muted/50 text-muted-foreground"
+                  className="h-10"
                 />
               </div>
             </>

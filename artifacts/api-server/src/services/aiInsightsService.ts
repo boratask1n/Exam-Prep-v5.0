@@ -1,4 +1,4 @@
-﻿import fs from "node:fs/promises";
+import fs from "node:fs/promises";
 import path from "node:path";
 import {
   db,
@@ -446,6 +446,8 @@ Genel ilkeler:
 - Sadece verilen veriye dayan.
 - Öğrenci davranışına göre kısa ve uygulanabilir öneriler yaz.
 - Boş/genel cümlelerden kaç; net eylem öner.
+- Çalışma Programı (Soru Bankası/Deneme) üzerinden tamamlanan hedefleri (çözülen soruları) motivasyon ve planlama için dikkate al.
+- "Soru Bankası & Program Pratiği" olarak gelen verilerde öğrencinin eksiklerine ne kadar yöneldiğini değerlendir.
 
 Önceliklendirme:
 - Tüm zaman verisini kullan ama son dönemde düzeltilen konuları yeniden "kritik" diye öne çıkarma.

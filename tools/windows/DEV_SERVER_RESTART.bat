@@ -106,7 +106,7 @@ if errorlevel 1 (
 )
 
 echo [BILGI] API yeniden aciliyor...
-start "Exam-Prep API" cmd /k "cd /d ""%~dp0"" && pnpm --filter @workspace/api-server run dev"
+start "Exam-Prep API" cmd /k "cd /d ""%~dp0..\.."" && pnpm --filter @workspace/api-server run dev"
 
 echo [BILGI] API saglik kontrolu bekleniyor...
 set "_api_wait=0"
@@ -124,7 +124,7 @@ goto wait_api
 :api_ready
 echo [OK] API hazir.
 echo [BILGI] Web yeniden aciliyor...
-start "Exam-Prep Web" cmd /k "cd /d ""%~dp0"" && pnpm --filter @workspace/yks-tracker run dev -- --port 24486 --strictPort"
+start "Exam-Prep Web" cmd /k "cd /d ""%~dp0..\.."" && pnpm --filter @workspace/yks-tracker run dev -- --port 24486 --strictPort"
 :launch_done
 
 for /f "usebackq delims=" %%I in (`powershell -NoProfile -Command "$ip = Get-NetIPAddress -AddressFamily IPv4 ^| Where-Object { $_.IPAddress -ne '127.0.0.1' -and $_.IPAddress -notlike '169.254.*' -and $_.InterfaceAlias -notlike '*WSL*' -and $_.InterfaceAlias -notlike '*vEthernet*' } ^| Select-Object -First 1 -ExpandProperty IPAddress; if (-not $ip) { $ip = '127.0.0.1' }; Write-Output $ip"`) do set "LAN_IP=%%I"

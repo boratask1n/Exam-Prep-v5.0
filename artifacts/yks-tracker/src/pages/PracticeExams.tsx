@@ -45,6 +45,7 @@ interface PracticeExam {
   topic?: string | null;
   publisher?: string | null;
   resourceId?: number | null;
+  resourceName?: string | null;
   examNo?: number | null;
   targetQuestionCount?: number | null;
   examDate: string;
@@ -804,11 +805,6 @@ export default function PracticeExams() {
                     {konuExams.length}
                   </Badge>
                 </TabsTrigger>
-
-                <TabsTrigger value="analiz" className="rounded-xl px-4 py-2 text-xs sm:text-sm font-semibold gap-2 transition-all">
-                  <BarChart2 className="h-4 w-4 text-emerald-500" />
-                  <span>Analiz & Grafikler</span>
-                </TabsTrigger>
               </TabsList>
             </div>
 
@@ -1070,11 +1066,6 @@ export default function PracticeExams() {
                   />
                 </>
               )}
-            </TabsContent>
-
-            {/* ── 4. ANALİZ & GRAFİKLER SAYFASI ── */}
-            <TabsContent value="analiz" className="space-y-6 focus-visible:outline-none">
-              <AnalysisTabContent exams={exams} onNewExamClick={openNewDialog} />
             </TabsContent>
           </Tabs>
         </>

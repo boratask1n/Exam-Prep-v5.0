@@ -43,3 +43,25 @@ export const insertStudySlotSchema = createInsertSchema(studySlotsTable).omit({
 
 export type InsertStudySlot = z.infer<typeof insertStudySlotSchema>;
 export type StudySlotRecord = typeof studySlotsTable.$inferSelect;
+
+export const studyScheduleCompletionsTable = pgTable(
+  "study_schedule_completions",
+  {
+    id: serial("id").primaryKey(),
+    userId: integer("user_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
+    slotKey: text("slot_key").notNull(),
+    category: text("category"), // "TYT" | "AYT" | "Genel" vb.
+    lesson: text("lesson").notNull(),
+    topic: text("topic"),
+    activityType: text("activity_type").notNull(), // "Soru Çözümü", "Konu Denemesi", "Branş Denemesi", "Genel Deneme"
+    questionCount: integer("question_count").notNull().default(0), // Çözülen / Hedeflenen soru sayısı
+    completedAt: timestamp("completed_at").notNull().defaultNow(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    userIdIdx: index("study_schedule_completions_user_id_idx").on(table.userId),
+    slotKeyIdx: index("study_schedule_completions_slot_key_idx").on(table.userId, table.slotKey),
+  })
+);
+
+export type StudyScheduleCompletionRecord = typeof studyScheduleCompletionsTable.$inferSelect;

@@ -409,10 +409,6 @@ export default function ResourceDetail() {
                 <SelectItem value={QuestionStatus.YanlisHocayaSor}>Yanlış</SelectItem>
               </SelectContent>
             </Select>
-
-            <Button onClick={() => setAddQuestionOpen(true)} size="sm" className="h-9 gap-1.5 text-xs">
-              <Plus className="h-4 w-4" /> Soru Ekle
-            </Button>
           </div>
         </div>
 

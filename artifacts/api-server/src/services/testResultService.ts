@@ -7,6 +7,7 @@ import {
   testSolutionsTable,
   testResultSummariesTable,
   testResultTopicStatsTable,
+  studyScheduleCompletionsTable,
 } from "@workspace/db";
 import { and, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import { applyQuestionReviewOutcomesFromTest } from "./questionReviewService";
@@ -480,6 +481,66 @@ export async function getAnalyticsOverview(userId: number, startDateRaw?: string
     .from(testResultTopicStatsTable)
     .where(inArray(testResultTopicStatsTable.testResultId, resultIds));
 
+  // Programdan çözülen ekstra soruları da alalım (Soru Bankası, Deneme vb.)
+  const scheduleCompletions = await db
+    .select()
+    .from(studyScheduleCompletionsTable)
+    .where(
+      and(
+        eq(studyScheduleCompletionsTable.userId, userId),
+        gte(studyScheduleCompletionsTable.completedAt, start),
+        lte(studyScheduleCompletionsTable.completedAt, end),
+      ),
+    );
+
+  // Genel Deneme ise veya dersi yoksa bunları alt derslere böl (TYT / AYT standart)
+  const syntheticScheduleTopicRows: any[] = [];
+  
+  for (const comp of scheduleCompletions) {
+    if (comp.activityType === "Genel Deneme" || comp.lesson === "Genel Deneme" || comp.lesson === "Ders") {
+      if (comp.category === "TYT") {
+        syntheticScheduleTopicRows.push({ lesson: "TYT Türkçe", topic: "Genel", totalQuestions: 40, correctCount: 0, wrongCount: 0, skippedCount: 0, answeredCount: 0 });
+        syntheticScheduleTopicRows.push({ lesson: "TYT Matematik", topic: "Genel", totalQuestions: 40, correctCount: 0, wrongCount: 0, skippedCount: 0, answeredCount: 0 });
+        syntheticScheduleTopicRows.push({ lesson: "TYT Fizik", topic: "Genel", totalQuestions: 7, correctCount: 0, wrongCount: 0, skippedCount: 0, answeredCount: 0 });
+        syntheticScheduleTopicRows.push({ lesson: "TYT Kimya", topic: "Genel", totalQuestions: 7, correctCount: 0, wrongCount: 0, skippedCount: 0, answeredCount: 0 });
+        syntheticScheduleTopicRows.push({ lesson: "TYT Biyoloji", topic: "Genel", totalQuestions: 6, correctCount: 0, wrongCount: 0, skippedCount: 0, answeredCount: 0 });
+        // Sosyal: Tarih, Coğrafya, Felsefe, Din (5'er)
+        syntheticScheduleTopicRows.push({ lesson: "Tarih", topic: "Genel", totalQuestions: 5, correctCount: 0, wrongCount: 0, skippedCount: 0, answeredCount: 0 });
+        syntheticScheduleTopicRows.push({ lesson: "Coğrafya", topic: "Genel", totalQuestions: 5, correctCount: 0, wrongCount: 0, skippedCount: 0, answeredCount: 0 });
+      } else if (comp.category === "AYT") {
+        syntheticScheduleTopicRows.push({ lesson: "AYT Matematik", topic: "Genel", totalQuestions: 40, correctCount: 0, wrongCount: 0, skippedCount: 0, answeredCount: 0 });
+        syntheticScheduleTopicRows.push({ lesson: "AYT Fizik", topic: "Genel", totalQuestions: 14, correctCount: 0, wrongCount: 0, skippedCount: 0, answeredCount: 0 });
+        syntheticScheduleTopicRows.push({ lesson: "AYT Kimya", topic: "Genel", totalQuestions: 13, correctCount: 0, wrongCount: 0, skippedCount: 0, answeredCount: 0 });
+        syntheticScheduleTopicRows.push({ lesson: "AYT Biyoloji", topic: "Genel", totalQuestions: 13, correctCount: 0, wrongCount: 0, skippedCount: 0, answeredCount: 0 });
+      } else {
+        // Eğer kategori belli değilse direkt kendisini ekle
+        syntheticScheduleTopicRows.push({
+          lesson: comp.lesson,
+          topic: comp.topic || "Genel",
+          totalQuestions: comp.questionCount,
+          correctCount: 0,
+          wrongCount: 0,
+          skippedCount: 0,
+          answeredCount: 0,
+        });
+      }
+    } else {
+      syntheticScheduleTopicRows.push({
+        lesson: comp.lesson,
+        topic: comp.topic || "Genel",
+        totalQuestions: comp.questionCount,
+        correctCount: 0,
+        wrongCount: 0,
+        skippedCount: 0,
+        answeredCount: 0,
+      });
+    }
+  }
+
+  const allTopicRows = [...topicRows, ...syntheticScheduleTopicRows];
+
+  const scheduleTotal = scheduleCompletions.reduce((acc, row) => acc + row.questionCount, 0);
+
   const summary = summaries.reduce(
     (acc, row) => {
       acc.totalQuestions += row.totalQuestions;
@@ -488,12 +549,12 @@ export async function getAnalyticsOverview(userId: number, startDateRaw?: string
       acc.skippedCount += row.skippedCount;
       return acc;
     },
-    { totalQuestions: 0, correctCount: 0, wrongCount: 0, skippedCount: 0 },
+    { totalQuestions: scheduleTotal, correctCount: 0, wrongCount: 0, skippedCount: 0 },
   );
 
   const subjectMap = new Map<
     string,
-    { lesson: string; totalQuestions: number; correctCount: number; wrongCount: number; skippedCount: number }
+    { lesson: string; totalQuestions: number; scheduleQuestions: number; correctCount: number; wrongCount: number; skippedCount: number }
   >();
   const topicMap = new Map<
     string,
@@ -508,11 +569,12 @@ export async function getAnalyticsOverview(userId: number, startDateRaw?: string
     }
   >();
 
-  for (const row of topicRows) {
+  for (const row of allTopicRows) {
     if (!subjectMap.has(row.lesson)) {
       subjectMap.set(row.lesson, {
         lesson: row.lesson,
         totalQuestions: 0,
+        scheduleQuestions: 0,
         correctCount: 0,
         wrongCount: 0,
         skippedCount: 0,
@@ -520,6 +582,11 @@ export async function getAnalyticsOverview(userId: number, startDateRaw?: string
     }
     const lesson = subjectMap.get(row.lesson)!;
     lesson.totalQuestions += row.totalQuestions;
+    // Eğer answeredCount veya doğru/yanlış/boş 0 ise bu muhtemelen bir schedule completion'dır. (Gerçek testlerde genelde statlar olur)
+    // Daha güvenli kontrol için row nesnesinde isSchedule flagi taşıyabiliriz ama şimdilik totalQuestions eklendiğini varsayıyoruz.
+    if ((row as any).answeredCount === 0 && row.correctCount === 0 && row.wrongCount === 0 && row.skippedCount === 0) {
+      lesson.scheduleQuestions += row.totalQuestions;
+    }
     lesson.correctCount += row.correctCount;
     lesson.wrongCount += row.wrongCount;
     lesson.skippedCount += row.skippedCount;
@@ -635,6 +702,7 @@ export async function getAnalyticsOverview(userId: number, startDateRaw?: string
     dateRange: { startDate: start.toISOString(), endDate: end.toISOString() },
     summary: {
       ...summary,
+      testTotalQuestions: summaries.reduce((acc, row) => acc + row.totalQuestions, 0),
       successRate: summary.totalQuestions > 0 ? summary.correctCount / summary.totalQuestions : 0,
     },
     subjectStats: Array.from(subjectMap.values())
